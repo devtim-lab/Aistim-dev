@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.0.3",
-  "description": "AI Userscript Manager — seperti Tampermonkey",
+  "version": "2.1.0",
+  "description": "AI Userscript Manager — load scripts from raw GitHub URL",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": ["<all_urls>"],
   "action": {

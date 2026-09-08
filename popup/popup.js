@@ -1,29 +1,24 @@
-let allScripts = [];
 let currentTab = null;
-let editingId = null;
+let config = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadScripts();
+  await loadConfig();
   await detectPage();
-  renderList();
+  updateUI();
 
-  document.getElementById('btn-refresh').addEventListener('click', async () => {
-    await loadScripts();
-    await detectPage();
-    renderList();
-    setStatus('Daftar diperbarui', '#16a34a');
-  });
-
-  document.getElementById('btn-run').addEventListener('click', runMatchedScripts);
-  document.getElementById('btn-add').addEventListener('click', () => openModal());
-  document.getElementById('btn-cancel').addEventListener('click', closeModal);
-  document.getElementById('btn-save').addEventListener('click', saveScript);
+  document.getElementById('toggle-enabled').addEventListener('click', toggleEnabled);
+  document.getElementById('btn-save-url').addEventListener('click', saveConfig);
+  document.getElementById('btn-run-url').addEventListener('click', runScript);
 });
 
-async function loadScripts() {
+async function loadConfig() {
   return new Promise((resolve) => {
-    chrome.storage.local.get('userscripts', (data) => {
-      allScripts = data.userscripts || [];
+    chrome.storage.local.get(['scriptUrl', 'scriptMatch', 'scriptEnabled'], (data) => {
+      config = {
+        scriptUrl: data.scriptUrl || 'https://raw.githubusercontent.com/devtim-lab/AistimScript/main/pesananbaru.js',
+        scriptMatch: data.scriptMatch || 'https://trial.erzap.com/*pesanan*',
+        scriptEnabled: data.scriptEnabled !== false
+      };
       resolve();
     });
   });
@@ -58,162 +53,97 @@ function matchUrl(url, pattern) {
   try {
     const regex = pattern.replace(/\*/g, '.*').replace(/\?/g, '\\?');
     return new RegExp(regex).test(url);
-  } catch (e) {
-    return false;
+  } catch (e) { return false; }
+}
+
+function updateUI() {
+  document.getElementById('inp-url').value = config.scriptUrl;
+  document.getElementById('inp-match').value = config.scriptMatch;
+
+  const toggle = document.getElementById('toggle-enabled');
+  if (config.scriptEnabled) {
+    toggle.classList.add('on');
+  } else {
+    toggle.classList.remove('on');
+  }
+
+  const statusEl = document.getElementById('script-status');
+  const url = currentTab && currentTab.url ? currentTab.url : '';
+  const isMatch = matchUrl(url, config.scriptMatch);
+
+  if (!config.scriptEnabled) {
+    statusEl.textContent = 'Script dinonaktifkan';
+    statusEl.className = 'script-status off';
+  } else if (isMatch) {
+    statusEl.textContent = '✓ Halaman cocok — script akan jalan otomatis';
+    statusEl.className = 'script-status ok';
+  } else {
+    statusEl.textContent = '✗ Halaman tidak cocok dengan pattern';
+    statusEl.className = 'script-status err';
   }
 }
 
-function renderList() {
-  const container = document.getElementById('script-list');
-  container.innerHTML = '';
+function toggleEnabled() {
+  config.scriptEnabled = !config.scriptEnabled;
+  chrome.storage.local.set({ scriptEnabled: config.scriptEnabled }, () => {
+    updateUI();
+    setStatus(config.scriptEnabled ? 'Script diaktifkan' : 'Script dinonaktifkan', '#16a34a');
+  });
+}
 
-  if (allScripts.length === 0) {
-    container.innerHTML = '<div class="empty">Belum ada userscript. Klik + Tambah.</div>';
+function saveConfig() {
+  const url = document.getElementById('inp-url').value.trim();
+  const match = document.getElementById('inp-match').value.trim();
+
+  if (!url) {
+    setStatus('URL tidak boleh kosong!', '#dc2626');
+    return;
+  }
+  if (!match) {
+    setStatus('Pattern tidak boleh kosong!', '#dc2626');
     return;
   }
 
-  const url = currentTab && currentTab.url ? currentTab.url : '';
+  config.scriptUrl = url;
+  config.scriptMatch = match;
 
-  allScripts.forEach(script => {
-    const isMatch = matchUrl(url, script.match);
-    const div = document.createElement('div');
-    div.className = 'script-item' + (isMatch ? ' match' : '');
-    div.innerHTML = `
-      <div class="script-info">
-        <div class="script-name">${escapeHtml(script.name)}</div>
-        <div class="script-match">${escapeHtml(script.match || '*')} ${isMatch ? '✓ match' : ''}</div>
-      </div>
-      <div class="script-btns">
-        <div class="toggle-switch ${script.enabled ? 'on' : ''}" data-id="${script.id}"></div>
-        <button class="btn-icon" data-edit="${script.id}" title="Edit">&#9998;</button>
-        <button class="btn-icon" data-del="${script.id}" title="Hapus">&#10005;</button>
-      </div>
-    `;
-    container.appendChild(div);
-  });
-
-  container.querySelectorAll('.toggle-switch').forEach(t => {
-    t.addEventListener('click', (e) => {
-      const id = e.target.dataset.id;
-      const script = allScripts.find(s => s.id === id);
-      if (script) {
-        script.enabled = !script.enabled;
-        chrome.storage.local.set({ userscripts: allScripts }, () => {
-          renderList();
-        });
-      }
-    });
-  });
-
-  container.querySelectorAll('[data-edit]').forEach(b => {
-    b.addEventListener('click', (e) => {
-      const id = e.target.dataset.edit;
-      const script = allScripts.find(s => s.id === id);
-      if (script) openModal(script);
-    });
-  });
-
-  container.querySelectorAll('[data-del]').forEach(b => {
-    b.addEventListener('click', (e) => {
-      const id = e.target.dataset.del;
-      if (confirm('Hapus userscript ini?')) {
-        allScripts = allScripts.filter(s => s.id !== id);
-        chrome.storage.local.set({ userscripts: allScripts }, () => {
-          renderList();
-          setStatus('Userscript dihapus', '#dc2626');
-        });
-      }
-    });
+  chrome.storage.local.set({
+    scriptUrl: url,
+    scriptMatch: match
+  }, () => {
+    updateUI();
+    setStatus('Konfigurasi disimpan!', '#16a34a');
   });
 }
 
-async function runMatchedScripts() {
+async function runScript() {
   if (!currentTab || !currentTab.id) {
     setStatus('Tidak ada tab aktif', '#dc2626');
     return;
   }
-  const url = currentTab.url || '';
-  const matched = allScripts.filter(s => s.enabled && matchUrl(url, s.match));
-  if (matched.length === 0) {
-    setStatus('Tidak ada userscript yang match', '#f59e0b');
+  if (!config.scriptEnabled) {
+    setStatus('Script dinonaktifkan, aktifkan dulu!', '#f59e0b');
     return;
   }
 
-  // Coba via message dulu
+  const url = currentTab.url || '';
+  if (!matchUrl(url, config.scriptMatch)) {
+    setStatus('Halaman tidak cocok dengan pattern!', '#dc2626');
+    return;
+  }
+
+  setStatus('Mengirim perintah ke tab...', '#3b82f6');
+
   try {
-    const res = await chrome.tabs.sendMessage(currentTab.id, { action: 'inject' });
+    const res = await chrome.tabs.sendMessage(currentTab.id, { action: 'run' });
     if (res && res.success) {
-      setStatus(matched.length + ' userscript diinject!', '#16a34a');
-      return;
+      setStatus('Script dijalankan! Cek tombol di halaman.', '#16a34a');
+    } else {
+      setStatus('Gagal menjalankan script.', '#dc2626');
     }
   } catch (err) {
-    console.log('[Aistim] Message failed, fallback to executeScript');
+    setStatus('Content script belum load. Refresh halaman.', '#f59e0b');
   }
-
-  // Fallback: inject langsung via executeScript
-  let count = 0;
-  for (const script of matched) {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: currentTab.id },
-        func: (code, id, name) => {
-          if (document.querySelector('script[data-aistim-id="' + id + '"]')) return 'already';
-          const s = document.createElement('script');
-          s.textContent = code;
-          s.setAttribute('data-aistim-id', id);
-          s.setAttribute('data-aistim-name', name);
-          (document.head || document.documentElement).appendChild(s);
-          return 'injected';
-        },
-        args: [script.code, script.id, script.name]
-      });
-      count++;
-    } catch (err) {
-      console.log('[Aistim] Inject error:', err.message);
-    }
-  }
-  setStatus(count + ' userscript diinject (fallback)!', '#16a34a');
-}
-
-function openModal(script) {
-  editingId = script ? script.id : null;
-  document.getElementById('modal-title').textContent = script ? 'Edit Userscript' : 'Tambah Userscript';
-  document.getElementById('inp-name').value = script ? script.name : '';
-  document.getElementById('inp-match').value = script ? script.match : 'https://*/*';
-  document.getElementById('inp-code').value = script ? script.code : "(function() {\n  'use strict';\n  // kode kamu di sini\n})();";
-  document.getElementById('modal-overlay').style.display = 'flex';
-}
-
-function closeModal() {
-  document.getElementById('modal-overlay').style.display = 'none';
-  editingId = null;
-}
-
-function saveScript() {
-  const name = document.getElementById('inp-name').value.trim();
-  const match = document.getElementById('inp-match').value.trim();
-  const code = document.getElementById('inp-code').value.trim();
-
-  if (!name || !match || !code) {
-    alert('Semua field wajib diisi!');
-    return;
-  }
-
-  if (editingId) {
-    const idx = allScripts.findIndex(s => s.id === editingId);
-    if (idx >= 0) {
-      allScripts[idx] = { ...allScripts[idx], name, match, code };
-    }
-  } else {
-    const id = 'us-' + Date.now();
-    allScripts.push({ id, name, match, code, enabled: true });
-  }
-
-  chrome.storage.local.set({ userscripts: allScripts }, () => {
-    closeModal();
-    renderList();
-    setStatus(editingId ? 'Userscript diupdate' : 'Userscript ditambah', '#16a34a');
-  });
 }
 
 function setStatus(text, color) {
@@ -221,10 +151,4 @@ function setStatus(text, color) {
   el.textContent = text;
   el.style.color = color;
   setTimeout(() => { el.textContent = ''; }, 4000);
-}
-
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
 }
