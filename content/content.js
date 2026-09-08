@@ -1,19 +1,18 @@
 (function() {
   'use strict';
 
-  console.log('[Aistim] ===== Content script v2.3.3 loaded =====');
+  console.log('[Aistim] ===== Content script v2.3.4 loaded =====');
   console.log('[Aistim] URL:', window.location.href);
-  console.log('[Aistim] Turbolinks?', !!window.Turbolinks);
 
-  // ===== VISUAL DEBUG INDICATOR =====
+  // Safe debug — tidak crash kalau body belum ada
   function showDebug(msg, color) {
     console.log('[Aistim]', msg);
-    // Optional: show small indicator on page
+    if (!document.body) return; // skip kalau body belum ready
     let ind = document.getElementById('aistim-debug');
     if (!ind) {
       ind = document.createElement('div');
       ind.id = 'aistim-debug';
-      ind.style.cssText = 'position:fixed;bottom:5px;right:5px;z-index:999999;padding:4px 8px;font-size:10px;font-family:monospace;border-radius:4px;opacity:0.8;';
+      ind.style.cssText = 'position:fixed;bottom:5px;right:5px;z-index:999999;padding:4px 8px;font-size:10px;font-family:monospace;border-radius:4px;opacity:0.8;transition:all 0.3s;';
       document.body.appendChild(ind);
     }
     ind.style.background = color || '#333';
@@ -24,10 +23,16 @@
   // ===== HARDCODED ERZAP =====
   function runErzap() {
     const url = window.location.href;
-    if (!url.includes('pesanan') && !url.includes('penjualan')) {
-      showDebug('Skip: not pesanan page', '#666');
+    const path = window.location.pathname;
+
+    // Cek apakah di halaman pesanan
+    if (!path.includes('pesanan') && !path.includes('penjualan')) {
+      console.log('[Aistim] Skip: bukan halaman pesanan. Path:', path);
+      console.log('[Aistim] Navigasi ke: Menu -> Penjualan -> Pesanan Penjualan');
+      showDebug('Bukan halaman pesanan', '#f59e0b');
       return false;
     }
+
     showDebug('Running Erzap...', '#3b82f6');
 
     // 1. Auto Search outlet
@@ -39,50 +44,31 @@
           const f = sel.closest('form');
           if (f) f.submit();
         });
-        showDebug('Outlet listener attached', '#22c55e');
+        showDebug('Outlet OK', '#22c55e');
       }
     }, 500);
 
-    // 2. Tombol Rekap Pesanan — multiple selectors + persistent
+    // 2. Tombol Rekap Pesanan
     let attempts = 0;
-    const maxAttempts = 40; // 40 x 500ms = 20 detik
     const btnInt = setInterval(() => {
       attempts++;
-      if (attempts > maxAttempts) {
+      if (attempts > 40) {
         clearInterval(btnInt);
-        showDebug('Button not found after 20s', '#dc2626');
+        showDebug('Tombol tidak ditemukan', '#dc2626');
         return;
       }
 
-      // Cek sudah ada
       if (document.querySelector('#btn-rekap-pesanan')) {
         clearInterval(btnInt);
-        showDebug('Button already exists!', '#22c55e');
+        showDebug('Tombol sudah ada!', '#22c55e');
         return;
       }
 
-      // Try multiple selectors
-      let mkt = null;
-      const selectors = [
-        'a.btn:contains("Marketplace")',
-        'button:contains("Marketplace")',
-        '.btn:contains("Marketplace")',
-        'a:contains("Cari")',
-        'button:contains("Cari")',
-        'input[value*="Marketplace"]',
-        'input[value*="cari"]'
-      ];
-
-      // jQuery-like text search
       const allEls = Array.from(document.querySelectorAll('a, button, input[type="button"], input[type="submit"], .btn'));
-      mkt = allEls.find(el => {
+      const mkt = allEls.find(el => {
         const t = (el.textContent || el.value || el.innerText || '').toLowerCase();
         return t.includes('marketplace') || t.includes('pesanan') || t.includes('cari');
       });
-
-      if (mkt) {
-        showDebug('Found button: ' + (mkt.textContent || mkt.value || '').substring(0, 30), '#f59e0b');
-      }
 
       if (mkt) {
         clearInterval(btnInt);
@@ -94,18 +80,19 @@
         r.innerHTML = 'Rekap Pesanan';
         mkt.parentNode.insertBefore(r, mkt);
         r.addEventListener('click', rekap);
-        showDebug('✅ Rekap button CREATED!', '#22c55e');
+        showDebug('✅ Tombol dibuat!', '#22c55e');
+        console.log('[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!');
       }
     }, 500);
 
     return true;
   }
 
-  // ===== REKAP FUNCTION =====
+  // ===== REKAP =====
   async function rekap() {
-    showDebug('Rekap started...', '#3b82f6');
+    showDebug('Rekap...', '#3b82f6');
     const sel = document.querySelector('#pencarian_idoutlet_own');
-    if (!sel) { showDebug('No outlet select', '#dc2626'); return; }
+    if (!sel) { showDebug('Outlet tidak ditemukan', '#dc2626'); return; }
     let sp = '', sv = '';
     document.querySelectorAll('select').forEach(s => {
       Array.from(s.options).forEach(o => {
@@ -161,7 +148,7 @@
             cu = nx.startsWith('http') ? nx : (nx.startsWith('/') ? window.location.origin + nx : window.location.origin + '/' + nx);
             cp = { method: 'GET' };
             fi = false;
-            updStatus('Proses [' + (i+1) + '/' + opts.length + ']: Next page ' + o.text + '...');
+            updStatus('Proses [' + (i+1) + '/' + opts.length + ']: Next ' + o.text + '...');
           } else { hn = false; }
         }
         if (ot > 0) { data.push({ nama: o.text, jumlah: ot }); total += ot; }
@@ -204,54 +191,34 @@
     if (e) e.remove();
   }
 
-  // ===== INIT WITH MULTIPLE EVENTS =====
+  // ===== INIT =====
   function init() {
-    showDebug('Init...', '#3b82f6');
-    const ran = runErzap();
-    if (ran) {
-      // Keep checking for button
-      let checks = 0;
-      const checkInt = setInterval(() => {
-        checks++;
-        if (checks > 20) { clearInterval(checkInt); return; }
-        if (document.querySelector('#btn-rekap-pesanan')) {
-          clearInterval(checkInt);
-          showDebug('Button confirmed!', '#22c55e');
-        }
-      }, 1000);
+    if (!document.body) {
+      console.log('[Aistim] Body belum ready, tunggu...');
+      setTimeout(init, 300);
+      return;
     }
+    showDebug('Init...', '#3b82f6');
+    runErzap();
   }
 
-  // Run on various events
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
   }
 
-  // Turbolinks support
-  document.addEventListener('turbolinks:load', () => {
-    showDebug('Turbolinks load', '#f59e0b');
-    setTimeout(init, 500);
-  });
+  // Turbolinks
+  document.addEventListener('turbolinks:load', () => setTimeout(init, 500));
+  window.addEventListener('pageshow', (e) => { if (e.persisted) setTimeout(init, 500); });
 
-  // Also listen to page show (back button)
-  window.addEventListener('pageshow', (e) => {
-    if (e.persisted) {
-      showDebug('Page show (back)', '#f59e0b');
-      setTimeout(init, 500);
-    }
-  });
-
-  // Message from popup
+  // Popup message
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'run') {
-      showDebug('Manual run from popup', '#3b82f6');
+      console.log('[Aistim] Manual run from popup');
       init();
       sendResponse({ success: true });
     }
     return true;
   });
-
-  showDebug('Ready', '#22c55e');
 })();

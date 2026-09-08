@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.3.3",
-  "description": "AI Userscript Manager — Turbolinks support, visual debug",
+  "version": "2.3.4",
+  "description": "AI Userscript Manager — fix null body, clear navigation info",
   "permissions": ["storage", "activeTab", "scripting", "clipboardRead"],
   "host_permissions": ["<all_urls>"],
   "action": {
