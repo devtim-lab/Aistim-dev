@@ -12,5 +12,5 @@ chrome.runtime.onInstalled.addListener(() => {
       chrome.storage.local.set({ scripts: DEFAULT_SCRIPTS });
     }
   });
-  console.log('[Aistim] v2.3.0 installed — multi script manager');
+  console.log('[Aistim] v2.3.2 installed — Erzap hardcoded, dynamic via script tag');
 });

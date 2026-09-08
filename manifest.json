@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.3.1",
-  "description": "AI Multi Userscript Manager — red icon, paste URL support",
+  "version": "2.3.2",
+  "description": "AI Userscript Manager — hardcoded Erzap + dynamic scripts",
   "permissions": ["storage", "activeTab", "scripting", "clipboardRead"],
   "host_permissions": ["<all_urls>"],
   "action": {
