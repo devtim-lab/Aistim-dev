@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.3.2",
-  "description": "AI Userscript Manager — hardcoded Erzap + dynamic scripts",
+  "version": "2.3.3",
+  "description": "AI Userscript Manager — Turbolinks support, visual debug",
   "permissions": ["storage", "activeTab", "scripting", "clipboardRead"],
   "host_permissions": ["<all_urls>"],
   "action": {
@@ -21,7 +21,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content/content.js"],
-      "run_at": "document_idle",
+      "run_at": "document_start",
       "all_frames": false
     }
   ],
