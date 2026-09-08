@@ -37,7 +37,10 @@
     <div class="modal-box">
       <h3>Tambah Script Baru</h3>
       <label>URL Raw GitHub</label>
-      <input type="text" id="inp-url" placeholder="https://raw.githubusercontent.com/.../script.js">
+      <div class="input-row">
+        <input type="text" id="inp-url" placeholder="https://raw.githubusercontent.com/.../script.js">
+        <button class="btn-paste" id="btn-paste" title="Paste dari clipboard">📋 Paste</button>
+      </div>
       <div class="meta-preview" id="meta-preview" style="display:none;">
         <div class="meta-row"><span class="meta-label">Nama:</span> <span id="preview-name">-</span></div>
         <div class="meta-row"><span class="meta-label">Versi:</span> <span id="preview-version">-</span></div>

@@ -253,7 +253,7 @@ body {
 .modal-box {
   background: #fff;
   width: 100%;
-  max-width: 360px;
+  max-width: 380px;
   border-radius: 8px;
   padding: 18px;
   box-shadow: 0 8px 30px rgba(220,38,38,0.3);
@@ -272,18 +272,36 @@ body {
   text-transform: uppercase;
   margin-bottom: 4px;
 }
-.modal-box input {
-  width: 100%;
+.input-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.input-row input {
+  flex: 1;
   padding: 8px 10px;
   border: 1px solid #fecaca;
   border-radius: 6px;
   font-size: 12px;
   font-family: monospace;
   outline: none;
-  margin-bottom: 10px;
 }
-.modal-box input:focus {
+.input-row input:focus {
   border-color: #dc2626;
+}
+.btn-paste {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #dc2626;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.btn-paste:hover {
+  background: #fecaca;
 }
 .meta-preview {
   background: #f0fdf4;

@@ -12,7 +12,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-cancel').addEventListener('click', closeModal);
   document.getElementById('btn-fetch').addEventListener('click', fetchPreview);
   document.getElementById('btn-save').addEventListener('click', saveNewScript);
+  document.getElementById('btn-paste').addEventListener('click', pasteFromClipboard);
 });
+
+async function pasteFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      document.getElementById('inp-url').value = text.trim();
+      setStatus('URL dipaste dari clipboard!', '#16a34a');
+      // Auto fetch metadata after paste
+      setTimeout(() => fetchPreview(), 300);
+    } else {
+      setStatus('Clipboard kosong!', '#f59e0b');
+    }
+  } catch (err) {
+    setStatus('Gagal paste. Coba paste manual (Ctrl+V).', '#dc2626');
+  }
+}
 
 async function loadScripts() {
   return new Promise((resolve) => {
@@ -104,7 +121,6 @@ async function renderList() {
     container.appendChild(div);
   }
 
-  // Toggle events
   container.querySelectorAll('.toggle-switch').forEach(t => {
     t.addEventListener('click', (e) => {
       const id = e.target.dataset.id;
@@ -119,7 +135,6 @@ async function renderList() {
     });
   });
 
-  // Delete events
   container.querySelectorAll('[data-del]').forEach(b => {
     b.addEventListener('click', (e) => {
       const id = e.target.dataset.del;
@@ -157,6 +172,8 @@ function openModal() {
   document.getElementById('meta-preview').style.display = 'none';
   previewMeta = null;
   document.getElementById('modal-overlay').style.display = 'flex';
+  // Auto focus input
+  setTimeout(() => document.getElementById('inp-url').focus(), 100);
 }
 
 function closeModal() {
