@@ -1,24 +1,24 @@
+let scripts = [];
 let currentTab = null;
-let config = {};
+let previewMeta = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadConfig();
+  await loadScripts();
   await detectPage();
-  updateUI();
+  renderList();
 
-  document.getElementById('toggle-enabled').addEventListener('click', toggleEnabled);
-  document.getElementById('btn-save-url').addEventListener('click', saveConfig);
-  document.getElementById('btn-run-url').addEventListener('click', runScript);
+  document.getElementById('btn-run-all').addEventListener('click', runAllScripts);
+  document.getElementById('btn-add').addEventListener('click', openModal);
+  document.getElementById('btn-cancel').addEventListener('click', closeModal);
+  document.getElementById('btn-fetch').addEventListener('click', fetchPreview);
+  document.getElementById('btn-save').addEventListener('click', saveNewScript);
 });
 
-async function loadConfig() {
+async function loadScripts() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['scriptUrl', 'scriptMatch', 'scriptEnabled'], (data) => {
-      config = {
-        scriptUrl: data.scriptUrl || 'https://raw.githubusercontent.com/devtim-lab/AistimScript/main/pesananbaru.js',
-        scriptMatch: data.scriptMatch || 'https://trial.erzap.com/*pesanan*',
-        scriptEnabled: data.scriptEnabled !== false
-      };
+    chrome.storage.local.get(['scripts'], (data) => {
+      scripts = data.scripts || [];
+      document.getElementById('script-count').textContent = '(' + scripts.length + ')';
       resolve();
     });
   });
@@ -27,123 +27,170 @@ async function loadConfig() {
 async function detectPage() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTab = tabs[0];
-  const pageValue = document.getElementById('page-value');
+  const el = document.getElementById('page-value');
   if (currentTab && currentTab.url) {
     const url = currentTab.url;
     if (url.startsWith('http')) {
-      try {
-        const u = new URL(url);
-        pageValue.textContent = u.hostname + u.pathname;
-        pageValue.style.color = '#c2410c';
-      } catch {
-        pageValue.textContent = url;
-      }
-    } else {
-      pageValue.textContent = url;
-      pageValue.style.color = '#9ca3af';
-    }
-  } else {
-    pageValue.textContent = 'Tidak diketahui';
-    pageValue.style.color = '#9ca3af';
-  }
+      try { el.textContent = new URL(url).hostname + new URL(url).pathname; el.style.color = '#c2410c'; }
+      catch { el.textContent = url; }
+    } else { el.textContent = url; el.style.color = '#9ca3af'; }
+  } else { el.textContent = 'Tidak diketahui'; el.style.color = '#9ca3af'; }
 }
 
-function matchUrl(url, pattern) {
-  if (!pattern || !url) return false;
+function parseMetadata(code) {
+  const meta = { name: 'Unnamed', version: '1.0.0', match: [], include: [], exclude: [] };
+  const bm = code.match(/\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/);
+  if (!bm) return meta;
+  bm[1].split('\n').forEach(line => {
+    const m = line.match(/\/\/\s*@(\w+)\s+(.*)/);
+    if (!m) return;
+    const k = m[1].toLowerCase(), v = m[2].trim();
+    if (k === 'name') meta.name = v;
+    if (k === 'version') meta.version = v;
+    if (k === 'match') meta.match.push(v);
+    if (k === 'include') meta.include.push(v);
+    if (k === 'exclude') meta.exclude.push(v);
+  });
+  return meta;
+}
+
+function matchUrl(url, patterns) {
+  if (!patterns || patterns.length === 0) return true;
+  return patterns.some(p => {
+    if (!p) return false;
+    try { return new RegExp(p.replace(/\*/g, '.*').replace(/\?/g, '\\?')).test(url); }
+    catch (e) { return false; }
+  });
+}
+
+async function fetchMetaFromUrl(url) {
   try {
-    const regex = pattern.replace(/\*/g, '.*').replace(/\?/g, '\\?');
-    return new RegExp(regex).test(url);
-  } catch (e) { return false; }
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const code = await res.text();
+    return parseMetadata(code);
+  } catch (e) { return null; }
 }
 
-function updateUI() {
-  document.getElementById('inp-url').value = config.scriptUrl;
-  document.getElementById('inp-match').value = config.scriptMatch;
+async function renderList() {
+  const container = document.getElementById('script-list');
+  container.innerHTML = '';
 
-  const toggle = document.getElementById('toggle-enabled');
-  if (config.scriptEnabled) {
-    toggle.classList.add('on');
-  } else {
-    toggle.classList.remove('on');
-  }
-
-  const statusEl = document.getElementById('script-status');
-  const url = currentTab && currentTab.url ? currentTab.url : '';
-  const isMatch = matchUrl(url, config.scriptMatch);
-
-  if (!config.scriptEnabled) {
-    statusEl.textContent = 'Script dinonaktifkan';
-    statusEl.className = 'script-status off';
-  } else if (isMatch) {
-    statusEl.textContent = '✓ Halaman cocok — script akan jalan otomatis';
-    statusEl.className = 'script-status ok';
-  } else {
-    statusEl.textContent = '✗ Halaman tidak cocok dengan pattern';
-    statusEl.className = 'script-status err';
-  }
-}
-
-function toggleEnabled() {
-  config.scriptEnabled = !config.scriptEnabled;
-  chrome.storage.local.set({ scriptEnabled: config.scriptEnabled }, () => {
-    updateUI();
-    setStatus(config.scriptEnabled ? 'Script diaktifkan' : 'Script dinonaktifkan', '#16a34a');
-  });
-}
-
-function saveConfig() {
-  const url = document.getElementById('inp-url').value.trim();
-  const match = document.getElementById('inp-match').value.trim();
-
-  if (!url) {
-    setStatus('URL tidak boleh kosong!', '#dc2626');
-    return;
-  }
-  if (!match) {
-    setStatus('Pattern tidak boleh kosong!', '#dc2626');
+  if (scripts.length === 0) {
+    container.innerHTML = '<div class="empty">Belum ada script. Klik + Tambah Script.</div>';
     return;
   }
 
-  config.scriptUrl = url;
-  config.scriptMatch = match;
+  const pageUrl = currentTab && currentTab.url ? currentTab.url : '';
 
-  chrome.storage.local.set({
-    scriptUrl: url,
-    scriptMatch: match
-  }, () => {
-    updateUI();
-    setStatus('Konfigurasi disimpan!', '#16a34a');
+  for (const script of scripts) {
+    const meta = await fetchMetaFromUrl(script.url);
+    const allPatterns = meta ? [...meta.match, ...meta.include] : [];
+    const isMatch = matchUrl(pageUrl, allPatterns);
+
+    const div = document.createElement('div');
+    div.className = 'script-item' + (isMatch ? ' match' : '');
+    div.innerHTML = `
+      <div class="script-info">
+        <div class="script-name">${escapeHtml(meta ? meta.name : 'Loading...')}</div>
+        <div class="script-meta">v${escapeHtml(meta ? meta.version : '?')} | ${scripts.indexOf(script) + 1}/${scripts.length}</div>
+        <div class="script-match">${escapeHtml(allPatterns.join(', ') || 'Semua halaman')} ${isMatch ? '✓ match' : ''}</div>
+      </div>
+      <div class="script-btns">
+        <div class="toggle-switch ${script.enabled ? 'on' : ''}" data-id="${script.id}"></div>
+        <button class="btn-icon" data-del="${script.id}" title="Hapus">&#10005;</button>
+      </div>
+    `;
+    container.appendChild(div);
+  }
+
+  // Toggle events
+  container.querySelectorAll('.toggle-switch').forEach(t => {
+    t.addEventListener('click', (e) => {
+      const id = e.target.dataset.id;
+      const s = scripts.find(x => x.id === id);
+      if (s) {
+        s.enabled = !s.enabled;
+        chrome.storage.local.set({ scripts: scripts }, () => {
+          renderList();
+          setStatus(s.enabled ? 'Script diaktifkan' : 'Script dinonaktifkan', '#16a34a');
+        });
+      }
+    });
+  });
+
+  // Delete events
+  container.querySelectorAll('[data-del]').forEach(b => {
+    b.addEventListener('click', (e) => {
+      const id = e.target.dataset.del;
+      if (confirm('Hapus script ini?')) {
+        scripts = scripts.filter(s => s.id !== id);
+        chrome.storage.local.set({ scripts: scripts }, () => {
+          loadScripts().then(renderList);
+          setStatus('Script dihapus', '#dc2626');
+        });
+      }
+    });
   });
 }
 
-async function runScript() {
+async function runAllScripts() {
   if (!currentTab || !currentTab.id) {
     setStatus('Tidak ada tab aktif', '#dc2626');
     return;
   }
-  if (!config.scriptEnabled) {
-    setStatus('Script dinonaktifkan, aktifkan dulu!', '#f59e0b');
-    return;
-  }
-
-  const url = currentTab.url || '';
-  if (!matchUrl(url, config.scriptMatch)) {
-    setStatus('Halaman tidak cocok dengan pattern!', '#dc2626');
-    return;
-  }
-
   setStatus('Mengirim perintah ke tab...', '#3b82f6');
-
   try {
     const res = await chrome.tabs.sendMessage(currentTab.id, { action: 'run' });
     if (res && res.success) {
-      setStatus('Script dijalankan! Cek tombol di halaman.', '#16a34a');
+      setStatus('Semua script dijalankan! Cek halaman.', '#16a34a');
     } else {
-      setStatus('Gagal menjalankan script.', '#dc2626');
+      setStatus('Gagal menjalankan.', '#dc2626');
     }
   } catch (err) {
     setStatus('Content script belum load. Refresh halaman.', '#f59e0b');
   }
+}
+
+function openModal() {
+  document.getElementById('inp-url').value = '';
+  document.getElementById('meta-preview').style.display = 'none';
+  previewMeta = null;
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').style.display = 'none';
+  previewMeta = null;
+}
+
+async function fetchPreview() {
+  const url = document.getElementById('inp-url').value.trim();
+  if (!url) { setStatus('Masukkan URL dulu!', '#dc2626'); return; }
+
+  setStatus('Mengambil metadata...', '#3b82f6');
+  const meta = await fetchMetaFromUrl(url);
+  if (!meta) { setStatus('Gagal fetch URL. Cek link raw GitHub.', '#dc2626'); return; }
+
+  previewMeta = meta;
+  document.getElementById('preview-name').textContent = meta.name;
+  document.getElementById('preview-version').textContent = meta.version;
+  document.getElementById('preview-match').textContent = meta.match.join(', ') || 'Semua halaman';
+  document.getElementById('meta-preview').style.display = 'block';
+  setStatus('Metadata ditemukan! Klik Simpan.', '#16a34a');
+}
+
+function saveNewScript() {
+  const url = document.getElementById('inp-url').value.trim();
+  if (!url) { setStatus('URL tidak boleh kosong!', '#dc2626'); return; }
+
+  const id = 'us-' + Date.now();
+  scripts.push({ id, url, enabled: true });
+  chrome.storage.local.set({ scripts: scripts }, () => {
+    closeModal();
+    loadScripts().then(renderList);
+    setStatus('Script ditambah! ' + (previewMeta ? previewMeta.name : ''), '#16a34a');
+  });
 }
 
 function setStatus(text, color) {
@@ -151,4 +198,10 @@ function setStatus(text, color) {
   el.textContent = text;
   el.style.color = color;
   setTimeout(() => { el.textContent = ''; }, 4000);
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }

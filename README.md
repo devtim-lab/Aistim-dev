@@ -1,13 +1,15 @@
-# Aistim Tool v2.1.0
+# Aistim Tool v2.3.0
 
-**AI Userscript Manager** — load scripts dari URL raw GitHub.
+**AI Multi Userscript Manager** — simpan banyak script, auto detect @match @version dari metadata.
 
 ## Fitur
-- **Paste URL Raw GitHub** — masukkan link script JS, simpan, auto-run
-- **Match Pattern** — tentukan URL pattern mana yang aktif
-- **Toggle On/Off** — aktifkan/nonaktifkan script dari popup
-- **Load & Run Manual** — klik tombol untuk inject script ke tab saat ini
-- **Default Script** — sudah preset URL Erzap
+- **Multi Script** — simpan banyak userscript dari berbagai URL
+- **Auto Parse Metadata** — baca @name, @version, @match, @include, @exclude otomatis
+- **Auto Match Detection** — script hanya jalan di URL yang cocok dengan @match
+- **Toggle Per Script** — aktifkan/nonaktifkan script satu per satu
+- **Hapus Script** — hapus script yang tidak dipakai
+- **Tambah Script** — paste URL raw GitHub, cek metadata, simpan
+- **Jalankan Semua** — inject semua script yang match ke tab saat ini
 
 ## Cara Install
 1. Download ZIP dan ekstrak
@@ -17,33 +19,40 @@
 5. Pilih folder `Aistim-dev`
 
 ## Cara Pakai
-1. Buka halaman Erzap Pesanan Penjualan
-2. Klik icon **Aistim Tool** di toolbar Chrome
-3. Popup akan tampilkan:
-   - URL Script (default: raw GitHub Erzap)
-   - Match Pattern (default: `https://trial.erzap.com/*pesanan*`)
-   - Toggle Aktifkan
-4. Klik **💾 Simpan** untuk simpan konfigurasi
-5. Klik **▶ Load & Run** untuk inject script ke halaman saat ini
-6. Tombol **"Rekap Pesanan"** akan muncul di halaman Erzap
-
-## Ganti Script
-1. Upload script JS ke GitHub
-2. Dapatkan **raw URL** (klik tombol "Raw" di GitHub)
-3. Paste URL ke field "URL Raw GitHub" di popup
-4. Sesuaikan "Match Pattern" kalau perlu
+1. Klik icon **Aistim Tool** di toolbar Chrome
+2. Klik **+ Tambah Script**
+3. Paste URL raw GitHub (contoh: `https://raw.githubusercontent.com/user/repo/main/script.js`)
+4. Klik **🔍 Cek Metadata** — nama, versi, @match akan muncul otomatis
 5. Klik **💾 Simpan**
+6. Buka halaman yang cocok dengan @match — script jalan otomatis
+7. Klik **▶ Jalankan Semua** untuk inject manual
+
+## Format Script (Metadata Block)
+```javascript
+// ==UserScript==
+// @name         Nama Script
+// @version      1.0.0
+// @match        https://example.com/*
+// @match        https://example2.com/page*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    // kode kamu
+})();
+```
 
 ## Debug
-Buka DevTools (F12) -> Console, cari log:
+Buka DevTools (F12) -> Console:
 - `[Aistim] Content script loaded` — content script aktif
-- `[Aistim] Fetching script from: ...` — sedang fetch URL
-- `[Aistim] ✅ Script executed successfully!` — script berhasil jalan
-- `[Aistim] ❌ Failed to load/execute script: ...` — error fetch/execute
+- `[Aistim] Fetching script: id url` — sedang fetch
+- `[Aistim] Metadata: Nama v1.0 @match: [...]` — metadata terbaca
+- `[Aistim] ✅ Nama v1.0 done!` — script berhasil jalan
 
 ## Struktur
-- `manifest.json` — Konfigurasi extension v3
-- `popup/` — Dashboard: input URL, toggle, save, run
-- `background/` — Init default config
-- `content/` — Fetch URL → execute via `new Function`
-- `icons/` — Icon extension
+- `manifest.json` — v2.3.0
+- `popup/` — Dashboard multi script: list, toggle, add, delete, run
+- `background/` — Init default scripts
+- `content/` — Fetch & execute semua script yang match
+- `icons/` — Icon AISTIM logo
