@@ -2,7 +2,7 @@ let scripts = [];
 let autoScripts = [];
 let currentTab = null;
 
-const REMOTE_MANIFEST_URL = 'https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/manifest.json';
+const RELEASES_API_URL = 'https://api.github.com/repos/devtim-lab/Aistim-dev/releases/latest';
 const CURRENT_VERSION = chrome.runtime.getManifest().version;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -88,14 +88,23 @@ async function checkUpdate(manual) {
   const btn = document.getElementById('btn-update');
   if (manual) btn.textContent = '⏳ Mengecek...';
   try {
-    const res = await fetch(REMOTE_MANIFEST_URL, { cache: 'no-store' });
+    const res = await fetch(RELEASES_API_URL, {
+      cache: 'no-store',
+      headers: { 'Accept': 'application/vnd.github+json' }
+    });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const remote = await res.json();
-    const latest = remote.version;
+    const rel = await res.json();
+    const tag = String(rel.tag_name || '');
+    const latest = tag.replace(/^v/, '');
+    if (!latest) throw new Error('Tag kosong');
 
     if (compareVersion(latest, CURRENT_VERSION) > 0) {
+      // ZIP berversi: Aistim-dev-<versi>.zip
+      document.getElementById('update-link').href =
+        'https://github.com/devtim-lab/Aistim-dev/archive/refs/tags/' + tag + '.zip';
       document.getElementById('update-version').textContent = 'v' + latest;
       document.getElementById('update-bar').style.display = 'flex';
+      document.getElementById('update-steps').style.display = 'block';
       if (manual) setStatus('Ada versi baru: v' + latest, '#16a34a');
     } else if (manual) {
       setStatus('Sudah versi terbaru (v' + CURRENT_VERSION + ')', '#16a34a');

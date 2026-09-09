@@ -1,0 +1,35 @@
+name: Release
+
+# Otomatis bikin tag + release saat version di manifest.json naik.
+# ZIP release otomatis bernama Aistim-dev-<versi>.zip
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create release for new version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(python3 -c "import json;print(json.load(open('manifest.json'))['version'])")
+          TAG="v$VERSION"
+          echo "Version di manifest: $VERSION (tag: $TAG)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG sudah ada — skip"
+          else
+            gh release create "$TAG" \
+              --title "Aistim Tool v$VERSION" \
+              --notes "Lihat README.md untuk changelog lengkap." \
+              --latest
+            echo "Release $TAG dibuat"
+          fi

@@ -1,4 +1,4 @@
-# Aistim Tool v2.5.2
+# Aistim Tool v2.5.3
 
 **AI Userscript Manager** — auto-load semua script dari folder `scripts/` GitHub. Tanpa isi manual!
 
@@ -51,6 +51,15 @@ Script auto tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF (tidak 
 - **Engine userScripts** — tidak terpengaruh CSP halaman (script jalan di dunia terpisah yang aman)
 - **Erzap hardcoded** — selalu jalan (tidak pakai eval)
 - **Engine fallback** — hanya dipakai di browser tanpa userScripts API; bisa diblokir CSP situs strict
+
+## Changelog v2.5.3
+- **ZIP download berversi** — file hasil download bernama `Aistim-dev-<versi>.zip` (via GitHub Releases + tag)
+- GitHub Actions: tag + release dibuat otomatis tiap versi baru di-push
+- Cek update sekarang membaca dari GitHub Releases
+
+## Changelog v2.5.2
+- Tombol Download update lebih andal (buka tab via `chrome.tabs.create` — fix klik tidak merespons di browser Android)
+- Instruksi langkah update tampil langsung di banner versi baru
 
 ## Changelog v2.5.1
 - Hapus tombol "Jalankan Semua" & "+ Tambah Script" beserta modalnya — semua serba otomatis

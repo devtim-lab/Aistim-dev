@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.5.2",
+  "version": "2.5.3",
   "description": "AI Userscript Manager — auto-load dari folder scripts/ GitHub, userScripts engine (CSP-safe)",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "activeTab", "userScripts"],
