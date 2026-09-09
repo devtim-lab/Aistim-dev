@@ -1,14 +1,21 @@
-# Aistim Tool v2.3.6
+# Aistim Tool v2.4.0
 
-**AI Userscript Manager** — red icon, paste URL, CSP-safe Erzap, cek update dari popup.
+**AI Userscript Manager** — userScripts engine (CSP-safe), red icon, paste URL.
 
 ## Fitur
+- **userScripts Engine** — dynamic script jalan via `chrome.userScripts` API, **kebal CSP halaman** (termasuk Erzap)
 - **Erzap Hardcoded** — tombol "Rekap Pesanan" langsung jalan tanpa eval (CSP-safe)
-- **Dynamic Scripts** — userscript lain inject via `<script>` tag (site non-CSP)
+- **Load Shim** — listener `window.load` tetap jalan walau script telat diinject
+- **Handshake Check** — badge "Dynamic OK" hanya muncul kalau script benar-benar berjalan
 - **Paste URL** — tombol 📋 Paste dari clipboard
 - **Auto Parse Metadata** — @name, @version, @match otomatis
-- **Multi Script** — simpan banyak userscript
-- **Red Icon** — logo AISTIM background merah
+- **Cek Update** — tombol 🔄 di popup + auto cek saat popup dibuka
+
+## Syarat
+- **Chromium 120+** (Chrome / Kiwi / Edge / Brave / dll)
+- **Chrome < 138**: Developer mode ON di `chrome://extensions/` (sudah pasti ON kalau load unpacked)
+- **Chrome 138+**: aktifkan toggle **"Allow User Scripts"** di halaman detail ekstensi
+- Browser lama (<120) tetap bisa jalan dengan engine fallback, tapi situs CSP strict (Erzap) hanya bisa pakai script hardcoded
 
 ## Cara Install
 1. Download ZIP dan ekstrak
@@ -16,6 +23,7 @@
 3. Aktifkan **Mode developer**
 4. Klik **Muat yang belum dibongkar** (Load unpacked)
 5. Pilih folder `Aistim-dev`
+6. Buka popup — pastikan tertulis **"Engine: userScripts API ✅ (CSP-safe)"**
 
 ## Cara Pakai Erzap
 1. Buka halaman Erzap Pesanan Penjualan
@@ -30,8 +38,16 @@
 5. Refresh halaman target — script otomatis jalan kalau `@match` cocok
 
 ## Catatan CSP
-- **Erzap** — selalu jalan karena hardcoded (tidak pakai eval)
-- **Script dinamis** — mungkin gagal di site dengan CSP strict (seperti Erzap). Untuk site tersebut, gunakan script hardcoded.
+- **Engine userScripts** — tidak terpengaruh CSP halaman (script jalan di dunia terpisah yang aman)
+- **Erzap hardcoded** — selalu jalan (tidak pakai eval)
+- **Engine fallback** — hanya dipakai di browser tanpa userScripts API; bisa diblokir CSP situs strict
+
+## Changelog v2.4.0
+- Engine baru: `chrome.userScripts` API — dynamic script **kebal CSP** (fix: script "Auto Koreksi" tidak muncul di Erzap)
+- Load shim — fix timing: listener `window.load` tetap jalan walau script telat diinject
+- Handshake execution check — badge hijau hanya kalau script benar-benar jalan; badge merah jujur kalau diblokir CSP
+- Indikator engine di popup (userScripts ✅ / fallback ⚠️)
+- Re-sync otomatis saat toggle/tambah/hapus script di popup
 
 ## Changelog v2.3.6
 - Tombol **🔄 Cek Update** di popup — bandingkan versi dengan GitHub, notif + link download ZIP kalau ada versi baru
@@ -47,7 +63,8 @@
 
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] ===== Content script v2.3.5 loaded =====` — content script aktif
+- `[Aistim] ===== Content script v2.4.0 loaded =====` — content script aktif
+- `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
+- `[Aistim] ✅ userScript registered: Nama` — script terdaftar (background)
 - `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol berhasil dibuat
-- `[Aistim] ✅ Dynamic injected: Nama` — script dinamis berhasil
-- `[Aistim] ❌ Dynamic error: ...` — script dinamis gagal (CSP / fetch)
+- `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)

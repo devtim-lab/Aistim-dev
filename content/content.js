@@ -1,9 +1,12 @@
 (function() {
   'use strict';
 
-  var VERSION = '2.3.5';
+  var VERSION = '2.4.0';
   console.log('[Aistim] ===== Content script v' + VERSION + ' loaded =====');
   console.log('[Aistim] URL:', window.location.href);
+
+  // Shim: listener window 'load' tetap jalan walau script diinject setelah load selesai
+  var LOAD_SHIM = "window.addEventListener=(function(orig){return function(t,f,o){if(t==='load'&&document.readyState==='complete'){try{setTimeout(f,0);}catch(e){}return;}return orig.call(window,t,f,o);};})(window.addEventListener);";
 
   // ===== SAFE DEBUG =====
   // Visual indicator hanya tampil saat ada aksi relevan — console selalu log.
@@ -58,8 +61,38 @@
     return pats.some(function(p) { return matchPattern(url, p); });
   }
 
-  // ===== DYNAMIC SCRIPTS (dari storage, inject via <script> tag) =====
+  // ===== DYNAMIC SCRIPTS =====
+  // Jalur utama: chrome.userScripts API di background (kebal CSP halaman).
+  // Jalur fallback: inject <script> tag + handshake — untuk browser tanpa userScripts.
+
+  // Penampung hasil handshake dari script yang diinject ke page world
+  var execResults = {};
+  document.addEventListener('aistim-exec', function(e) {
+    try {
+      var parts = String(e.detail).split('|');
+      execResults[parts[1]] = { ok: parts[0] === 'ok', err: parts.slice(2).join('|') };
+    } catch (err) {}
+  });
+
   function runDynamicScripts() {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+      fallbackDynamic();
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage({ action: 'us-status' }, function(res) {
+        if (chrome.runtime.lastError) { fallbackDynamic(); return; }
+        if (res && res.userScripts) {
+          console.log('[Aistim] Engine: userScripts API (CSP-safe) — dynamic script dihandle background');
+        } else {
+          fallbackDynamic();
+        }
+      });
+    } catch (e) { fallbackDynamic(); }
+  }
+
+  function fallbackDynamic() {
+    console.log('[Aistim] Engine: fallback script-tag');
     if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
     chrome.storage.local.get(['scripts'], function(data) {
       var scripts = (data.scripts || []).filter(function(s) { return s.enabled; });
@@ -76,18 +109,41 @@
               console.log('[Aistim] Skip (no match):', meta.name);
               return;
             }
-            var tag = document.createElement('script');
-            tag.textContent = code;
-            (document.head || document.documentElement).appendChild(tag);
-            tag.remove(); // eksekusi sudah terjadi saat append
-            showDebug('Dynamic OK: ' + meta.name, '#22c55e');
-            console.log('[Aistim] ✅ Dynamic injected:', meta.name, 'v' + meta.version);
+            injectWithHandshake(s, code, meta);
           })
           .catch(function(err) {
-            console.error('[Aistim] ❌ Dynamic error:', s.url, err);
+            console.error('[Aistim] ❌ Fetch gagal:', s.url, err);
           });
       });
     });
+  }
+
+  function injectWithHandshake(s, code, meta) {
+    // Escape penutup tag script di dalam kode user
+    code = code.replace(/<\/script/gi, '<\\/script');
+    var wrapped = LOAD_SHIM + '\ntry {\n' + code +
+      '\ndocument.dispatchEvent(new CustomEvent("aistim-exec",{detail:"ok|' + s.id + '"}));' +
+      '\n} catch(e) { document.dispatchEvent(new CustomEvent("aistim-exec",{detail:"err|' + s.id + '|"+(e&&e.message)})); }';
+
+    var tag = document.createElement('script');
+    tag.textContent = wrapped;
+    (document.head || document.documentElement).appendChild(tag);
+    tag.remove(); // eksekusi terjadi saat append (kecuali diblokir CSP)
+
+    // Handshake: baru bilang OK kalau script BENAR-BENAR jalan
+    setTimeout(function() {
+      var r = execResults[s.id];
+      if (r && r.ok) {
+        showDebug('Dynamic OK: ' + meta.name, '#22c55e');
+        console.log('[Aistim] ✅ Dynamic injected:', meta.name, 'v' + meta.version);
+      } else if (r && !r.ok) {
+        showDebug('❌ ' + meta.name + ' error', '#dc2626');
+        console.error('[Aistim] ❌ Script error:', meta.name, r.err);
+      } else {
+        showDebug('❌ ' + meta.name + ' diblokir CSP', '#dc2626');
+        console.error('[Aistim] ❌ ' + meta.name + ' diblokir CSP situs ini. Solusi: aktifkan userScripts (browser Chromium 120+ / developer mode), atau hardcode script ke ekstensi.');
+      }
+    }, 2000);
   }
 
   // ===== HARDCODED ERZAP =====

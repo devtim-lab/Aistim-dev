@@ -20,9 +20,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-paste').addEventListener('click', pasteFromClipboard);
   document.getElementById('btn-update').addEventListener('click', () => checkUpdate(true));
 
+  detectEngine();
+
   // Auto cek update diam-diam saat popup dibuka
   checkUpdate(false);
 });
+
+// ===== ENGINE STATUS (userScripts vs fallback) =====
+function detectEngine() {
+  const el = document.getElementById('engine-label');
+  try {
+    chrome.runtime.sendMessage({ action: 'us-status' }, (res) => {
+      if (chrome.runtime.lastError || !res) {
+        el.textContent = 'Engine: fallback (script tag)';
+        el.className = 'engine-label warn';
+        return;
+      }
+      if (res.userScripts) {
+        el.textContent = 'Engine: userScripts API ✅ (CSP-safe)';
+        el.className = 'engine-label ok';
+      } else {
+        el.textContent = 'Engine: fallback — situs CSP strict mungkin gagal';
+        el.className = 'engine-label warn';
+      }
+    });
+  } catch (e) {
+    el.textContent = 'Engine: fallback (script tag)';
+    el.className = 'engine-label warn';
+  }
+}
 
 // ===== CEK UPDATE =====
 // Bandingkan semver: return 1 jika a > b, -1 jika a < b, 0 jika sama
