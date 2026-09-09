@@ -1,11 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.5.3",
+  "version": "2.5.4",
   "description": "AI Userscript Manager — auto-load dari folder scripts/ GitHub, userScripts engine (CSP-safe)",
   "minimum_chrome_version": "120",
-  "permissions": ["storage", "activeTab", "userScripts"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "userScripts"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "Aistim Tool — Userscript Manager",
@@ -20,8 +26,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/content.js"
+      ],
       "run_at": "document_start",
       "all_frames": false
     }
