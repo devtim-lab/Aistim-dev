@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Rekap Beban
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapbeban.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapbeban.js
 // @description  [v1.1.0] Tombol rekap beban kompak, sticky header, centang pindah ke bawah, HD zoom, pop-up jurnal, dan tombol tutup (Mobile Responsive Update)
 // @author       You
-// @match        https://trial.erzap.com/jurnals/index_transaksi_beban/new*
+// @match        https://*.erzap.com/jurnals/index_transaksi_beban/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==

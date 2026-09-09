@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Rekap Stok Minus - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapstokmin.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapstokmin.js
 // @description  [v1.1.0] Tombol rekap stok minus, sticky header, centang outlet checkbox, dan tombol tutup
 // @author       You
-// @match        https://trial.erzap.com/produk_gudangs/lihat_stok/new*
+// @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==

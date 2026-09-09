@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         AISTIM TOOL
 // @namespace    http://tampermonkey.net/
-// @version      2026-09-05.20.5
+// @version      2026-09-05.20.6
 // @description  Header Cek Selisih + filter Ada Selisih + hasil jadi text (tidak bisa diubah)
 // @author       arimonox
-// @match        https://trial.erzap.com/stok_opnams/*
+// @match        https://*.erzap.com/stok_opnams/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==
