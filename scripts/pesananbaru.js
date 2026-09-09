@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Erzap - Rekap Pesanan Baru per Outlet (Tema Merah)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.2
+// @version      1.2.3
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/pesananbaru.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/pesananbaru.js
-// @description  [v1.2.1] Otomatis set status Pesanan Baru, rekap otomatis antar halaman, urutkan dari yang tertinggi (Tema Merah).
+// @description  [v1.2.3] Otomatis set status Pesanan Baru, rekap otomatis antar halaman, urutkan dari yang tertinggi (Tema Merah).
 // @author       You
 // @match        https://*.erzap.com/pesanan_penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -30,26 +30,72 @@
         }
     }, 500);
 
-    // 2. Tambah Tombol "Rekap Pesanan"
-    const btnInterval = setInterval(() => {
-        const marketBtn = Array.from(document.querySelectorAll('a, button')).find(el => el.textContent.includes('Cari Pesanan Marketplace Online'));
+    // 2. Tambah Tombol "Rekap Pesanan" (multi-strategi, tidak tergantung 1 teks jangkar)
+    function buatTombolRekap() {
+        const rekapBtn = document.createElement('button');
+        rekapBtn.id = 'btn-rekap-pesanan';
+        rekapBtn.type = 'button';
+        rekapBtn.className = 'btn btn-danger btn-sm';
+        rekapBtn.style.marginRight = '8px';
+        rekapBtn.innerHTML = '<i class="fa fa-list"></i> Rekap Pesanan';
+        rekapBtn.addEventListener('click', mulaiRekapPesananBaru);
+        return rekapBtn;
+    }
 
-        if (marketBtn && !document.querySelector('#btn-rekap-pesanan')) {
-            const rekapBtn = document.createElement('button');
-            rekapBtn.id = 'btn-rekap-pesanan';
-            rekapBtn.type = 'button';
-            rekapBtn.className = marketBtn.className || 'btn btn-primary';
-            rekapBtn.style.marginRight = '8px';
-            // Ubah tombol menjadi Merah
-            rekapBtn.style.backgroundColor = '#dc3545';
-            rekapBtn.style.borderColor = '#dc3545';
-            rekapBtn.style.color = '#fff';
-            rekapBtn.innerHTML = '<i class="fa fa-list"></i> Rekap Pesanan';
+    function cobaInjectTombol() {
+        if (document.querySelector('#btn-rekap-pesanan')) return true; // sudah ada
 
-            marketBtn.parentNode.insertBefore(rekapBtn, marketBtn);
-            rekapBtn.addEventListener('click', mulaiRekapPesananBaru);
+        // Strategi 1: jangkar tombol/link berteks "marketplace" (variasi teks apapun)
+        let anchor = Array.from(document.querySelectorAll('a, button')).find(el =>
+            (el.textContent || '').toLowerCase().includes('marketplace')
+        );
+        if (anchor) {
+            const btn = buatTombolRekap();
+            btn.className = anchor.className || 'btn btn-danger btn-sm';
+            btn.style.backgroundColor = '#dc3545';
+            btn.style.borderColor = '#dc3545';
+            btn.style.color = '#fff';
+            anchor.parentNode.insertBefore(btn, anchor);
+            console.log('[Aistim] Rekap Pesanan: tombol disisipkan di samping tombol marketplace');
+            return true;
         }
+
+        // Strategi 2: taruh di dekat select outlet (form pencarian)
+        const outletSelect = document.querySelector('#pencarian_idoutlet_own');
+        if (outletSelect) {
+            const form = outletSelect.closest('form');
+            const submitBtn = form ? form.querySelector('button[type="submit"], input[type="submit"], .btn-primary') : null;
+            const btn = buatTombolRekap();
+            if (submitBtn && submitBtn.parentNode) {
+                submitBtn.parentNode.insertBefore(btn, submitBtn);
+            } else if (form) {
+                form.appendChild(btn);
+            } else {
+                outletSelect.parentNode.appendChild(btn);
+            }
+            console.log('[Aistim] Rekap Pesanan: tombol disisipkan di form pencarian');
+            return true;
+        }
+
+        // Strategi 3: panel heading / judul halaman
+        const titleArea = document.querySelector('.panel-heading, .page-title, h1, h2, h3');
+        if (titleArea) {
+            const btn = buatTombolRekap();
+            btn.style.marginLeft = '10px';
+            titleArea.appendChild(btn);
+            console.log('[Aistim] Rekap Pesanan: tombol disisipkan di judul halaman');
+            return true;
+        }
+
+        return false;
+    }
+
+    const btnInterval = setInterval(() => {
+        if (cobaInjectTombol()) clearInterval(btnInterval);
     }, 500);
+    // MutationObserver cadangan untuk halaman yang render lambat / SPA-ish
+    new MutationObserver(() => cobaInjectTombol()).observe(document.documentElement, { childList: true, subtree: true });
+    window.addEventListener('load', () => setTimeout(cobaInjectTombol, 800));
 
     // 3. Fungsi Utama: Pilih Outlet -> Set Status -> Cari -> Baca Pagination -> Simpan
     async function mulaiRekapPesananBaru() {
