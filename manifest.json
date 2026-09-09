@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.3.4",
-  "description": "AI Userscript Manager — fix null body, clear navigation info",
+  "version": "2.3.5",
+  "description": "AI Userscript Manager — Erzap hardcoded + dynamic script runner",
   "permissions": ["storage", "activeTab", "scripting", "clipboardRead"],
   "host_permissions": ["<all_urls>"],
   "action": {

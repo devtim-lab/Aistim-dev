@@ -1,4 +1,4 @@
-# Aistim Tool v2.3.2
+# Aistim Tool v2.3.5
 
 **AI Userscript Manager** — red icon, paste URL, CSP-safe Erzap.
 
@@ -27,14 +27,22 @@
 2. Klik **📋 Paste** atau paste manual URL raw GitHub
 3. Klik **🔍 Cek Metadata**
 4. Klik **💾 Simpan**
+5. Refresh halaman target — script otomatis jalan kalau `@match` cocok
 
 ## Catatan CSP
 - **Erzap** — selalu jalan karena hardcoded (tidak pakai eval)
 - **Script dinamis** — mungkin gagal di site dengan CSP strict (seperti Erzap). Untuk site tersebut, gunakan script hardcoded.
 
+## Changelog v2.3.5
+- Fix path service worker di manifest (`background/background.js`)
+- Fix syntax error di background service worker (`chrome.runtime`)
+- Dynamic script runner aktif di content script (fetch -> parse @match -> inject)
+- Interval outlet dibatasi (tidak looping selamanya)
+- Debug badge hanya tampil saat ada aksi relevan (tidak muncul di semua website)
+
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] Running hardcoded Erzap` — Erzap aktif
-- `[Aistim] ✅ Rekap button created!` — tombol berhasil dibuat
+- `[Aistim] ===== Content script v2.3.5 loaded =====` — content script aktif
+- `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol berhasil dibuat
 - `[Aistim] ✅ Dynamic injected: Nama` — script dinamis berhasil
-- `[Aistim] ❌ Dynamic error: ... CSP ...` — script dinamis diblok CSP
+- `[Aistim] ❌ Dynamic error: ...` — script dinamis gagal (CSP / fetch)

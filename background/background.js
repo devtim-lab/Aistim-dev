@@ -1,3 +1,5 @@
+const VERSION = '2.3.5';
+
 const DEFAULT_SCRIPTS = [
   {
     id: 'erzap-001',
@@ -12,5 +14,5 @@ chrome.runtime.onInstalled.addListener(() => {
       chrome.storage.local.set({ scripts: DEFAULT_SCRIPTS });
     }
   });
-  console.log('[Aistim] v2.3.2 installed — Erzap hardcoded, dynamic via script tag');
+  console.log('[Aistim] v' + VERSION + ' installed — Erzap hardcoded, dynamic via script tag');
 });
