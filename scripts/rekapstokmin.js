@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rekap Stok Minus - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      2026-09-09.1
+// @version      1.0.0
 // @description  Scan stok minus outlet (auto set filter stok < 0) dengan tema warna merah dan tombol di sebelah kanan.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
