@@ -2,7 +2,12 @@ let scripts = [];
 let currentTab = null;
 let previewMeta = null;
 
+const REMOTE_MANIFEST_URL = 'https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/manifest.json';
+const CURRENT_VERSION = chrome.runtime.getManifest().version;
+
 document.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('version-label').textContent = 'v' + CURRENT_VERSION;
+
   await loadScripts();
   await detectPage();
   renderList();
@@ -13,7 +18,46 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-fetch').addEventListener('click', fetchPreview);
   document.getElementById('btn-save').addEventListener('click', saveNewScript);
   document.getElementById('btn-paste').addEventListener('click', pasteFromClipboard);
+  document.getElementById('btn-update').addEventListener('click', () => checkUpdate(true));
+
+  // Auto cek update diam-diam saat popup dibuka
+  checkUpdate(false);
 });
+
+// ===== CEK UPDATE =====
+// Bandingkan semver: return 1 jika a > b, -1 jika a < b, 0 jika sama
+function compareVersion(a, b) {
+  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] > pb[i]) return 1;
+    if (pa[i] < pb[i]) return -1;
+  }
+  return 0;
+}
+
+async function checkUpdate(manual) {
+  const btn = document.getElementById('btn-update');
+  if (manual) btn.textContent = '⏳ Mengecek...';
+  try {
+    const res = await fetch(REMOTE_MANIFEST_URL, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const remote = await res.json();
+    const latest = remote.version;
+
+    if (compareVersion(latest, CURRENT_VERSION) > 0) {
+      document.getElementById('update-version').textContent = 'v' + latest;
+      document.getElementById('update-bar').style.display = 'flex';
+      if (manual) setStatus('Ada versi baru: v' + latest, '#16a34a');
+    } else if (manual) {
+      setStatus('Sudah versi terbaru (v' + CURRENT_VERSION + ')', '#16a34a');
+    }
+  } catch (err) {
+    if (manual) setStatus('Gagal cek update. Cek koneksi internet.', '#dc2626');
+  } finally {
+    if (manual) btn.textContent = '🔄 Cek Update';
+  }
+}
 
 async function pasteFromClipboard() {
   try {

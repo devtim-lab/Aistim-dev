@@ -1,6 +1,6 @@
-# Aistim Tool v2.3.5
+# Aistim Tool v2.3.6
 
-**AI Userscript Manager** — red icon, paste URL, CSP-safe Erzap.
+**AI Userscript Manager** — red icon, paste URL, CSP-safe Erzap, cek update dari popup.
 
 ## Fitur
 - **Erzap Hardcoded** — tombol "Rekap Pesanan" langsung jalan tanpa eval (CSP-safe)
@@ -32,6 +32,11 @@
 ## Catatan CSP
 - **Erzap** — selalu jalan karena hardcoded (tidak pakai eval)
 - **Script dinamis** — mungkin gagal di site dengan CSP strict (seperti Erzap). Untuk site tersebut, gunakan script hardcoded.
+
+## Changelog v2.3.6
+- Tombol **🔄 Cek Update** di popup — bandingkan versi dengan GitHub, notif + link download ZIP kalau ada versi baru
+- Auto cek update diam-diam saat popup dibuka
+- Label versi di popup
 
 ## Changelog v2.3.5
 - Fix path service worker di manifest (`background/background.js`)
