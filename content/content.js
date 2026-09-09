@@ -341,14 +341,4 @@
   // Turbolinks / SPA navigation
   document.addEventListener('turbolinks:load', function() { setTimeout(init, 500); });
   window.addEventListener('pageshow', function(e) { if (e.persisted) setTimeout(init, 500); });
-
-  // Popup message — jalankan ulang manual
-  chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-    if (request.action === 'run') {
-      console.log('[Aistim] Manual run from popup');
-      init();
-      sendResponse({ success: true });
-    }
-    return true;
-  });
 })();

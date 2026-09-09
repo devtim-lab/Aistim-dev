@@ -1,4 +1,4 @@
-# Aistim Tool v2.5.0
+# Aistim Tool v2.5.1
 
 **AI Userscript Manager** — auto-load semua script dari folder `scripts/` GitHub. Tanpa isi manual!
 
@@ -10,7 +10,7 @@ Semua file `.js` di folder **`scripts/`** repo [AistimScript](https://github.com
 2. Buka popup ekstensi → klik 🔄 (atau tunggu restart browser)
 3. Selesai — script langsung aktif
 
-Script auto tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF (tidak bisa dihapus — hapus file-nya di GitHub). Tambah manual via URL masih bisa untuk script di luar folder.
+Script auto tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF (tidak bisa dihapus — hapus file-nya di GitHub).
 
 ## Fitur
 - **Auto-Discovery** — baca semua `.js` di folder `scripts/` GitHub otomatis (cache 5 menit)
@@ -51,6 +51,11 @@ Script auto tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF (tidak 
 - **Engine userScripts** — tidak terpengaruh CSP halaman (script jalan di dunia terpisah yang aman)
 - **Erzap hardcoded** — selalu jalan (tidak pakai eval)
 - **Engine fallback** — hanya dipakai di browser tanpa userScripts API; bisa diblokir CSP situs strict
+
+## Changelog v2.5.1
+- Hapus tombol "Jalankan Semua" & "+ Tambah Script" beserta modalnya — semua serba otomatis
+- Hapus permission `scripting` & `clipboardRead` (tidak terpakai lagi)
+- Bersih-bersih CSS & kode tidak terpakai
 
 ## Changelog v2.5.0
 - **Auto-load folder**: semua `.js` di folder `scripts/` repo AistimScript otomatis diambil — tanpa isi URL manual

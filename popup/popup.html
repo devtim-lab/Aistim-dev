@@ -29,39 +29,12 @@
       <div class="page-value" id="page-value">Memeriksa...</div>
     </div>
 
-    <div class="btn-row-top">
-      <button class="btn-run-all" id="btn-run-all">▶ Jalankan Semua di Tab Ini</button>
-      <button class="btn-add" id="btn-add">+ Tambah Script</button>
-    </div>
-
     <div class="section-title">Daftar Scripts <span><span id="script-count">(0)</span> <button class="btn-resync" id="btn-resync" title="Tarik ulang daftar script dari GitHub">🔄</button></span></div>
     <div class="script-list" id="script-list">
       <div class="empty">Memuat...</div>
     </div>
 
     <div id="status"></div>
-  </div>
-
-  <!-- Modal Tambah Script -->
-  <div class="modal-overlay" id="modal-overlay" style="display:none;">
-    <div class="modal-box">
-      <h3>Tambah Script Baru</h3>
-      <label>URL Raw GitHub</label>
-      <div class="input-row">
-        <input type="text" id="inp-url" placeholder="https://raw.githubusercontent.com/.../script.js">
-        <button class="btn-paste" id="btn-paste" title="Paste dari clipboard">📋 Paste</button>
-      </div>
-      <div class="meta-preview" id="meta-preview" style="display:none;">
-        <div class="meta-row"><span class="meta-label">Nama:</span> <span id="preview-name">-</span></div>
-        <div class="meta-row"><span class="meta-label">Versi:</span> <span id="preview-version">-</span></div>
-        <div class="meta-row"><span class="meta-label">Match:</span> <span id="preview-match">-</span></div>
-      </div>
-      <div class="modal-btns">
-        <button class="btn-cancel" id="btn-cancel">Batal</button>
-        <button class="btn-fetch" id="btn-fetch">🔍 Cek Metadata</button>
-        <button class="btn-save" id="btn-save">💾 Simpan</button>
-      </div>
-    </div>
   </div>
 
   <script src="popup.js"></script>

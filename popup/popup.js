@@ -1,7 +1,6 @@
 let scripts = [];
 let autoScripts = [];
 let currentTab = null;
-let previewMeta = null;
 
 const REMOTE_MANIFEST_URL = 'https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/manifest.json';
 const CURRENT_VERSION = chrome.runtime.getManifest().version;
@@ -12,12 +11,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   await detectPage();
   await renderList();
 
-  document.getElementById('btn-run-all').addEventListener('click', runAllScripts);
-  document.getElementById('btn-add').addEventListener('click', openModal);
-  document.getElementById('btn-cancel').addEventListener('click', closeModal);
-  document.getElementById('btn-fetch').addEventListener('click', fetchPreview);
-  document.getElementById('btn-save').addEventListener('click', saveNewScript);
-  document.getElementById('btn-paste').addEventListener('click', pasteFromClipboard);
   document.getElementById('btn-update').addEventListener('click', () => checkUpdate(true));
   document.getElementById('btn-resync').addEventListener('click', forceResync);
 
@@ -103,22 +96,6 @@ async function checkUpdate(manual) {
   }
 }
 
-async function pasteFromClipboard() {
-  try {
-    const text = await navigator.clipboard.readText();
-    if (text) {
-      document.getElementById('inp-url').value = text.trim();
-      setStatus('URL dipaste dari clipboard!', '#16a34a');
-      // Auto fetch metadata after paste
-      setTimeout(() => fetchPreview(), 300);
-    } else {
-      setStatus('Clipboard kosong!', '#f59e0b');
-    }
-  } catch (err) {
-    setStatus('Gagal paste. Coba paste manual (Ctrl+V).', '#dc2626');
-  }
-}
-
 async function detectPage() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTab = tabs[0];
@@ -178,7 +155,7 @@ async function renderList() {
   document.getElementById('script-count').textContent = '(' + (autoScripts.length + scripts.length) + ')';
 
   if (autoScripts.length === 0 && scripts.length === 0) {
-    container.innerHTML = '<div class="empty">Folder scripts/ kosong / belum tersinkron.<br>Klik 🔄 untuk tarik ulang, atau + Tambah Script manual.</div>';
+    container.innerHTML = '<div class="empty">Folder scripts/ kosong / belum tersinkron.<br>Klik 🔄 untuk tarik ulang.</div>';
     return;
   }
 
@@ -257,7 +234,7 @@ function attachHandlers(container) {
     });
   });
 
-  // Hapus script MANUAL
+  // Hapus script MANUAL (sisa dari versi lama)
   container.querySelectorAll('[data-del]').forEach(b => {
     b.addEventListener('click', (e) => {
       const id = e.target.dataset.del;
@@ -269,67 +246,6 @@ function attachHandlers(container) {
         });
       }
     });
-  });
-}
-
-async function runAllScripts() {
-  if (!currentTab || !currentTab.id) {
-    setStatus('Tidak ada tab aktif', '#dc2626');
-    return;
-  }
-  setStatus('Mengirim perintah ke tab...', '#3b82f6');
-  try {
-    const res = await chrome.tabs.sendMessage(currentTab.id, { action: 'run' });
-    if (res && res.success) {
-      setStatus('Semua script dijalankan! Cek halaman.', '#16a34a');
-    } else {
-      setStatus('Gagal menjalankan.', '#dc2626');
-    }
-  } catch (err) {
-    setStatus('Content script belum load. Refresh halaman.', '#f59e0b');
-  }
-}
-
-function openModal() {
-  document.getElementById('inp-url').value = '';
-  document.getElementById('meta-preview').style.display = 'none';
-  previewMeta = null;
-  document.getElementById('modal-overlay').style.display = 'flex';
-  // Auto focus input
-  setTimeout(() => document.getElementById('inp-url').focus(), 100);
-}
-
-function closeModal() {
-  document.getElementById('modal-overlay').style.display = 'none';
-  previewMeta = null;
-}
-
-async function fetchPreview() {
-  const url = document.getElementById('inp-url').value.trim();
-  if (!url) { setStatus('Masukkan URL dulu!', '#dc2626'); return; }
-
-  setStatus('Mengambil metadata...', '#3b82f6');
-  const meta = await fetchMetaFromUrl(url);
-  if (!meta) { setStatus('Gagal fetch URL. Cek link raw GitHub.', '#dc2626'); return; }
-
-  previewMeta = meta;
-  document.getElementById('preview-name').textContent = meta.name;
-  document.getElementById('preview-version').textContent = meta.version;
-  document.getElementById('preview-match').textContent = meta.match.join(', ') || 'Semua halaman';
-  document.getElementById('meta-preview').style.display = 'block';
-  setStatus('Metadata ditemukan! Klik Simpan.', '#16a34a');
-}
-
-function saveNewScript() {
-  const url = document.getElementById('inp-url').value.trim();
-  if (!url) { setStatus('URL tidak boleh kosong!', '#dc2626'); return; }
-
-  const id = 'us-' + Date.now();
-  scripts.push({ id, url, enabled: true });
-  chrome.storage.local.set({ scripts: scripts }, () => {
-    closeModal();
-    renderList();
-    setStatus('Script ditambah! ' + (previewMeta ? previewMeta.name : ''), '#16a34a');
   });
 }
 
