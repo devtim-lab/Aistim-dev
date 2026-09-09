@@ -255,6 +255,17 @@ body {
 .update-bar a:hover {
   background: #15803d;
 }
+.update-steps {
+  font-size: 10px;
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 6px 10px;
+  margin: -10px 0 10px 0;
+  line-height: 1.5;
+}
 .engine-label {
   font-size: 10px;
   font-weight: 600;

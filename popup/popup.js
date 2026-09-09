@@ -14,6 +14,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-update').addEventListener('click', () => checkUpdate(true));
   document.getElementById('btn-resync').addEventListener('click', forceResync);
 
+  // Download update: buka via chrome.tabs (lebih andal daripada link di popup, terutama di Android)
+  document.getElementById('update-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    const url = e.currentTarget.href;
+    try {
+      chrome.tabs.create({ url: url });
+    } catch (err) {
+      window.open(url, '_blank');
+    }
+  });
+
   detectEngine();
 
   // Auto cek update diam-diam saat popup dibuka

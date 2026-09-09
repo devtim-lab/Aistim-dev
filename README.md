@@ -1,4 +1,4 @@
-# Aistim Tool v2.5.1
+# Aistim Tool v2.5.2
 
 **AI Userscript Manager** — auto-load semua script dari folder `scripts/` GitHub. Tanpa isi manual!
 
