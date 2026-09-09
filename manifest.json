@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.6.1",
-  "description": "AI Multi Userscript Manager — CSP-safe hardcoded Erzap + dynamic scripts",
-  "permissions": ["storage", "activeTab", "scripting", "clipboardRead"],
+  "version": "2.7.0",
+  "description": "AI Multi Userscript Manager — bundled scripts + auto-sync GitHub, engine userScripts (CSP-safe)",
+  "minimum_chrome_version": "120",
+  "permissions": ["storage", "activeTab", "userScripts"],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup/popup.html",
