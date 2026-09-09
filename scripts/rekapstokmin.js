@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rekap Stok Minus - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      2026-09-09
-// @description  Scan stok minus outlet dengan tema warna merah dan tombol di sebelah kanan.
+// @version      2026-09-09.1
+// @description  Scan stok minus outlet (auto set filter stok < 0) dengan tema warna merah dan tombol di sebelah kanan.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -91,6 +91,119 @@
     function scrollToBottom() {
         const modalBody = document.getElementById('erzap-modal-body');
         if (modalBody) modalBody.scrollTop = modalBody.scrollHeight;
+    }
+
+    // === SET FILTER STOK < 0 DI HALAMAN ERZAP ===
+    // Auto-deteksi kontrol filter stok (select/radio/operator+nilai) dan set ke "minus / kurang dari 0"
+    function triggerChange(el) {
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        if (typeof window.jQuery !== 'undefined') {
+            try { window.jQuery(el).trigger('change'); } catch (e) {}
+            try { window.jQuery(el).trigger('select2:select'); } catch (e) {}
+        }
+    }
+
+    function setFilterStokMinus() {
+        let sudahDiset = false;
+        const reMinusText = /(minus|kurang\s*dari|negatif|<\s*0|di\s*bawah\s*0)/i;
+        const reMinusVal = /(minus|negatif|lt|less|^<$|_lt_|kurang)/i;
+
+        // 1. SELECT yang id/name/label-nya berhubungan dengan stok
+        document.querySelectorAll('select').forEach(sel => {
+            if (sudahDiset) return;
+            if (sel.id === 'pencarian_idoutlet_own') return; // jangan sentuh select outlet
+            const ident = ((sel.id || '') + ' ' + (sel.name || '')).toLowerCase();
+            const labelEl = sel.closest('.form-group, .form-inputs, div, td')?.querySelector('label');
+            const labelTxt = (labelEl ? labelEl.innerText : '').toLowerCase();
+            const isStokFilter = /stok|stock|qty|jumlah|quantity/.test(ident) || /stok|stock|qty|jumlah/.test(labelTxt);
+            if (!isStokFilter) return;
+
+            const opts = Array.from(sel.options);
+            const target = opts.find(o => reMinusText.test(o.text) || reMinusVal.test(o.value));
+            if (target && !target.disabled) {
+                sel.value = target.value;
+                triggerChange(sel);
+                sudahDiset = true;
+            }
+        });
+
+        // 2. Pola OPERATOR + NILAI: select berisi <,>,= di dekat input angka stok
+        if (!sudahDiset) {
+            document.querySelectorAll('select').forEach(sel => {
+                if (sudahDiset) return;
+                if (sel.id === 'pencarian_idoutlet_own') return;
+                const opts = Array.from(sel.options);
+                const hasOperator = opts.some(o => ['<', '&lt;'].includes(o.text.trim()) || o.value === '<' || /(^|_)lt(_|$)/.test(o.value));
+                if (!hasOperator) return;
+                // Cari input angka terdekat (operator stok biasanya sepasang dengan input nilai)
+                const scope = sel.closest('.form-group, .row, td, div');
+                const numInput = scope ? scope.querySelector('input[type="number"], input[type="text"]') : null;
+                const scopeTxt = (scope ? scope.innerText : '').toLowerCase();
+                if (!/stok|stock|qty|jumlah/.test(scopeTxt)) return;
+
+                const opTarget = opts.find(o => ['<', '&lt;'].includes(o.text.trim()) || o.value === '<' || /(^|_)lt(_|$)/.test(o.value));
+                sel.value = opTarget.value;
+                triggerChange(sel);
+                if (numInput) {
+                    numInput.value = '0';
+                    numInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    triggerChange(numInput);
+                }
+                sudahDiset = true;
+            });
+        }
+
+        // 3. RADIO / CHECKBOX bertuliskan "minus"
+        if (!sudahDiset) {
+            document.querySelectorAll('input[type="radio"]').forEach(radio => {
+                if (sudahDiset) return;
+                const lbl = radio.closest('label') || document.querySelector(`label[for="${radio.id}"]`);
+                const txt = ((lbl ? lbl.innerText : '') + ' ' + (radio.value || '')).toLowerCase();
+                if (reMinusText.test(txt) || reMinusVal.test(txt)) {
+                    radio.checked = true;
+                    radio.dispatchEvent(new Event('click', { bubbles: true }));
+                    triggerChange(radio);
+                    sudahDiset = true;
+                }
+            });
+        }
+
+        return sudahDiset;
+    }
+
+    // Set jumlah baris tabel ke maksimal supaya semua stok minus tampil 1 halaman
+    function setTabelTampilSemua() {
+        document.querySelectorAll('select').forEach(sel => {
+            const ident = ((sel.id || '') + ' ' + (sel.name || '')).toLowerCase();
+            if (!/length|per_page|perpage|limit|entries/.test(ident)) return;
+            const opts = Array.from(sel.options);
+            const target = opts.find(o => /semua|all/i.test(o.text)) || opts[opts.length - 1];
+            if (target && sel.value !== target.value) {
+                sel.value = target.value;
+                triggerChange(sel);
+            }
+        });
+    }
+
+    // Klik tombol pencarian/filter utama Erzap
+    function klikTombolCari() {
+        const known = document.getElementById('bt_filter_pencarian_gudang')
+            || document.querySelector('input[type="submit"][name="commit"]');
+        if (known) { known.click(); return true; }
+
+        const possible = document.querySelectorAll('button, a, input[type="submit"]');
+        for (let el of possible) {
+            const html = (el.innerHTML || '').toLowerCase();
+            const cls = (el.className || '').toLowerCase();
+            const id = (el.id || '').toLowerCase();
+            if (html.includes('fa-search') || cls.includes('search') || cls.includes('cari') || id.includes('search') || id.includes('cari')) {
+                el.click();
+                return true;
+            }
+        }
+        const def = document.querySelector('.btn-primary, button[type="submit"]');
+        if (def) { def.click(); return true; }
+        return false;
     }
 
     // Fungsi membaca produk stok minus dari tabel Erzap
@@ -185,6 +298,14 @@
                 let counterNo = 1;
                 let adaDataDitemukan = false;
 
+                // Set filter stok < 0 (minus) sekali di awal sebelum scan semua outlet
+                const filterTerSet = setFilterStokMinus();
+                setTabelTampilSemua();
+                if (!filterTerSet) {
+                    statusText.innerText = "⚠️ Filter stok < 0 tidak ditemukan di halaman, scan tetap jalan (filter manual via baca tabel)...";
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+                }
+
                 for (let i = 0; i < outletsList.length; i++) {
                     if (stopRequested) break;
 
@@ -215,24 +336,11 @@
 
                     await new Promise(resolve => setTimeout(resolve, 500));
 
-                    // 3. Eksekusi klik tombol pencarian
-                    let clicked = false;
-                    const possibleSearchBtns = document.querySelectorAll('button, a, input[type="submit"]');
-                    for (let el of possibleSearchBtns) {
-                        let html = el.innerHTML.toLowerCase();
-                        let cls = el.className.toLowerCase();
-                        let id = el.id.toLowerCase();
-                        if (html.includes('fa-search') || cls.includes('search') || cls.includes('cari') || id.includes('search') || id.includes('cari')) {
-                            el.click();
-                            clicked = true;
-                            break;
-                        }
-                    }
-
-                    if (!clicked) {
-                        const defaultBtn = document.querySelector('.btn-primary, button[type="submit"]');
-                        if (defaultBtn) defaultBtn.click();
-                    }
+                    // 3. Pastikan filter stok < 0 tetap ter-set, lalu klik tombol pencarian
+                    setFilterStokMinus();
+                    setTabelTampilSemua();
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    klikTombolCari();
 
                     // 4. Jeda waktu tunggu respons tabel
                     await new Promise(resolve => setTimeout(resolve, 3500));
