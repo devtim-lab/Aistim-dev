@@ -1,11 +1,8 @@
 // ==UserScript==
 // @name         Rekap Stok Minus - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
-// @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapstokmin.js
-// @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapstokmin.js
-// @description  [v1.1.0] Tombol rekap stok minus, sticky header, centang outlet checkbox, dan tombol tutup
-// @author       You
+// @version      2026-09-09
+// @description  Scan stok minus outlet dengan tema warna merah dan tombol di sebelah kanan.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -14,309 +11,277 @@
 (function() {
     'use strict';
 
-    function triggerMainSearch() {
-        const searchBtn = document.getElementById('bt_filter_pencarian_gudang') || document.querySelector('input[type="submit"][name="commit"]');
-        if (searchBtn) {
-            searchBtn.click();
-        } else {
-            const form = document.querySelector('form.simple_form');
-            if (form) form.submit();
-        }
-    }
+    let stopRequested = false;
 
-    // CSS Styling Modal, Checkbox Outlet Area, Shadow Merah Theme & Compact Button
+    // 1. Styling Tampilan Modal & Posisi Tombol Kanan
     const style = document.createElement('style');
     style.innerHTML = `
-        .tm-modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.65); z-index: 9999; display: none; justify-content: center; align-items: center; }
-        .tm-modal-content { background: #fff; width: 850px; max-width: 95%; max-height: 90vh; border-radius: 8px; box-shadow: 0 10px 30px rgba(139, 0, 0, 0.35); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #d32f2f; }
-
-        .tm-modal-header { padding: 15px; background: linear-gradient(135deg, #b71c1c, #880e4f); color: white; display: block; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
-        .tm-header-top { display: flex; justify-content: space-between; align-items: center; }
-        .tm-modal-header h4 { margin: 0; font-size: 18px; font-weight: bold; color: white; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
-        .tm-close-btn { background: none; border: none; color: white; font-size: 24px; cursor: pointer; line-height: 1; transition: 0.2s; }
-        .tm-close-btn:hover { color: #ffcdd2; }
-
-        .tm-filter-area { margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.15); border-radius: 6px; display: flex; flex-direction: column; gap: 10px; border: 1px solid rgba(255,255,255,0.2); }
-        .tm-filter-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
-        .tm-filter-group { display: flex; flex-direction: column; flex-grow: 1; }
-        .tm-filter-group label { margin-bottom: 3px; font-size: 12px; font-weight: normal; color: #fff; }
-        .tm-filter-group input[type="text"] { padding: 6px; border-radius: 4px; border: 1px solid #ccc; color: #333; font-size: 13px; background: #fff; }
-
-        /* Container Checkbox Outlet bergaya mirip dropdown pencarian Erzap */
-        .tm-outlet-checkbox-container { background: #fff; border: 1px solid #ccc; border-radius: 4px; max-height: 120px; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
-        .tm-outlet-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #333; cursor: pointer; }
-        .tm-outlet-item input { cursor: pointer; width: 14px; height: 14px; }
-        .tm-outlet-actions { display: flex; gap: 10px; margin-top: 2px; }
-        .tm-outlet-actions a { font-size: 11px; color: #ffcdd2; cursor: pointer; text-decoration: underline; }
-        .tm-outlet-actions a:hover { color: #fff; }
-
-        .tm-btn-cari { padding: 6px 15px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; height: 32px; transition: 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.2); align-self: flex-end; }
-        .tm-btn-cari:hover { background: #b71c1c; }
-        .tm-btn-cari:disabled { background: #6c757d; cursor: not-allowed; }
-
-        .tm-modal-body { padding: 15px; overflow-y: auto; display: flex; flex-direction: column; max-height: calc(90vh - 200px); }
-
-        /* Sticky Table Header agar th tidak ikut ter-scroll */
-        .tm-modal-body table { border-collapse: separate; border-spacing: 0; width: 100%; margin-bottom: 0; }
-        .tm-modal-body th { position: sticky; top: 0; background-color: #f8f9fa; z-index: 2; border-bottom: 2px solid #dee2e6; box-shadow: inset 0 -1px 0 #dee2e6; }
-
-        #tmPaginationContainer { margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
-        #tmPaginationContainer .paginate_lite_wrap { display: flex; justify-content: space-between; align-items: center; width: 100%; }
-        #tmPaginationContainer .pagination_links { display: flex; align-items: center; gap: 8px; }
-        #tmPaginationContainer a.pagination_link, #tmPaginationContainer .paginate_button { color: #b71c1c; text-decoration: none; padding: 5px 12px; border: 1px solid #b71c1c; border-radius: 4px; cursor: pointer; font-weight: 500; transition: 0.2s; }
-        #tmPaginationContainer a.pagination_link:hover, #tmPaginationContainer .paginate_button:hover { background: #b71c1c; color: white; }
-        #tmPaginationContainer .disabled { color: #6c757d; cursor: not-allowed; padding: 5px 12px; border: 1px solid #ccc; border-radius: 4px; background: #f8f9fa; }
-        .tm-note { font-size: 11px; color: #888; margin-top: 5px; text-align: right; font-style: italic; }
-
-        .tm-checkbox-cek { width: 18px; height: 18px; cursor: pointer; }
-        tr.checked-row { background-color: #ffebee !important; color: #555; }
+        #erzap-modal-backdrop {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.5); z-index: 10000; justify-content: center; align-items: center; font-family: inherit;
+        }
+        #erzap-modal-box {
+            background: #fff; width: 750px; max-width: 95%; border-radius: 6px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3); overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;
+        }
+        #erzap-modal-header { background: #dc3545; color: white; padding: 12px 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        #erzap-modal-close { background: none; border: none; color: white; font-size: 18px; cursor: pointer; }
+        #erzap-modal-body { padding: 20px; overflow-y: auto; flex-grow: 1; scroll-behavior: smooth; }
+        .erzap-table-outlet { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        .erzap-table-outlet th, .erzap-table-outlet td { border: 1px solid #dee2e6; padding: 8px 12px; text-align: left; }
+        .erzap-table-outlet th { background-color: #f8f9fa; font-weight: bold; }
+        #erzap-modal-footer { padding: 10px 20px; background: #f1f1f1; display: flex; justify-content: space-between; align-items: center; }
+        .erzap-btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; }
+        .erzap-btn-secondary { background: #6c757d; color: white; }
+        .erzap-btn-stop { background: #343a40; color: white; display: none; }
+        .erzap-btn-scan { background: #dc3545; color: white; }
+        .erzap-btn-scan:hover { background: #c82333; }
+        .container-btn-stokmin { margin-bottom: 10px; display: flex; justify-content: flex-end; }
+        #btn-buka-modal { background-color: #dc3545; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        #btn-buka-modal:hover { background-color: #c82333; }
+        .scan-status { font-size: 12px; color: #666; font-style: italic; }
+        .text-danger-minus { color: red; font-weight: bold; }
     `;
     document.head.appendChild(style);
 
+    // 2. Struktur HTML Modal
     const modalHTML = `
-        <div class="tm-modal-overlay" id="modalRekapStok">
-            <div class="tm-modal-content">
-                <div class="tm-modal-header">
-                    <div class="tm-header-top">
-                        <h4>Rekap Stok Minus (< 0) & Filter</h4>
-                        <button class="tm-close-btn" id="closeModalRekap">&times;</button>
-                    </div>
-                    <div class="tm-filter-area">
-                        <div class="tm-filter-row">
-                            <div class="tm-filter-group" style="flex-grow: 1;">
-                                <label>Cari Barcode / Nama / Kode Ref</label>
-                                <input type="text" id="tmInputKeyword" placeholder="Cari produk...">
-                            </div>
-                        </div>
-                        <div class="tm-filter-row" style="align-items: flex-start;">
-                            <div class="tm-filter-group">
-                                <label>Pilih Outlet (Checkbox)</label>
-                                <div class="tm-outlet-checkbox-container" id="tmOutletCheckboxContainer"></div>
-                                <div class="tm-outlet-actions">
-                                    <a id="tmSelectAllOutlet">Pilih Semua</a>
-                                    <a id="tmDeselectAllOutlet">Hapus Semua</a>
-                                </div>
-                            </div>
-                            <button class="tm-btn-cari" id="tmBtnCari">Terapkan Filter</button>
-                        </div>
+        <div id="erzap-modal-backdrop">
+            <div id="erzap-modal-box">
+                <div id="erzap-modal-header">
+                    <span>Rekap Stok Minus Outlet (< 0)</span>
+                    <button id="erzap-modal-close">&times;</button>
+                </div>
+                <div id="erzap-modal-body">
+                    <p style="margin-top:0; font-size:13px; color:#555;">
+                        Sistem sedang memproses sinkronisasi tabel per outlet...
+                    </p>
+                    <button class="erzap-btn erzap-btn-scan" id="btn-jalankan-scan">▶️ Mulai Scan</button>
+                    <div style="margin-top: 15px;">
+                        <table class="erzap-table-outlet" id="tabel-hasil-scan">
+                            <thead>
+                                <tr>
+                                    <th style="width:30px">No</th>
+                                    <th>Outlet / Cabang</th>
+                                    <th>Barcode</th>
+                                    <th>Nama Produk</th>
+                                    <th style="width:50px;text-align:center">Stok</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="5" style="text-align: center; color: #888;">Klik tombol mulai di atas.</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-                <div class="tm-modal-body">
-                    <table class="table table-bordered table-striped" style="width: 100%; margin-bottom: 0;">
-                        <thead>
-                            <tr>
-                                <th style="width: 60px; text-align:center;">No</th>
-                                <th style="width: 150px;">Barcode</th>
-                                <th>Nama Produk</th>
-                                <th style="text-align:right; width: 100px;">Jumlah</th>
-                                <th style="text-align:center; width: 90px;">Sudah Dicek</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tmRekapBody"></tbody>
-                    </table>
-                    <div class="tm-note">*Hanya menampilkan produk dengan stok minus (< 0) pada halaman aktif. Header tabel terkunci.</div>
-                    <div id="tmPaginationContainer"></div>
+                <div id="erzap-modal-footer">
+                    <span class="scan-status" id="scan-status-text">Siap...</span>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="erzap-btn erzap-btn-stop" id="modal-stop">🛑 Stop</button>
+                        <button class="erzap-btn erzap-btn-secondary" id="modal-tutup">Tutup</button>
+                    </div>
                 </div>
             </div>
         </div>
     `;
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    const modalContainer = document.createElement('div');
+    modalContainer.innerHTML = modalHTML;
+    document.body.appendChild(modalContainer);
 
-    window.addEventListener('load', function() {
-        const btnRekap = document.createElement('button');
-        btnRekap.innerHTML = '<i class="fa fa-chart-bar"></i> Rekap Stok Minus';
-        btnRekap.className = 'btn btn-danger btn-sm';
-        btnRekap.style.marginLeft = '12px';
-        btnRekap.style.padding = '4px 10px';
-        btnRekap.style.fontSize = '12px';
-        btnRekap.type = 'button';
+    function scrollToBottom() {
+        const modalBody = document.getElementById('erzap-modal-body');
+        if (modalBody) modalBody.scrollTop = modalBody.scrollHeight;
+    }
 
-        const titleArea = document.querySelector('.panel-heading') || document.querySelector('h1, h2, h3');
-        if (titleArea) {
-            titleArea.appendChild(btnRekap);
-        } else {
-            document.body.prepend(btnRekap);
-        }
+    // Fungsi membaca produk stok minus dari tabel Erzap
+    function bacaProdukMinusDariTabel() {
+        const rows = document.querySelectorAll('#data_table_produk tbody tr');
+        if (!rows || rows.length === 0) return [];
 
-        function updateDataTabelModal() {
-            const rekapBody = document.getElementById('tmRekapBody');
-            rekapBody.innerHTML = '';
-            let dataDitemukan = false;
-            let counter = 1;
+        let hasilMinus = [];
+        rows.forEach(row => {
+            if (row.querySelector('.dataTables_empty')) return;
 
-            const tbody = document.querySelector('#data_table tbody');
-            let rowsArray = [];
+            const tdStok = row.querySelector('td.bt_dialog_aktifitas_stok');
+            if (!tdStok) return;
 
-            if (tbody) {
-                const rows = tbody.querySelectorAll('tr');
-                rows.forEach((row, index) => {
-                    const cols = row.querySelectorAll('td');
-                    if (cols.length >= 4 && !row.classList.contains('dataTables_empty')) {
-                        const barcodeText = cols[1] ? cols[1].innerText.trim() : `row_${index}`;
-                        const storageKey = `erzap_stok_checked_${window.location.pathname}_${barcodeText}`;
-                        const isChecked = localStorage.getItem(storageKey) === 'true';
+            let nilaiStok = NaN;
+            const dataOrder = tdStok.getAttribute('data-order');
+            if (dataOrder !== null && dataOrder !== '') {
+                nilaiStok = parseFloat(dataOrder);
+            }
+            if (isNaN(nilaiStok)) {
+                const linkEl = tdStok.querySelector('a');
+                if (linkEl) nilaiStok = parseFloat(linkEl.innerText.trim());
+            }
+            if (isNaN(nilaiStok)) {
+                nilaiStok = parseFloat(tdStok.innerText.trim());
+            }
 
-                        const barcodeHtml = cols[1] ? cols[1].innerHTML.trim() : '';
-                        const namaHtml = cols[2] ? cols[2].innerHTML.trim() : '';
+            if (isNaN(nilaiStok) || nilaiStok >= 0) return;
 
-                        let qtyVal = 0;
-                        let qtyColIndex = -1;
-                        for(let i = 3; i < cols.length; i++) {
-                            let val = parseFloat(cols[i].innerText.replace(/[^\d.-]/g, ''));
-                            if (!isNaN(val) && (cols[i].innerText.includes('-') || val < 0)) {
-                                qtyVal = val;
-                                qtyColIndex = i;
-                                break;
-                            }
-                        }
+            const tdBarcode = row.querySelector('td.barcode_produk');
+            const barcode = tdBarcode ? tdBarcode.innerText.trim() : '-';
 
-                        if (qtyColIndex !== -1 && qtyVal < 0) {
-                            dataDitemukan = true;
-                            const textQty = cols[qtyColIndex].innerText.trim();
+            const tdNama = row.querySelector('td.nama_produk');
+            const nama = tdNama ? tdNama.innerText.trim() : '-';
 
-                            rowsArray.push({
-                                storageKey,
-                                isChecked,
-                                barcodeHtml,
-                                namaHtml,
-                                textQty
-                            });
-                        }
+            hasilMinus.push({ barcode, nama, stok: Math.floor(nilaiStok) });
+        });
+
+        return hasilMinus;
+    }
+
+    // Injeksi Tombol ke Halaman (Pojok Kanan)
+    function injectButton() {
+        const tabIndexProduk = document.getElementById('tab_index_produk');
+        if (tabIndexProduk && !document.getElementById('btn-buka-modal')) {
+            const wrapperDiv = document.createElement('div');
+            wrapperDiv.className = 'container-btn-stokmin';
+
+            const btn = document.createElement('button');
+            btn.id = 'btn-buka-modal';
+            btn.innerHTML = '🌐 Rekap Stok Min';
+
+            wrapperDiv.appendChild(btn);
+            tabIndexProduk.insertBefore(wrapperDiv, tabIndexProduk.firstChild);
+
+            const backdrop = document.getElementById('erzap-modal-backdrop');
+            const btnStop = document.getElementById('modal-stop');
+
+            btn.onclick = () => backdrop.style.display = 'flex';
+            document.getElementById('erzap-modal-close').onclick = () => { stopRequested = true; backdrop.style.display = 'none'; };
+            document.getElementById('modal-tutup').onclick = () => { stopRequested = true; backdrop.style.display = 'none'; };
+            backdrop.onclick = (e) => { if (e.target === backdrop) { stopRequested = true; backdrop.style.display = 'none'; } };
+            btnStop.onclick = () => { stopRequested = true; document.getElementById('scan-status-text').innerText = "Proses dihentikan."; };
+
+            document.getElementById('btn-jalankan-scan').onclick = async () => {
+                const statusText = document.getElementById('scan-status-text');
+                const tbody = document.querySelector('#tabel-hasil-scan tbody');
+                const btnScan = document.getElementById('btn-jalankan-scan');
+
+                stopRequested = false;
+                btnScan.disabled = true;
+                btnScan.style.opacity = '0.6';
+                btnStop.style.display = 'inline-block';
+
+                const checkboxOutlets = document.querySelectorAll('.checkbox_list_outlets');
+                let outletsList = [];
+
+                checkboxOutlets.forEach(chk => {
+                    const spanName = chk.nextElementSibling;
+                    if (spanName && spanName.tagName === 'SPAN') {
+                        outletsList.push({ id: chk.id, nama: spanName.innerText.trim() });
                     }
                 });
-            }
 
-            rowsArray.sort((a, b) => (a.isChecked === b.isChecked) ? 0 : a.isChecked ? 1 : -1);
+                if (outletsList.length === 0) {
+                    statusText.innerText = "Daftar outlet tidak ditemukan!";
+                    btnScan.disabled = false; btnScan.style.opacity = '1'; btnStop.style.display = 'none';
+                    return;
+                }
 
-            rowsArray.forEach(item => {
-                const rowClass = item.isChecked ? 'checked-row' : '';
-                rekapBody.innerHTML += `
-                    <tr class="${rowClass}" data-storage-key="${item.storageKey}" data-barcode="${item.barcodeHtml}" data-qty="${item.textQty}">
-                        <td style="text-align:center;">${counter++}</td>
-                        <td>${item.barcodeHtml}</td>
-                        <td>${item.namaHtml}</td>
-                        <td style="text-align:right; color: red; font-weight: bold;">${item.textQty}</td>
-                        <td style="text-align:center;">
-                            <input type="checkbox" class="tm-checkbox-cek" ${item.isChecked ? 'checked' : ''}>
-                        </td>
-                    </tr>
-                `;
-            });
+                tbody.innerHTML = '';
+                let counterNo = 1;
+                let adaDataDitemukan = false;
 
-            if (!dataDitemukan) {
-                rekapBody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:green;">Tidak ada produk dengan stok minus di halaman ini.</td></tr>';
-            }
+                for (let i = 0; i < outletsList.length; i++) {
+                    if (stopRequested) break;
 
-            rekapBody.querySelectorAll('.tm-checkbox-cek').forEach(chk => {
-                chk.addEventListener('change', function() {
-                    const tr = this.closest('tr');
-                    const key = tr.getAttribute('data-storage-key');
-                    localStorage.setItem(key, this.checked ? 'true' : 'false');
-                    updateDataTabelModal();
-                });
-            });
+                    let outlet = outletsList[i];
+                    statusText.innerText = `Memproses outlet [${i + 1}/${outletsList.length}]: ${outlet.nama}...`;
 
-            const paginationContainer = document.getElementById('tmPaginationContainer');
-            paginationContainer.innerHTML = '';
-
-            const mainPagination = document.querySelector('.paginate_lite_wrap') || document.querySelector('.dataTables_paginate');
-            if (mainPagination) {
-                paginationContainer.innerHTML = mainPagination.innerHTML;
-                const pagLinks = paginationContainer.querySelectorAll('a, .paginate_button');
-                pagLinks.forEach(link => {
-                    if(link.classList.contains('disabled') || link.getAttribute('disabled')) return;
-                    link.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        sessionStorage.setItem('erzap_auto_open_stok_modal', 'yes');
-                        const href = this.getAttribute('href');
-                        if (href && href !== '#' && !href.includes('javascript:')) {
-                            window.location.href = href;
-                        } else {
-                            const text = this.innerText.trim();
-                            const originLinks = document.querySelectorAll('.paginate_lite_wrap a, .dataTables_paginate a, .dataTables_paginate .paginate_button');
-                            for(let ol of originLinks) {
-                                if (ol.innerText.trim() === text) {
-                                    ol.click();
-                                    break;
-                                }
-                            }
+                    // 1. Uncheck semua checkbox outlet
+                    checkboxOutlets.forEach(c => {
+                        if (c.checked) {
+                            c.checked = false;
+                            c.dispatchEvent(new Event('change', { bubbles: true }));
+                            c.dispatchEvent(new Event('click', { bubbles: true }));
                         }
                     });
-                });
-            }
-        }
 
-        btnRekap.addEventListener('click', function(e) {
-            if(e) e.preventDefault();
+                    // 2. Centang 1 outlet tujuan
+                    let currentCheckbox = document.getElementById(outlet.id);
+                    if (currentCheckbox) {
+                        currentCheckbox.checked = true;
+                        currentCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                        currentCheckbox.dispatchEvent(new Event('click', { bubbles: true }));
 
-            const oriOutlet = document.getElementById('pencarian_idoutlet_own');
-            const tmContainer = document.getElementById('tmOutletCheckboxContainer');
-            tmContainer.innerHTML = '';
+                        if (typeof window.jQuery !== 'undefined') {
+                            window.jQuery(currentCheckbox).trigger('change');
+                            window.jQuery(currentCheckbox).trigger('click');
+                        }
+                    }
 
-            if (oriOutlet) {
-                Array.from(oriOutlet.options).forEach(opt => {
-                    if (!opt.value) return; // Lewati opsi kosong jika ada
-                    const isSelected = opt.selected;
-                    const itemDiv = document.createElement('label');
-                    itemDiv.className = 'tm-outlet-item';
-                    itemDiv.innerHTML = `<input type="checkbox" value="${opt.value}" ${isSelected ? 'checked' : ''}> ${opt.text}`;
-                    tmContainer.appendChild(itemDiv);
-                });
-            }
+                    await new Promise(resolve => setTimeout(resolve, 500));
 
-            updateDataTabelModal();
-            document.getElementById('modalRekapStok').style.display = 'flex';
-        });
+                    // 3. Eksekusi klik tombol pencarian
+                    let clicked = false;
+                    const possibleSearchBtns = document.querySelectorAll('button, a, input[type="submit"]');
+                    for (let el of possibleSearchBtns) {
+                        let html = el.innerHTML.toLowerCase();
+                        let cls = el.className.toLowerCase();
+                        let id = el.id.toLowerCase();
+                        if (html.includes('fa-search') || cls.includes('search') || cls.includes('cari') || id.includes('search') || id.includes('cari')) {
+                            el.click();
+                            clicked = true;
+                            break;
+                        }
+                    }
 
-        document.getElementById('tmSelectAllOutlet').addEventListener('click', () => {
-            document.querySelectorAll('#tmOutletCheckboxContainer input[type="checkbox"]').forEach(cb => cb.checked = true);
-        });
+                    if (!clicked) {
+                        const defaultBtn = document.querySelector('.btn-primary, button[type="submit"]');
+                        if (defaultBtn) defaultBtn.click();
+                    }
 
-        document.getElementById('tmDeselectAllOutlet').addEventListener('click', () => {
-            document.querySelectorAll('#tmOutletCheckboxContainer input[type="checkbox"]').forEach(cb => cb.checked = false);
-        });
+                    // 4. Jeda waktu tunggu respons tabel
+                    await new Promise(resolve => setTimeout(resolve, 3500));
 
-        document.getElementById('tmBtnCari').addEventListener('click', function() {
-            this.innerText = 'Memproses...';
-            this.disabled = true;
+                    if (stopRequested) break;
 
-            sessionStorage.setItem('erzap_auto_open_stok_modal', 'yes');
+                    // 5. Baca data tabel
+                    const produkMinus = bacaProdukMinusDariTabel();
 
-            const oriOutlet = document.getElementById('pencarian_idoutlet_own');
-            const keywordInput = document.getElementById('pencarian_barcode_nama_produk');
+                    if (produkMinus.length > 0) {
+                        adaDataDitemukan = true;
 
-            if (oriOutlet) {
-                const checkedValues = Array.from(document.querySelectorAll('#tmOutletCheckboxContainer input[type="checkbox"]:checked')).map(cb => cb.value);
-                Array.from(oriOutlet.options).forEach(opt => {
-                    opt.selected = checkedValues.includes(opt.value);
-                });
-                oriOutlet.dispatchEvent(new Event('change', { bubbles: true }));
-                if (typeof window.$ !== 'undefined') window.$(oriOutlet).trigger('change');
-            }
+                        produkMinus.forEach((produk, idx) => {
+                            let tr = document.createElement('tr');
+                            const tdOutlet = idx === 0 ? `<td rowspan="${produkMinus.length}" style="vertical-align:middle;font-weight:bold">${outlet.nama}</td>` : '';
+                            const tdNo = idx === 0 ? `<td rowspan="${produkMinus.length}" style="vertical-align:middle;text-align:center">${counterNo++}</td>` : '';
 
-            if (keywordInput) {
-                keywordInput.value = document.getElementById('tmInputKeyword').value;
-            }
+                            tr.innerHTML = `
+                                ${tdNo}
+                                ${tdOutlet}
+                                <td style="font-size:11px;color:#555">${produk.barcode}</td>
+                                <td>${produk.nama}</td>
+                                <td style="text-align:center"><span class="text-danger-minus">${produk.stok}</span></td>
+                            `;
+                            tbody.appendChild(tr);
+                        });
 
-            setTimeout(() => {
-                triggerMainSearch();
-            }, 100);
-        });
-
-        document.getElementById('closeModalRekap').addEventListener('click', () => {
-            document.getElementById('modalRekapStok').style.display = 'none';
-        });
-
-        if (sessionStorage.getItem('erzap_auto_open_stok_modal') === 'yes') {
-            sessionStorage.removeItem('erzap_auto_open_stok_modal');
-            setTimeout(() => {
-                btnRekap.click();
-                const btnCari = document.getElementById('tmBtnCari');
-                if (btnCari) {
-                    btnCari.innerText = 'Terapkan Filter';
-                    btnCari.disabled = false;
+                        scrollToBottom();
+                    }
                 }
-            }, 1000);
+
+                if (!adaDataDitemukan && !stopRequested) {
+                    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #555;">✅ Tidak ada outlet yang memiliki stok minus.</td></tr>`;
+                }
+
+                if (!stopRequested) {
+                    statusText.innerText = "Scan selesai!";
+                }
+
+                btnScan.disabled = false;
+                btnScan.style.opacity = '1';
+                btnStop.style.display = 'none';
+                scrollToBottom();
+            };
         }
-    });
+    }
+
+    window.addEventListener('load', () => { setTimeout(injectButton, 500); });
+    const observer = new MutationObserver(() => { injectButton(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+
 })();
