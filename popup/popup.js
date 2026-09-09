@@ -1,4 +1,5 @@
 let scripts = [];
+let autoScripts = [];
 let currentTab = null;
 let previewMeta = null;
 
@@ -8,9 +9,8 @@ const CURRENT_VERSION = chrome.runtime.getManifest().version;
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('version-label').textContent = 'v' + CURRENT_VERSION;
 
-  await loadScripts();
   await detectPage();
-  renderList();
+  await renderList();
 
   document.getElementById('btn-run-all').addEventListener('click', runAllScripts);
   document.getElementById('btn-add').addEventListener('click', openModal);
@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-save').addEventListener('click', saveNewScript);
   document.getElementById('btn-paste').addEventListener('click', pasteFromClipboard);
   document.getElementById('btn-update').addEventListener('click', () => checkUpdate(true));
+  document.getElementById('btn-resync').addEventListener('click', forceResync);
 
   detectEngine();
 
@@ -47,6 +48,23 @@ function detectEngine() {
   } catch (e) {
     el.textContent = 'Engine: fallback (script tag)';
     el.className = 'engine-label warn';
+  }
+}
+
+// ===== FORCE RESYNC (tarik ulang daftar file dari folder GitHub) =====
+function forceResync() {
+  setStatus('Menarik ulang daftar script...', '#3b82f6');
+  try {
+    chrome.runtime.sendMessage({ action: 'resync' }, () => {
+      if (chrome.runtime.lastError) {
+        setStatus('Gagal resync.', '#dc2626');
+        return;
+      }
+      setStatus('Daftar script diperbarui!', '#16a34a');
+      setTimeout(renderList, 300);
+    });
+  } catch (e) {
+    setStatus('Gagal resync.', '#dc2626');
   }
 }
 
@@ -101,16 +119,6 @@ async function pasteFromClipboard() {
   }
 }
 
-async function loadScripts() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['scripts'], (data) => {
-      scripts = data.scripts || [];
-      document.getElementById('script-count').textContent = '(' + scripts.length + ')';
-      resolve();
-    });
-  });
-}
-
 async function detectPage() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTab = tabs[0];
@@ -159,39 +167,62 @@ async function fetchMetaFromUrl(url) {
   } catch (e) { return null; }
 }
 
+// ===== RENDER DAFTAR SCRIPT (auto + manual) =====
 async function renderList() {
+  const stored = await new Promise(r => chrome.storage.local.get(['scripts', 'autoScripts'], r));
+  scripts = stored.scripts || [];
+  autoScripts = stored.autoScripts || [];
+
   const container = document.getElementById('script-list');
   container.innerHTML = '';
+  document.getElementById('script-count').textContent = '(' + (autoScripts.length + scripts.length) + ')';
 
-  if (scripts.length === 0) {
-    container.innerHTML = '<div class="empty">Belum ada script. Klik + Tambah Script.</div>';
+  if (autoScripts.length === 0 && scripts.length === 0) {
+    container.innerHTML = '<div class="empty">Folder scripts/ kosong / belum tersinkron.<br>Klik 🔄 untuk tarik ulang, atau + Tambah Script manual.</div>';
     return;
   }
 
   const pageUrl = currentTab && currentTab.url ? currentTab.url : '';
 
-  for (const script of scripts) {
-    const meta = await fetchMetaFromUrl(script.url);
-    const allPatterns = meta ? [...meta.match, ...meta.include] : [];
-    const isMatch = matchUrl(pageUrl, allPatterns);
+  // Auto scripts (dari folder GitHub) di atas, manual di bawah
+  for (const script of autoScripts) await renderItem(container, script, pageUrl, true);
+  for (const script of scripts) await renderItem(container, script, pageUrl, false);
 
-    const div = document.createElement('div');
-    div.className = 'script-item' + (isMatch ? ' match' : '');
-    div.innerHTML = `
-      <div class="script-info">
-        <div class="script-name">${escapeHtml(meta ? meta.name : 'Loading...')}</div>
-        <div class="script-meta">v${escapeHtml(meta ? meta.version : '?')} | ${scripts.indexOf(script) + 1}/${scripts.length}</div>
-        <div class="script-match">${escapeHtml(allPatterns.join(', ') || 'Semua halaman')} ${isMatch ? '✓ match' : ''}</div>
-      </div>
-      <div class="script-btns">
-        <div class="toggle-switch ${script.enabled ? 'on' : ''}" data-id="${script.id}"></div>
-        <button class="btn-icon" data-del="${script.id}" title="Hapus">&#10005;</button>
-      </div>
-    `;
-    container.appendChild(div);
-  }
+  attachHandlers(container);
+}
 
-  container.querySelectorAll('.toggle-switch').forEach(t => {
+async function renderItem(container, script, pageUrl, isAuto) {
+  const meta = await fetchMetaFromUrl(script.url);
+  const allPatterns = meta ? [...meta.match, ...meta.include] : [];
+  const isMatch = matchUrl(pageUrl, allPatterns);
+
+  const div = document.createElement('div');
+  div.className = 'script-item' + (isMatch ? ' match' : '');
+  const badge = isAuto ? '<span class="badge-auto">AUTO</span>' : '';
+  const toggleAttr = isAuto
+    ? 'data-file="' + escapeHtml(script.file || '') + '"'
+    : 'data-id="' + escapeHtml(script.id) + '"';
+  const deleteBtn = isAuto
+    ? ''
+    : '<button class="btn-icon" data-del="' + escapeHtml(script.id) + '" title="Hapus">&#10005;</button>';
+
+  div.innerHTML = `
+    <div class="script-info">
+      <div class="script-name">${badge}${escapeHtml(meta ? meta.name : 'Loading...')}</div>
+      <div class="script-meta">v${escapeHtml(meta ? meta.version : '?')}</div>
+      <div class="script-match">${escapeHtml(allPatterns.join(', ') || 'Semua halaman')} ${isMatch ? '✓ match' : ''}</div>
+    </div>
+    <div class="script-btns">
+      <div class="toggle-switch ${script.enabled ? 'on' : ''}" ${toggleAttr}></div>
+      ${deleteBtn}
+    </div>
+  `;
+  container.appendChild(div);
+}
+
+function attachHandlers(container) {
+  // Toggle script MANUAL
+  container.querySelectorAll('.toggle-switch[data-id]').forEach(t => {
     t.addEventListener('click', (e) => {
       const id = e.target.dataset.id;
       const s = scripts.find(x => x.id === id);
@@ -205,13 +236,35 @@ async function renderList() {
     });
   });
 
+  // Toggle script AUTO (via daftar disabledAuto)
+  container.querySelectorAll('.toggle-switch[data-file]').forEach(t => {
+    t.addEventListener('click', (e) => {
+      const file = e.target.dataset.file;
+      chrome.storage.local.get(['disabledAuto'], (d) => {
+        let disabled = d.disabledAuto || [];
+        const isCurrentlyDisabled = disabled.indexOf(file) !== -1;
+        if (isCurrentlyDisabled) {
+          disabled = disabled.filter(x => x !== file);
+        } else {
+          disabled.push(file);
+        }
+        chrome.storage.local.set({ disabledAuto: disabled }, () => {
+          setStatus(isCurrentlyDisabled ? 'Script auto diaktifkan' : 'Script auto dinonaktifkan', '#16a34a');
+          // background re-sync otomatis (storage.onChanged) & menulis ulang autoScripts
+          setTimeout(renderList, 400);
+        });
+      });
+    });
+  });
+
+  // Hapus script MANUAL
   container.querySelectorAll('[data-del]').forEach(b => {
     b.addEventListener('click', (e) => {
       const id = e.target.dataset.del;
       if (confirm('Hapus script ini?')) {
         scripts = scripts.filter(s => s.id !== id);
         chrome.storage.local.set({ scripts: scripts }, () => {
-          loadScripts().then(renderList);
+          renderList();
           setStatus('Script dihapus', '#dc2626');
         });
       }
@@ -275,7 +328,7 @@ function saveNewScript() {
   scripts.push({ id, url, enabled: true });
   chrome.storage.local.set({ scripts: scripts }, () => {
     closeModal();
-    loadScripts().then(renderList);
+    renderList();
     setStatus('Script ditambah! ' + (previewMeta ? previewMeta.name : ''), '#16a34a');
   });
 }

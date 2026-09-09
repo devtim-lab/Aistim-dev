@@ -94,8 +94,12 @@
   function fallbackDynamic() {
     console.log('[Aistim] Engine: fallback script-tag');
     if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
-    chrome.storage.local.get(['scripts'], function(data) {
-      var scripts = (data.scripts || []).filter(function(s) { return s.enabled; });
+    // effectiveScripts = gabungan auto (folder GitHub) + manual, sudah di-dedupe oleh background
+    chrome.storage.local.get(['effectiveScripts', 'scripts'], function(data) {
+      var list = (data.effectiveScripts && data.effectiveScripts.length)
+        ? data.effectiveScripts
+        : (data.scripts || []);
+      var scripts = list.filter(function(s) { return s.enabled !== false; });
       if (scripts.length === 0) return;
       scripts.forEach(function(s) {
         fetch(s.url, { cache: 'no-store' })

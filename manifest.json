@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.4.0",
-  "description": "AI Userscript Manager — userScripts engine (CSP-safe) + Erzap hardcoded",
+  "version": "2.5.0",
+  "description": "AI Userscript Manager — auto-load dari folder scripts/ GitHub, userScripts engine (CSP-safe)",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "activeTab", "scripting", "clipboardRead", "userScripts"],
   "host_permissions": ["<all_urls>"],

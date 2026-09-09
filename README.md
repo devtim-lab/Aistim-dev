@@ -1,14 +1,24 @@
-# Aistim Tool v2.4.0
+# Aistim Tool v2.5.0
 
-**AI Userscript Manager** — userScripts engine (CSP-safe), red icon, paste URL.
+**AI Userscript Manager** — auto-load semua script dari folder `scripts/` GitHub. Tanpa isi manual!
+
+## ✨ Cara Kerja Baru (Auto-Load)
+Semua file `.js` di folder **`scripts/`** repo [AistimScript](https://github.com/devtim-lab/AistimScript/tree/main/scripts) **otomatis diambil & dijalankan** — tidak perlu paste URL manual lagi.
+
+**Menambah script baru cukup:**
+1. Upload file `.js` (dengan metadata `@match`) ke folder `scripts/` di GitHub
+2. Buka popup ekstensi → klik 🔄 (atau tunggu restart browser)
+3. Selesai — script langsung aktif
+
+Script auto tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF (tidak bisa dihapus — hapus file-nya di GitHub). Tambah manual via URL masih bisa untuk script di luar folder.
 
 ## Fitur
+- **Auto-Discovery** — baca semua `.js` di folder `scripts/` GitHub otomatis (cache 5 menit)
+- **Anti-Duplikat** — script dengan `@name` sama hanya jalan sekali (manual prioritas)
 - **userScripts Engine** — dynamic script jalan via `chrome.userScripts` API, **kebal CSP halaman** (termasuk Erzap)
 - **Erzap Hardcoded** — tombol "Rekap Pesanan" langsung jalan tanpa eval (CSP-safe)
 - **Load Shim** — listener `window.load` tetap jalan walau script telat diinject
 - **Handshake Check** — badge "Dynamic OK" hanya muncul kalau script benar-benar berjalan
-- **Paste URL** — tombol 📋 Paste dari clipboard
-- **Auto Parse Metadata** — @name, @version, @match otomatis
 - **Cek Update** — tombol 🔄 di popup + auto cek saat popup dibuka
 
 ## Syarat
@@ -41,6 +51,13 @@
 - **Engine userScripts** — tidak terpengaruh CSP halaman (script jalan di dunia terpisah yang aman)
 - **Erzap hardcoded** — selalu jalan (tidak pakai eval)
 - **Engine fallback** — hanya dipakai di browser tanpa userScripts API; bisa diblokir CSP situs strict
+
+## Changelog v2.5.0
+- **Auto-load folder**: semua `.js` di folder `scripts/` repo AistimScript otomatis diambil — tanpa isi URL manual
+- Badge **AUTO** di popup + toggle ON/OFF per script auto
+- Tombol 🔄 di popup untuk paksa tarik ulang daftar script
+- Anti-duplikat berdasarkan `@name` (manual prioritas)
+- Cache daftar file 5 menit (hemat rate limit GitHub API)
 
 ## Changelog v2.4.0
 - Engine baru: `chrome.userScripts` API — dynamic script **kebal CSP** (fix: script "Auto Koreksi" tidak muncul di Erzap)
