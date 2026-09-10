@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.8.3
-// @description  v1.8.3 - Scan barcode via kamera (BarcodeDetector native), responsif mobile & desktop, analisa otomatis per gudang
+// @version      1.8.4
+// @description  v1.8.4 - Scan barcode via kamera + animasi laser viewfinder, responsif mobile & desktop, analisa otomatis per gudang
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -106,6 +106,37 @@
         width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:14px}
     #az_cam_video{width:100%;aspect-ratio:4/3;background:#000;object-fit:cover}
     #az_cam_status{padding:10px 14px;color:#ddd;font-size:12px;text-align:center}
+    /* ===== ANIMASI VIEWFINDER SCANNER ===== */
+    #az_cam_overlay{animation:azFadeIn .25s ease}
+    #az_cam_box{animation:azPopIn .3s cubic-bezier(.2,1.4,.4,1)}
+    @keyframes azFadeIn{from{opacity:0}to{opacity:1}}
+    @keyframes azPopIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
+    #az_cam_view{position:relative;overflow:hidden}
+    /* sudut-sudut viewfinder */
+    .az_corner{position:absolute;width:34px;height:34px;border:3px solid #e63946;
+        z-index:2;animation:azCornerPulse 2s ease-in-out infinite}
+    .az_corner.tl{top:12px;left:12px;border-right:none;border-bottom:none;border-radius:8px 0 0 0}
+    .az_corner.tr{top:12px;right:12px;border-left:none;border-bottom:none;border-radius:0 8px 0 0}
+    .az_corner.bl{bottom:12px;left:12px;border-right:none;border-top:none;border-radius:0 0 0 8px}
+    .az_corner.br{bottom:12px;right:12px;border-left:none;border-top:none;border-radius:0 0 8px 0}
+    @keyframes azCornerPulse{0%,100%{opacity:1}50%{opacity:.45}}
+    /* garis laser scan bergerak naik-turun */
+    #az_laser{position:absolute;left:8%;right:8%;height:3px;z-index:2;
+        background:linear-gradient(90deg,transparent,#e63946 20%,#ff6b78 50%,#e63946 80%,transparent);
+        border-radius:3px;box-shadow:0 0 12px 3px rgba(230,57,70,.7);
+        animation:azLaser 2.2s ease-in-out infinite}
+    @keyframes azLaser{0%,100%{top:12%}50%{top:85%}}
+    /* area bidik semi-transparan di tengah */
+    #az_reticle{position:absolute;left:8%;right:8%;top:25%;bottom:25%;z-index:1;
+        border:1px dashed rgba(255,255,255,.35);border-radius:10px;
+        animation:azReticle 2.2s ease-in-out infinite}
+    @keyframes azReticle{0%,100%{border-color:rgba(255,255,255,.35)}50%{border-color:rgba(230,57,70,.8)}}
+    /* flash hijau saat barcode berhasil terbaca */
+    #az_cam_view.az_success::after{content:'';position:absolute;inset:0;z-index:3;
+        background:rgba(42,157,63,.45);animation:azSuccess .5s ease}
+    #az_cam_view.az_success #az_laser{animation:none;top:50%;background:#2a9d3f;
+        box-shadow:0 0 16px 4px rgba(42,157,63,.8)}
+    @keyframes azSuccess{from{opacity:0}to{opacity:1}}
     /* ===== RESPONSIF MOBILE ===== */
     @media (max-width:600px){
         #az_modal{width:100vw;max-width:100vw;height:100vh;max-height:100vh;border-radius:0}
@@ -126,6 +157,7 @@
         #az_btn{padding:7px 12px;font-size:12px;margin-left:6px}
         /* kamera full layar */
         #az_cam_box{width:100vw;max-width:100vw;height:100vh;border-radius:0}
+        #az_cam_view{flex:1;display:flex;flex-direction:column}
         #az_cam_video{flex:1;aspect-ratio:auto}
     }
     /* desktop lebar: modal sedikit lebih lega */
@@ -186,7 +218,13 @@
     <div id="az_cam_overlay">
       <div id="az_cam_box">
         <div id="az_cam_head"><span>📷 Scan Barcode</span><button id="az_cam_close">✕</button></div>
-        <video id="az_cam_video" playsinline muted></video>
+        <div id="az_cam_view">
+          <video id="az_cam_video" playsinline muted></video>
+          <div class="az_corner tl"></div><div class="az_corner tr"></div>
+          <div class="az_corner bl"></div><div class="az_corner br"></div>
+          <div id="az_reticle"></div>
+          <div id="az_laser"></div>
+        </div>
         <div id="az_cam_status">Arahkan kamera ke barcode...</div>
       </div>
     </div>`;
@@ -287,9 +325,17 @@
                     const codes = await detector.detect(video);
                     if (codes && codes.length > 0) {
                         const val = codes[0].rawValue;
-                        stopCamScanner();
-                        $('#az_barcode').val(val);
-                        doScan(); // langsung cari setelah barcode terbaca
+                        camScanning = false;
+                        // Animasi sukses: flash hijau + laser berhenti di tengah
+                        const view = document.getElementById('az_cam_view');
+                        if (view) view.classList.add('az_success');
+                        status.textContent = '✅ Barcode terbaca: ' + val;
+                        setTimeout(() => {
+                            stopCamScanner();
+                            if (view) view.classList.remove('az_success');
+                            $('#az_barcode').val(val);
+                            doScan(); // langsung cari setelah barcode terbaca
+                        }, 650);
                         return;
                     }
                 } catch (e) { /* frame belum siap, lanjut */ }
