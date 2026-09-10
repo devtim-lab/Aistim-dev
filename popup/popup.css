@@ -298,3 +298,18 @@ body {
   opacity: 1;
 }
 
+.us-warning {
+  font-size: 11px;
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: -4px 0 10px 0;
+  line-height: 1.5;
+}
+.us-warning ol {
+  margin: 6px 0 0 0;
+  padding-left: 18px;
+}
+.us-warning li { margin-bottom: 2px; }

@@ -34,24 +34,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ===== ENGINE STATUS (userScripts vs fallback) =====
 function detectEngine() {
   const el = document.getElementById('engine-label');
+  const warn = document.getElementById('us-warning');
+
+  function setState(isActive) {
+    if (isActive) {
+      el.textContent = 'Engine: userScripts API ✅ (CSP-safe)';
+      el.className = 'engine-label ok';
+      if (warn) warn.style.display = 'none';
+    } else {
+      el.textContent = 'Engine: fallback — "Izinkan Skrip Pengguna" belum aktif!';
+      el.className = 'engine-label warn';
+      if (warn) warn.style.display = 'block';
+    }
+  }
+
   try {
     chrome.runtime.sendMessage({ action: 'us-status' }, (res) => {
-      if (chrome.runtime.lastError || !res) {
-        el.textContent = 'Engine: fallback (script tag)';
-        el.className = 'engine-label warn';
-        return;
-      }
-      if (res.userScripts) {
-        el.textContent = 'Engine: userScripts API ✅ (CSP-safe)';
-        el.className = 'engine-label ok';
-      } else {
-        el.textContent = 'Engine: fallback — situs CSP strict mungkin gagal';
-        el.className = 'engine-label warn';
-      }
+      if (chrome.runtime.lastError || !res) { setState(false); return; }
+      setState(!!res.userScripts);
     });
   } catch (e) {
-    el.textContent = 'Engine: fallback (script tag)';
-    el.className = 'engine-label warn';
+    setState(false);
   }
 }
 
