@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rekap Stok Minus - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Scan stok minus outlet (auto set filter stok < 0) dengan tema warna merah dan tombol di sebelah kanan.
+// @version      1.1.0
+// @description  Scan stok minus outlet. Saat mulai scan: semua filter dikosongkan dulu, baru filter perkiraan jumlah diset < 0. Tombol serasi dengan tombol Analisa.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -37,8 +37,9 @@
         .erzap-btn-scan { background: #dc3545; color: white; }
         .erzap-btn-scan:hover { background: #c82333; }
         .container-btn-stokmin { margin-bottom: 10px; display: flex; justify-content: flex-end; }
-        #btn-buka-modal { background-color: #dc3545; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        #btn-buka-modal:hover { background-color: #c82333; }
+        #btn-buka-modal { background: linear-gradient(135deg,#e63946,#b30d1c); color: #fff; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font: 600 13px/1 'Segoe UI',Arial,sans-serif; box-shadow: 0 2px 8px rgba(230,57,70,.4); white-space: nowrap; }
+        #btn-buka-modal:hover { background: linear-gradient(135deg,#d63040,#a50c1a); }
+        #btn-buka-modal:active { transform: scale(.95); }
         .scan-status { font-size: 12px; color: #666; font-style: italic; }
         .text-danger-minus { color: red; font-weight: bold; }
     `;
@@ -171,6 +172,65 @@
         return sudahDiset;
     }
 
+    // === KOSONGKAN SEMUA FILTER DI HALAMAN ERZAP ===
+    // Cek setiap filter; yang masih terisi dikembalikan ke kosong / "-- Semua --".
+    // Select outlet & checkbox outlet TIDAK disentuh (diatur oleh logika scan).
+    function kosongkanSemuaFilter() {
+        const diModalKita = el => el.closest('#erzap-modal-backdrop, #az_overlay, #az_modal');
+
+        // 1. Input teks / angka / pencarian → kosongkan
+        document.querySelectorAll('input[type="text"], input[type="number"], input[type="search"]').forEach(inp => {
+            if (diModalKita(inp)) return;
+            if (inp.value !== '') {
+                inp.value = '';
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                triggerChange(inp);
+            }
+        });
+
+        // 2. Select → kembali ke opsi kosong / "-- Semua --" (atau opsi pertama)
+        document.querySelectorAll('select').forEach(sel => {
+            if (diModalKita(sel)) return;
+            if (sel.id === 'pencarian_idoutlet_own') return; // outlet diatur logika scan
+            const opts = Array.from(sel.options);
+            const optKosong = opts.find(o => o.value === '' || /semua|all|--/i.test(o.text));
+            const target = optKosong || opts[0];
+            if (target && sel.value !== target.value) {
+                sel.value = target.value;
+                triggerChange(sel);
+            }
+        });
+
+        // 3. Radio → pilih yang value kosong / bertuliskan "Semua"
+        const radioGroups = {};
+        document.querySelectorAll('input[type="radio"]').forEach(r => {
+            if (diModalKita(r)) return;
+            (radioGroups[r.name] = radioGroups[r.name] || []).push(r);
+        });
+        Object.values(radioGroups).forEach(group => {
+            const def = group.find(r => {
+                const lbl = r.closest('label') || document.querySelector(`label[for="${r.id}"]`);
+                const txt = ((lbl ? lbl.innerText : '') + ' ' + (r.value || '')).toLowerCase();
+                return r.value === '' || /semua|all/.test(txt);
+            });
+            if (def && !def.checked) {
+                def.checked = true;
+                def.dispatchEvent(new Event('click', { bubbles: true }));
+                triggerChange(def);
+            }
+        });
+
+        // 4. Checkbox filter (selain checkbox outlet) → uncheck
+        document.querySelectorAll('input[type="checkbox"]').forEach(chk => {
+            if (diModalKita(chk)) return;
+            if (chk.classList.contains('checkbox_list_outlets')) return;
+            if (chk.checked) {
+                chk.checked = false;
+                chk.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+    }
+
     // Set jumlah baris tabel ke maksimal supaya semua stok minus tampil 1 halaman
     function setTabelTampilSemua() {
         document.querySelectorAll('select').forEach(sel => {
@@ -298,9 +358,16 @@
                 let counterNo = 1;
                 let adaDataDitemukan = false;
 
-                // Set filter stok < 0 (minus) sekali di awal sebelum scan semua outlet
+                // LANGKAH 1: Kosongkan dulu SEMUA filter (teks, select, radio, checkbox)
+                statusText.innerText = "Mengosongkan semua filter...";
+                kosongkanSemuaFilter();
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // LANGKAH 2: Setelah semua filter kosong, baru set filter perkiraan jumlah < 0
+                statusText.innerText = "Mengatur filter perkiraan jumlah < 0...";
                 const filterTerSet = setFilterStokMinus();
                 setTabelTampilSemua();
+                await new Promise(resolve => setTimeout(resolve, 300));
                 if (!filterTerSet) {
                     statusText.innerText = "⚠️ Filter stok < 0 tidak ditemukan di halaman, scan tetap jalan (filter manual via baca tabel)...";
                     await new Promise(resolve => setTimeout(resolve, 1200));
