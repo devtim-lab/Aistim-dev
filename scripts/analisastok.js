@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.9.1
-// @description  v1.9.1 - Tema merah awal (original), toggle samping outlet, total stok tengah plus hijau min merah
+// @version      1.9.2
+// @description  v1.9.2 - TH tabel tidak transparan saat scroll, tombol CARI warna tema merah
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -43,7 +43,7 @@
     .az_row input:focus,.az_row select:focus{outline:none;border-color:#e63946;
         box-shadow:0 0 0 2px rgba(230,57,70,.15)}
     #az_scan{width:100%;padding:9px;border:none;border-radius:8px;cursor:pointer;
-        background:linear-gradient(135deg,#1d3557,#457b9d);color:#fff;
+        background:linear-gradient(135deg,#e63946,#b30d1c);color:#fff;box-shadow:0 2px 8px rgba(230,57,70,.4)
         font:700 13px 'Segoe UI',Arial,sans-serif}
     #az_scan:active{transform:scale(.98)}
     #az_scan:disabled{opacity:.6}
@@ -57,7 +57,7 @@
     /* hasil */
     #az_hasil{margin-top:14px}
     #az_info{font-size:12px;color:#666;margin-bottom:6px}
-    #az_tbl{width:100%;border-collapse:collapse;font-size:12px}
+    #az_tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
     #az_tbl td{padding:7px 6px;border-bottom:1px solid #eee;vertical-align:top}
     #az_tbl tr:nth-child(even) td{background:#f9f9f9}
     .az-minus{color:#e63946;font-weight:700}
@@ -81,13 +81,13 @@
     .az_jenis_tbl{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px}
     .az_jenis_tbl td{padding:5px 6px;border-bottom:1px solid #f0e6cc}
     .az_trx_wrap{max-height:180px;overflow:auto;border:1px solid #f0e6cc;border-radius:6px}
-    .az_trx_tbl{width:100%;border-collapse:collapse;font-size:11px}
+    .az_trx_tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px}
     .az_trx_tbl td{padding:5px 6px;border-bottom:1px solid #f2f2f2;vertical-align:top}
     .az_out{color:#e63946;font-weight:700;white-space:nowrap}
     .az_in{color:#2a9d3f;font-weight:700;white-space:nowrap}
     /* semua header tabel di modal = MERAH + shadow merah */
     #az_tbl th,.az_trx_tbl th,.az_jenis_tbl th{
-        background:linear-gradient(135deg,#e63946,#b30d1c) !important;
+        background-color:#e63946 !important;background:linear-gradient(135deg,#e63946,#b30d1c) !important;
         color:#fff !important;
         text-align:left;
         box-shadow:0 3px 6px rgba(230,57,70,.45);
@@ -217,7 +217,7 @@
           </div>
           <!-- Tombol cari full width -->
           <div class="az_row" style="margin-bottom:0">
-            <button type="button" id="az_scan">🔍 SCAN / CARI</button>
+            <button type="button" id="az_scan">🔍 CARI</button>
           </div>
           <!-- Nilai internal perkiraan jumlah (hidden) -->
           <input type="hidden" id="az_cmp" value="<">
