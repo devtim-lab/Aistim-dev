@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.8.4
-// @description  v1.8.4 - Scan barcode via kamera + animasi laser viewfinder, responsif mobile & desktop, analisa otomatis per gudang
+// @version      1.8.5
+// @description  v1.8.5 - Fix modal kepotong di HP, kamera kotak berbingkai + laser, nada beep saat barcode terbaca
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -97,7 +97,9 @@
     /* overlay kamera scanner */
     #az_cam_overlay{display:none;position:fixed;inset:0;z-index:999999;
         background:rgba(0,0,0,.85);align-items:center;justify-content:center}
-    #az_cam_box{background:#111;border-radius:12px;overflow:hidden;width:420px;max-width:94vw;
+    #az_cam_box{background:#111;border-radius:14px;overflow:hidden;width:420px;max-width:92vw;
+        max-height:86vh;max-height:86dvh;
+        border:3px solid #e63946;box-shadow:0 0 0 4px rgba(255,255,255,.12),0 12px 40px rgba(0,0,0,.6);
         display:flex;flex-direction:column;font-family:'Segoe UI',Arial,sans-serif}
     #az_cam_head{display:flex;align-items:center;justify-content:space-between;
         background:linear-gradient(135deg,#e63946,#b30d1c);color:#fff;
@@ -139,7 +141,9 @@
     @keyframes azSuccess{from{opacity:0}to{opacity:1}}
     /* ===== RESPONSIF MOBILE ===== */
     @media (max-width:600px){
-        #az_modal{width:100vw;max-width:100vw;height:100vh;max-height:100vh;border-radius:0}
+        /* 100dvh = tinggi viewport real di HP (tidak kepotong toolbar browser) */
+        #az_modal{width:100vw;max-width:100vw;height:100vh;height:100dvh;
+            max-height:100vh;max-height:100dvh;border-radius:0}
         #az_body{padding:12px}
         /* baris barcode+outlet jadi vertikal */
         .az_row[style*="display:flex"]{flex-direction:column;gap:12px !important}
@@ -155,10 +159,10 @@
         .az_chip{font-size:10px;padding:4px 8px}
         /* tombol Analisa utama lebih kecil di HP */
         #az_btn{padding:7px 12px;font-size:12px;margin-left:6px}
-        /* kamera full layar */
-        #az_cam_box{width:100vw;max-width:100vw;height:100vh;border-radius:0}
-        #az_cam_view{flex:1;display:flex;flex-direction:column}
-        #az_cam_video{flex:1;aspect-ratio:auto}
+        /* kamera: tetap kotak berbingkai di HP (tidak full layar) */
+        #az_cam_box{width:92vw;max-width:92vw}
+        #az_cam_view{display:flex;flex-direction:column}
+        #az_cam_video{aspect-ratio:3/4}
     }
     /* desktop lebar: modal sedikit lebih lega */
     @media (min-width:900px){
@@ -278,6 +282,26 @@
     let camStream = null;
     let camScanning = false;
 
+    // Nada beep sukses (Web Audio API — tanpa file eksternal, aman dari CSP)
+    function playBeepSukses() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.connect(g);
+            g.connect(ctx.destination);
+            o.type = 'sine';
+            // Nada ganda: bip-bip naik (seperti scanner kasir)
+            o.frequency.setValueAtTime(880, ctx.currentTime);
+            o.frequency.setValueAtTime(1318, ctx.currentTime + 0.09);
+            g.gain.setValueAtTime(0.3, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
+            o.start();
+            o.stop(ctx.currentTime + 0.3);
+            o.onended = () => ctx.close();
+        } catch (e) { /* audio tidak tersedia, abaikan */ }
+    }
+
     function stopCamScanner() {
         camScanning = false;
         if (camStream) {
@@ -326,6 +350,7 @@
                     if (codes && codes.length > 0) {
                         const val = codes[0].rawValue;
                         camScanning = false;
+                        playBeepSukses(); // nada bip-bip saat barcode ketemu
                         // Animasi sukses: flash hijau + laser berhenti di tengah
                         const view = document.getElementById('az_cam_view');
                         if (view) view.classList.add('az_success');
