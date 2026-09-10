@@ -1,10 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Rekap Pesanan Baru per Outlet (Tema Merah)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.3
-// @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/pesananbaru.js
-// @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/pesananbaru.js
-// @description  [v1.2.3] Otomatis set status Pesanan Baru, rekap otomatis antar halaman, urutkan dari yang tertinggi (Tema Merah).
+// @version      1.2.4
+// @description  [v1.2.4] Jangkar tombol by ID marketplace + observer agar pasti muncul. Rekap otomatis antar halaman, urutkan dari yang tertinggi (Tema Merah).
 // @author       You
 // @match        https://*.erzap.com/pesanan_penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -13,12 +11,13 @@
 
 (function() {
     'use strict';
+    console.log("[Aistim] Script Rekap Pesanan berhasil dimuat dan sedang berjalan...");
 
-    // 1. Fitur Auto Search saat Outlet Berubah (Manual di layar)
-    const interval = setInterval(() => {
+    // 1. Fitur Auto Search saat Outlet Berubah
+    setInterval(() => {
         const outletSelect = document.querySelector('#pencarian_idoutlet_own');
-        if (outletSelect) {
-            clearInterval(interval);
+        if (outletSelect && !outletSelect.hasAttribute('data-auto-search')) {
+            outletSelect.setAttribute('data-auto-search', 'true');
             outletSelect.addEventListener('change', function() {
                 const form = outletSelect.closest('form');
                 if (form) {
@@ -28,39 +27,45 @@
                 }
             });
         }
-    }, 500);
+    }, 1000);
 
-    // 2. Tambah Tombol "Rekap Pesanan" (multi-strategi, tidak tergantung 1 teks jangkar)
+    // 2. Pasang tombol Rekap — multi-strategi (ID asli dulu, lalu cadangan)
     function buatTombolRekap() {
         const rekapBtn = document.createElement('button');
         rekapBtn.id = 'btn-rekap-pesanan';
         rekapBtn.type = 'button';
-        rekapBtn.className = 'btn btn-danger btn-sm';
+        rekapBtn.className = 'btn btn-danger';
         rekapBtn.style.marginRight = '8px';
-        rekapBtn.innerHTML = '<i class="fa fa-list"></i> Rekap Pesanan';
+        rekapBtn.style.backgroundColor = '#dc3545';
+        rekapBtn.style.borderColor = '#dc3545';
+        rekapBtn.style.color = '#fff';
+        rekapBtn.innerHTML = '<i class="fa fa-bars" style="margin-right: 5px;"></i> Rekap Pesanan Baru';
         rekapBtn.addEventListener('click', mulaiRekapPesananBaru);
         return rekapBtn;
     }
 
-    function cobaInjectTombol() {
-        if (document.querySelector('#btn-rekap-pesanan')) return true; // sudah ada
+    function pasangTombolRekap() {
+        if (document.getElementById('btn-rekap-pesanan')) return true; // Sudah ada
 
-        // Strategi 1: jangkar tombol/link berteks "marketplace" (variasi teks apapun)
-        let anchor = Array.from(document.querySelectorAll('a, button')).find(el =>
-            (el.textContent || '').toLowerCase().includes('marketplace')
-        );
+        // Strategi 1: jangkar ID asli tombol marketplace (paling akurat)
+        let anchor = document.getElementById('btn_cari_pesanan_marketplace_online');
         if (anchor) {
-            const btn = buatTombolRekap();
-            btn.className = anchor.className || 'btn btn-danger btn-sm';
-            btn.style.backgroundColor = '#dc3545';
-            btn.style.borderColor = '#dc3545';
-            btn.style.color = '#fff';
-            anchor.parentNode.insertBefore(btn, anchor);
-            console.log('[Aistim] Rekap Pesanan: tombol disisipkan di samping tombol marketplace');
+            anchor.parentNode.insertBefore(buatTombolRekap(), anchor);
+            console.log("[Aistim] Tombol Rekap dipasang via ID marketplace");
             return true;
         }
 
-        // Strategi 2: taruh di dekat select outlet (form pencarian)
+        // Strategi 2: cari tombol/link apa saja berteks "marketplace"
+        anchor = Array.from(document.querySelectorAll('a, button')).find(el =>
+            (el.textContent || '').toLowerCase().includes('marketplace')
+        );
+        if (anchor) {
+            anchor.parentNode.insertBefore(buatTombolRekap(), anchor);
+            console.log("[Aistim] Tombol Rekap dipasang via teks marketplace");
+            return true;
+        }
+
+        // Strategi 3: taruh di form pencarian (dekat select outlet / tombol submit)
         const outletSelect = document.querySelector('#pencarian_idoutlet_own');
         if (outletSelect) {
             const form = outletSelect.closest('form');
@@ -73,36 +78,39 @@
             } else {
                 outletSelect.parentNode.appendChild(btn);
             }
-            console.log('[Aistim] Rekap Pesanan: tombol disisipkan di form pencarian');
+            console.log("[Aistim] Tombol Rekap dipasang di form pencarian");
             return true;
         }
 
-        // Strategi 3: panel heading / judul halaman
+        // Strategi 4: judul halaman
         const titleArea = document.querySelector('.panel-heading, .page-title, h1, h2, h3');
         if (titleArea) {
             const btn = buatTombolRekap();
             btn.style.marginLeft = '10px';
             titleArea.appendChild(btn);
-            console.log('[Aistim] Rekap Pesanan: tombol disisipkan di judul halaman');
+            console.log("[Aistim] Tombol Rekap dipasang di judul halaman");
             return true;
         }
 
         return false;
     }
 
-    const btnInterval = setInterval(() => {
-        if (cobaInjectTombol()) clearInterval(btnInterval);
-    }, 500);
-    // MutationObserver cadangan untuk halaman yang render lambat / SPA-ish
-    new MutationObserver(() => cobaInjectTombol()).observe(document.documentElement, { childList: true, subtree: true });
-    window.addEventListener('load', () => setTimeout(cobaInjectTombol, 800));
+    // MutationObserver agar bereaksi instan saat halaman selesai loading
+    const observer = new MutationObserver(() => { pasangTombolRekap(); });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    // Interval cadangan jika observer terlewat
+    setInterval(pasangTombolRekap, 1500);
+    window.addEventListener('load', () => setTimeout(pasangTombolRekap, 800));
 
     // 3. Fungsi Utama: Pilih Outlet -> Set Status -> Cari -> Baca Pagination -> Simpan
     async function mulaiRekapPesananBaru() {
         const outletSelect = document.querySelector('#pencarian_idoutlet_own');
-        if (!outletSelect) return;
+        if (!outletSelect) {
+            alert("Pilihan Outlet tidak ditemukan di halaman ini!");
+            return;
+        }
 
-        // Mencari parameter form untuk "Status Pesanan = Pesanan Baru"
         let statusParamName = '';
         let statusBaruValue = '';
         document.querySelectorAll('select').forEach(sel => {
@@ -124,16 +132,15 @@
 
         tampilkanModalLoadingUI();
 
-        // Proses setiap outlet
         for (let i = 0; i < options.length; i++) {
             const opt = options[i];
             updateLoadingStatus(`Proses [${i+1}/${options.length}]: Memeriksa Outlet ${opt.text}...`);
 
             try {
                 const formData = new FormData(searchForm);
-                formData.set('pencarian[idoutlet_own]', opt.value); // Set Outlet
+                formData.set('pencarian[idoutlet_own]', opt.value);
                 if (statusParamName && statusBaruValue) {
-                    formData.set(statusParamName, statusBaruValue); // Set Pesanan Baru
+                    formData.set(statusParamName, statusBaruValue);
                 }
 
                 let fetchUrl = formAction;
@@ -146,7 +153,6 @@
                     fetchParams.body = formData;
                 }
 
-                // Setup untuk Pagination
                 let currentUrl = fetchUrl;
                 let currentFetchParams = fetchParams;
                 let outletTotal = 0;
@@ -161,17 +167,13 @@
 
                     if (isFirstPage) {
                         const hasilParse = ekstrakTotalDariTeks(doc);
-
                         if (hasilParse.exact) {
-                            // Jika berhasil baca dari teks (Misal: "dari 45 data"), hentikan pencarian halaman
                             outletTotal = hasilParse.total;
                             break;
                         } else {
-                            // Jika gagal baca teks, mulai hitung manual dari tabel halaman 1
                             outletTotal += hasilParse.total;
                         }
                     } else {
-                        // Jika ada halaman ke-2, ke-3 dst, hitung baris secara manual
                         let countHalaman = 0;
                         doc.querySelectorAll('table tbody tr').forEach(row => {
                             if (row.querySelectorAll('td').length > 3) countHalaman++;
@@ -179,15 +181,14 @@
                         outletTotal += countHalaman;
                     }
 
-                    // Cari tombol halaman berikutnya (Hanya terjadi jika ekstrakTotalDariTeks Gagal)
                     let nextLink = cariLinkNext(doc);
                     if (nextLink) {
                         currentUrl = nextLink;
-                        currentFetchParams = { method: 'GET' }; // Permintaan halaman selanjutnya biasanya via GET URL
+                        currentFetchParams = { method: 'GET' };
                         isFirstPage = false;
                         updateLoadingStatus(`Proses [${i+1}/${options.length}]: Menghitung halaman selanjutnya untuk ${opt.text}...`);
                     } else {
-                        hasNextPage = false; // Tidak ada halaman lagi
+                        hasNextPage = false;
                     }
                 }
 
@@ -209,22 +210,14 @@
 
     function ekstrakTotalDariTeks(doc) {
         const textBody = doc.body.textContent || "";
-
-        // Pola 1: "Menampilkan 1 sampai 10 dari 45 data" atau "Menampilkan 1 - 10 dari 45 data"
         const regexDari = /dari\s+([\d.,]+)\s+data/i;
         const matchDari = textBody.match(regexDari);
-        if (matchDari) {
-            return { total: parseInt(matchDari[1].replace(/[.,]/g, ''), 10), exact: true };
-        }
+        if (matchDari) return { total: parseInt(matchDari[1].replace(/[.,]/g, ''), 10), exact: true };
 
-        // Pola 2: "Menampilkan 15 data"
         const regexMenampilkan = /Menampilkan\s+([\d.,]+)\s+data/i;
         const matchMenampilkan = textBody.match(regexMenampilkan);
-        if (matchMenampilkan) {
-            return { total: parseInt(matchMenampilkan[1].replace(/[.,]/g, ''), 10), exact: true };
-        }
+        if (matchMenampilkan) return { total: parseInt(matchMenampilkan[1].replace(/[.,]/g, ''), 10), exact: true };
 
-        // Fallback: Jika teks tidak terdeteksi, hitung manual baris yang ada di tabel
         let countBaris = 0;
         doc.querySelectorAll('table tbody tr').forEach(row => {
             if (row.querySelectorAll('td').length > 3) countBaris++;
@@ -235,12 +228,9 @@
 
     function cariLinkNext(doc) {
         let path = null;
-
-        // 1. Coba deteksi berdasarkan standar atribut rel="next"
         let relNext = doc.querySelector('a[rel="next"]');
         if (relNext) path = relNext.getAttribute('href');
 
-        // 2. Coba deteksi teks ikon panah (>) atau kata Next / Selanjutnya di area navigasi pagination
         if (!path) {
             let links = doc.querySelectorAll('.pagination a, div[class*="pagin"] a, .pager a');
             for (let a of links) {
@@ -253,7 +243,6 @@
         }
 
         if (path && path !== '#' && !path.includes('javascript:')) {
-            // Gabungkan URL menjadi absolute url jika link yang didapat relatif
             if (path.startsWith('http')) return path;
             if (path.startsWith('/')) return window.location.origin + path;
             return window.location.origin + '/' + path;
@@ -274,7 +263,6 @@
                 <h3 style="margin-top: 0; color: #333;">Memproses Rekap Data...</h3>
                 <p id="loading-status" style="color: #666; margin-bottom: 20px; font-size: 13px;">Mempersiapkan pengaturan pencarian...</p>
                 <div style="width: 100%; background: #eee; height: 10px; border-radius: 5px; overflow: hidden;">
-                    <!-- Loading Bar Merah -->
                     <div style="width: 100%; height: 100%; background: #dc3545; animation: progress 1s infinite linear;"></div>
                 </div>
             </div>
@@ -292,12 +280,10 @@
         hapusModalUI();
         const modalOverlay = buatOverlayUI();
 
-        // MENGURUTKAN DATA DARI JUMLAH TERTINGGI KE TERENDAH
         rekapData.sort((a, b) => b.jumlah - a.jumlah);
 
         let tableContent = '';
         rekapData.forEach(data => {
-            // Angka menggunakan warna merah #dc3545
             tableContent += `<tr><td style="padding: 8px; border-bottom: 1px solid #ddd;">${data.nama}</td><td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center; font-weight: bold; color: #dc3545;">${data.jumlah}</td></tr>`;
         });
 
@@ -307,7 +293,6 @@
 
         modalOverlay.innerHTML = `
             <div style="background: #fff; width: 500px; border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); overflow: hidden; font-family: sans-serif;">
-                <!-- Header Modal Merah -->
                 <div style="background: #dc3545; color: #fff; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center;">
                     <h3 style="margin: 0; font-size: 16px;">Rekap (Filter: Pesanan Baru)</h3>
                     <button id="close-rekap-modal" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer;">&times;</button>
@@ -345,7 +330,7 @@
         overlay.id = 'erzap-rekap-modal-overlay';
         overlay.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.6); z-index: 9999; display: flex;
+            background: rgba(0,0,0,0.6); z-index: 9999999; display: flex;
             justify-content: center; align-items: center;
         `;
         return overlay;
