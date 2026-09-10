@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.8.2
-// @description  v1.8.2 - Tombol Analisa di samping judul, th tabel merah + shadow, analisa otomatis per gudang
+// @version      1.8.3
+// @description  v1.8.3 - Scan barcode via kamera (BarcodeDetector native), responsif mobile & desktop, analisa otomatis per gudang
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -86,8 +86,51 @@
     #az_tbl th{padding:7px 6px;position:sticky;top:0}
     .az_trx_tbl th{padding:5px 6px;position:sticky;top:0}
     .az_jenis_tbl th{padding:5px 6px}
+    /* barcode input + tombol scan kamera */
+    #az_barcode_wrap{display:flex;gap:6px;align-items:stretch}
+    #az_barcode_wrap input{flex:1;min-width:0}
+    #az_btn_barcode{flex:0 0 auto;width:44px;border:1px solid #ccc;border-radius:8px;
+        background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;
+        padding:0;color:#1d3557}
+    #az_btn_barcode:active{transform:scale(.93);background:#f0f0f0}
+    #az_btn_barcode svg{width:24px;height:24px}
+    /* overlay kamera scanner */
+    #az_cam_overlay{display:none;position:fixed;inset:0;z-index:999999;
+        background:rgba(0,0,0,.85);align-items:center;justify-content:center}
+    #az_cam_box{background:#111;border-radius:12px;overflow:hidden;width:420px;max-width:94vw;
+        display:flex;flex-direction:column;font-family:'Segoe UI',Arial,sans-serif}
+    #az_cam_head{display:flex;align-items:center;justify-content:space-between;
+        background:linear-gradient(135deg,#e63946,#b30d1c);color:#fff;
+        padding:10px 14px;font-weight:700;font-size:14px}
+    #az_cam_close{background:rgba(255,255,255,.2);border:none;color:#fff;
+        width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:14px}
+    #az_cam_video{width:100%;aspect-ratio:4/3;background:#000;object-fit:cover}
+    #az_cam_status{padding:10px 14px;color:#ddd;font-size:12px;text-align:center}
+    /* ===== RESPONSIF MOBILE ===== */
     @media (max-width:600px){
         #az_modal{width:100vw;max-width:100vw;height:100vh;max-height:100vh;border-radius:0}
+        #az_body{padding:12px}
+        /* baris barcode+outlet jadi vertikal */
+        .az_row[style*="display:flex"]{flex-direction:column;gap:12px !important}
+        /* input 16px supaya HP tidak auto-zoom saat fokus */
+        .az_row input[type=text],.az_row select{font-size:16px !important;padding:12px 10px}
+        #az_btn_barcode{width:52px}
+        /* tombol scan besar & mudah disentuh */
+        #az_scan{padding:14px;font-size:16px}
+        /* tabel lebih rapat di layar kecil */
+        #az_tbl{font-size:11px}
+        #az_tbl td,#az_tbl th{padding:5px 4px}
+        .az_trx_tbl,.az_jenis_tbl{font-size:10px}
+        .az_chip{font-size:10px;padding:4px 8px}
+        /* tombol Analisa utama lebih kecil di HP */
+        #az_btn{padding:7px 12px;font-size:12px;margin-left:6px}
+        /* kamera full layar */
+        #az_cam_box{width:100vw;max-width:100vw;height:100vh;border-radius:0}
+        #az_cam_video{flex:1;aspect-ratio:auto}
+    }
+    /* desktop lebar: modal sedikit lebih lega */
+    @media (min-width:900px){
+        #az_modal{width:640px}
     }`;
     const style = document.createElement('style');
     style.textContent = css;
@@ -103,7 +146,16 @@
           <div class="az_row" style="display:flex;gap:10px">
             <div style="flex:1.4;min-width:0">
               <label>Barcode</label>
-              <input type="text" id="az_barcode" placeholder="Scan / ketik barcode lalu Enter" autocomplete="off">
+              <div id="az_barcode_wrap">
+                <input type="text" id="az_barcode" placeholder="Scan / ketik barcode lalu Enter" autocomplete="off" inputmode="numeric">
+                <button type="button" id="az_btn_barcode" title="Scan barcode dengan kamera">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                    <line x1="7" y1="8" x2="7" y2="16"/><line x1="10.5" y1="8" x2="10.5" y2="16"/>
+                    <line x1="13.5" y1="8" x2="13.5" y2="16"/><line x1="17" y1="8" x2="17" y2="16"/>
+                  </svg>
+                </button>
+              </div>
             </div>
             <div style="flex:1;min-width:0">
               <label>Outlet (kosong = semua)</label>
@@ -129,6 +181,13 @@
           <div id="az_hasil"></div>
           <div id="az_analisa"></div>
         </div>
+      </div>
+    </div>
+    <div id="az_cam_overlay">
+      <div id="az_cam_box">
+        <div id="az_cam_head"><span>📷 Scan Barcode</span><button id="az_cam_close">✕</button></div>
+        <video id="az_cam_video" playsinline muted></video>
+        <div id="az_cam_status">Arahkan kamera ke barcode...</div>
       </div>
     </div>`;
     document.body.appendChild(wrap);
@@ -176,6 +235,77 @@
 
     $('#az_barcode').on('keydown', function (e) { if (e.key === 'Enter') doScan(); });
     $('#az_scan').on('click', doScan);
+
+    /* ================= SCAN BARCODE VIA KAMERA ================= */
+    let camStream = null;
+    let camScanning = false;
+
+    function stopCamScanner() {
+        camScanning = false;
+        if (camStream) {
+            camStream.getTracks().forEach(t => t.stop());
+            camStream = null;
+        }
+        const ov = document.getElementById('az_cam_overlay');
+        if (ov) ov.style.display = 'none';
+    }
+
+    async function startCamScanner() {
+        const overlay = document.getElementById('az_cam_overlay');
+        const video = document.getElementById('az_cam_video');
+        const status = document.getElementById('az_cam_status');
+        overlay.style.display = 'flex';
+
+        // Cek dukungan API native (Chrome Android & desktop modern)
+        if (!('BarcodeDetector' in window)) {
+            status.textContent = '⚠️ Browser tidak support scan kamera. Ketik manual atau pakai scanner USB/Bluetooth.';
+            return;
+        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            status.textContent = '⚠️ Kamera tidak tersedia di browser ini.';
+            return;
+        }
+
+        status.textContent = 'Membuka kamera...';
+        try {
+            camStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment' }, // kamera belakang di HP
+                audio: false
+            });
+            video.srcObject = camStream;
+            await video.play();
+            status.textContent = 'Arahkan kamera ke barcode...';
+
+            const detector = new BarcodeDetector({
+                formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code', 'codabar', 'itf']
+            });
+
+            camScanning = true;
+            const tick = async () => {
+                if (!camScanning) return;
+                try {
+                    const codes = await detector.detect(video);
+                    if (codes && codes.length > 0) {
+                        const val = codes[0].rawValue;
+                        stopCamScanner();
+                        $('#az_barcode').val(val);
+                        doScan(); // langsung cari setelah barcode terbaca
+                        return;
+                    }
+                } catch (e) { /* frame belum siap, lanjut */ }
+                setTimeout(tick, 250);
+            };
+            tick();
+        } catch (e) {
+            status.textContent = '⚠️ Kamera gagal dibuka: ' + (e.message || e.name) + '. Pastikan izin kamera diberikan.';
+        }
+    }
+
+    document.getElementById('az_btn_barcode').addEventListener('click', startCamScanner);
+    document.getElementById('az_cam_close').addEventListener('click', stopCamScanner);
+    document.getElementById('az_cam_overlay').addEventListener('click', function (e) {
+        if (e.target === this) stopCamScanner();
+    });
 
     /* ================= SCAN ================= */
     function doScan() {
