@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.8.6
-// @description  v1.8.6 - Toggle filter stok minus (ON = stok < 0, OFF = semua), hapus teks (stok < 0) di info hasil
+// @version      1.8.7
+// @description  v1.8.7 - Toggle filter pindah ke samping tombol cari, ukuran diperkecil agar serasi mobile & desktop
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -32,28 +32,28 @@
         box-shadow:0 10px 40px rgba(0,0,0,.35);font-family:'Segoe UI',Arial,sans-serif}
     #az_head{display:flex;align-items:center;justify-content:space-between;
         background:linear-gradient(135deg,#e63946,#b30d1c);color:#fff;
-        padding:12px 16px;font-weight:700;font-size:15px}
+        padding:10px 14px;font-weight:700;font-size:14px}
     #az_close{background:rgba(255,255,255,.2);border:none;color:#fff;
         width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:14px}
-    #az_body{padding:14px 16px;overflow-y:auto}
-    .az_row{margin-bottom:12px}
+    #az_body{padding:12px 14px;overflow-y:auto}
+    .az_row{margin-bottom:9px}
     .az_row>label{display:block;font-size:12px;font-weight:600;color:#444;margin-bottom:4px}
     .az_row input[type=text],.az_row select{width:100%;box-sizing:border-box;
-        padding:9px 10px;border:1px solid #ccc;border-radius:8px;font-size:14px}
+        padding:7px 9px;border:1px solid #ccc;border-radius:8px;font-size:13px}
     .az_row input:focus,.az_row select:focus{outline:none;border-color:#e63946;
         box-shadow:0 0 0 2px rgba(230,57,70,.15)}
-    #az_scan{width:100%;padding:11px;border:none;border-radius:8px;cursor:pointer;
+    #az_scan{width:100%;padding:9px;border:none;border-radius:8px;cursor:pointer;
         background:linear-gradient(135deg,#1d3557,#457b9d);color:#fff;
-        font:700 14px 'Segoe UI',Arial,sans-serif}
+        font:700 13px 'Segoe UI',Arial,sans-serif}
     #az_scan:active{transform:scale(.98)}
     #az_scan:disabled{opacity:.6}
     /* toggle switch filter stok minus */
-    .az_switch{width:48px;height:27px;border-radius:20px;background:#ccc;position:relative;
+    .az_switch{width:42px;height:24px;border-radius:20px;background:#ccc;position:relative;
         cursor:pointer;transition:background .2s;flex:0 0 auto;align-self:center}
     .az_switch.on{background:#e63946}
-    .az_knob{position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;
+    .az_knob{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;
         background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.35)}
-    .az_switch.on .az_knob{left:24px}
+    .az_switch.on .az_knob{left:21px}
     /* hasil */
     #az_hasil{margin-top:14px}
     #az_info{font-size:12px;color:#666;margin-bottom:6px}
@@ -96,11 +96,11 @@
     /* barcode input + tombol scan kamera */
     #az_barcode_wrap{display:flex;gap:6px;align-items:stretch}
     #az_barcode_wrap input{flex:1;min-width:0}
-    #az_btn_barcode{flex:0 0 auto;width:44px;border:1px solid #ccc;border-radius:8px;
+    #az_btn_barcode{flex:0 0 auto;width:40px;border:1px solid #ccc;border-radius:8px;
         background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;
         padding:0;color:#1d3557}
     #az_btn_barcode:active{transform:scale(.93);background:#f0f0f0}
-    #az_btn_barcode svg{width:24px;height:24px}
+    #az_btn_barcode svg{width:22px;height:22px}
     /* overlay kamera scanner */
     #az_cam_overlay{display:none;position:fixed;inset:0;z-index:999999;
         background:rgba(0,0,0,.85);align-items:center;justify-content:center}
@@ -155,10 +155,10 @@
         /* baris barcode+outlet jadi vertikal */
         .az_row[style*="display:flex"]{flex-direction:column;gap:12px !important}
         /* input 16px supaya HP tidak auto-zoom saat fokus */
-        .az_row input[type=text],.az_row select{font-size:16px !important;padding:12px 10px}
-        #az_btn_barcode{width:52px}
+        .az_row input[type=text],.az_row select{font-size:16px !important;padding:10px}
+        #az_btn_barcode{width:46px}
         /* tombol scan besar & mudah disentuh */
-        #az_scan{padding:14px;font-size:16px}
+        #az_scan{padding:12px;font-size:15px}
         /* tabel lebih rapat di layar kecil */
         #az_tbl{font-size:11px}
         #az_tbl td,#az_tbl th{padding:5px 4px}
@@ -205,17 +205,19 @@
               <select id="az_outlet"><option value="">-- Semua outlet --</option></select>
             </div>
           </div>
-          <!-- Toggle Filter Stok Minus: ON = stok < 0, OFF = semua (tanpa filter jumlah) -->
-          <div class="az_row" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-            <label style="margin:0">Filter Stok Minus (&lt; 0)</label>
-            <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
-              <div class="az_knob"></div>
+          <!-- Tombol cari + toggle filter stok minus di samping kanannya -->
+          <div class="az_row" style="display:flex;align-items:center;gap:10px;margin-bottom:0">
+            <button type="button" id="az_scan" style="flex:1;min-width:0">🔍 SCAN / CARI</button>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto">
+              <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
+                <div class="az_knob"></div>
+              </div>
+              <span style="font-size:9px;color:#888;white-space:nowrap">Stok &lt; 0</span>
             </div>
           </div>
           <!-- Nilai internal perkiraan jumlah (hidden) -->
           <input type="hidden" id="az_cmp" value="<">
           <input type="hidden" id="az_jml" value="0">
-          <button type="button" id="az_scan">🔍 SCAN / CARI</button>
           <div id="az_hasil"></div>
           <div id="az_analisa"></div>
         </div>
