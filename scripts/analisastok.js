@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.8.9
-// @description  v1.8.9 - Tema merah diredupkan (muted brick red), toggle samping outlet, total stok tengah plus hijau min merah
+// @version      1.9.0
+// @description  v1.9.0 - Tema merah semula tapi sedikit diredupkan, toggle samping outlet, total stok tengah
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -19,9 +19,9 @@
 
     /* ================= CSS ================= */
     const css = `
-    #az_btn{background:linear-gradient(135deg,#a94442,#843534);color:#fff;border:none;
+    #az_btn{background:linear-gradient(135deg,#d8404d,#9e1b26);color:#fff;border:none;
         border-radius:8px;padding:8px 18px;font:600 13px/1 'Segoe UI',Arial,sans-serif;
-        cursor:pointer;box-shadow:0 2px 8px rgba(169,68,66,.35);white-space:nowrap;
+        cursor:pointer;box-shadow:0 2px 8px rgba(216,64,77,.38);white-space:nowrap;
         margin-left:12px;align-self:center}
     #az_btn:active{transform:scale(.95)}
     #az_overlay{display:none;position:fixed;inset:0;z-index:99998;
@@ -31,7 +31,7 @@
         max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
         box-shadow:0 10px 40px rgba(0,0,0,.35);font-family:'Segoe UI',Arial,sans-serif}
     #az_head{display:flex;align-items:center;justify-content:space-between;
-        background:linear-gradient(135deg,#a94442,#843534);color:#fff;
+        background:linear-gradient(135deg,#d8404d,#9e1b26);color:#fff;
         padding:10px 14px;font-weight:700;font-size:14px}
     #az_close{background:rgba(255,255,255,.2);border:none;color:#fff;
         width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:14px}
@@ -40,8 +40,8 @@
     .az_row>label{display:block;font-size:12px;font-weight:600;color:#444;margin-bottom:4px}
     .az_row input[type=text],.az_row select{width:100%;box-sizing:border-box;
         padding:7px 9px;border:1px solid #ccc;border-radius:8px;font-size:13px}
-    .az_row input:focus,.az_row select:focus{outline:none;border-color:#a94442;
-        box-shadow:0 0 0 2px rgba(169,68,66,.15)}
+    .az_row input:focus,.az_row select:focus{outline:none;border-color:#d8404d;
+        box-shadow:0 0 0 2px rgba(216,64,77,.15)}
     #az_scan{width:100%;padding:9px;border:none;border-radius:8px;cursor:pointer;
         background:linear-gradient(135deg,#1d3557,#457b9d);color:#fff;
         font:700 13px 'Segoe UI',Arial,sans-serif}
@@ -50,7 +50,7 @@
     /* toggle switch filter stok minus */
     .az_switch{width:42px;height:24px;border-radius:20px;background:#ccc;position:relative;
         cursor:pointer;transition:background .2s;flex:0 0 auto;align-self:center}
-    .az_switch.on{background:#a94442}
+    .az_switch.on{background:#d8404d}
     .az_knob{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;
         background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.35)}
     .az_switch.on .az_knob{left:21px}
@@ -60,13 +60,13 @@
     #az_tbl{width:100%;border-collapse:collapse;font-size:12px}
     #az_tbl td{padding:7px 6px;border-bottom:1px solid #eee;vertical-align:top}
     #az_tbl tr:nth-child(even) td{background:#f9f9f9}
-    .az-minus{color:#a94442;font-weight:700}
+    .az-minus{color:#d8404d;font-weight:700}
     .az-plus{color:#2a9d3f;font-weight:700}
     #az_tbl td.az-stok-cell{text-align:center}
     .az-harga{color:#b58900;font-weight:600;white-space:nowrap}
     .az-nama{word-break:break-word}
     .az-stok-link{cursor:pointer;color:#1d3557;font-weight:700;text-decoration:underline}
-    .az-stok-link:hover{color:#a94442}
+    .az-stok-link:hover{color:#d8404d}
     /* panel analisa aktifitas */
     #az_analisa{margin-top:14px}
     .az_analisa_box{border:1px solid #f0c36d;background:#fffdf5;
@@ -76,22 +76,22 @@
     .az_chip{background:#fff;border:1px solid #f0c36d;border-radius:20px;
         padding:4px 10px;font-size:11px;font-weight:600;color:#555}
     .az_chip b{color:#1d3557}
-    .az_chip_red b{color:#a94442}
+    .az_chip_red b{color:#d8404d}
     .az_chip_green b{color:#2a9d3f}
     .az_jenis_tbl{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px}
     .az_jenis_tbl td{padding:5px 6px;border-bottom:1px solid #f0e6cc}
     .az_trx_wrap{max-height:180px;overflow:auto;border:1px solid #f0e6cc;border-radius:6px}
     .az_trx_tbl{width:100%;border-collapse:collapse;font-size:11px}
     .az_trx_tbl td{padding:5px 6px;border-bottom:1px solid #f2f2f2;vertical-align:top}
-    .az_out{color:#a94442;font-weight:700;white-space:nowrap}
+    .az_out{color:#d8404d;font-weight:700;white-space:nowrap}
     .az_in{color:#2a9d3f;font-weight:700;white-space:nowrap}
     /* semua header tabel di modal = MERAH + shadow merah */
     #az_tbl th,.az_trx_tbl th,.az_jenis_tbl th{
-        background:linear-gradient(135deg,#a94442,#843534) !important;
+        background:linear-gradient(135deg,#d8404d,#9e1b26) !important;
         color:#fff !important;
         text-align:left;
-        box-shadow:0 3px 6px rgba(169,68,66,.4);
-        border:1px solid #843534}
+        box-shadow:0 3px 6px rgba(216,64,77,.42);
+        border:1px solid #9e1b26}
     #az_tbl th{padding:7px 6px;position:sticky;top:0}
     .az_trx_tbl th{padding:5px 6px;position:sticky;top:0}
     .az_jenis_tbl th{padding:5px 6px}
@@ -108,10 +108,10 @@
         background:rgba(0,0,0,.85);align-items:center;justify-content:center}
     #az_cam_box{background:#111;border-radius:14px;overflow:hidden;width:420px;max-width:92vw;
         max-height:86vh;max-height:86dvh;
-        border:3px solid #a94442;box-shadow:0 0 0 4px rgba(255,255,255,.12),0 12px 40px rgba(0,0,0,.6);
+        border:3px solid #d8404d;box-shadow:0 0 0 4px rgba(255,255,255,.12),0 12px 40px rgba(0,0,0,.6);
         display:flex;flex-direction:column;font-family:'Segoe UI',Arial,sans-serif}
     #az_cam_head{display:flex;align-items:center;justify-content:space-between;
-        background:linear-gradient(135deg,#a94442,#843534);color:#fff;
+        background:linear-gradient(135deg,#d8404d,#9e1b26);color:#fff;
         padding:10px 14px;font-weight:700;font-size:14px}
     #az_cam_close{background:rgba(255,255,255,.2);border:none;color:#fff;
         width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:14px}
@@ -124,7 +124,7 @@
     @keyframes azPopIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
     #az_cam_view{position:relative;overflow:hidden}
     /* sudut-sudut viewfinder */
-    .az_corner{position:absolute;width:34px;height:34px;border:3px solid #a94442;
+    .az_corner{position:absolute;width:34px;height:34px;border:3px solid #d8404d;
         z-index:2;animation:azCornerPulse 2s ease-in-out infinite}
     .az_corner.tl{top:12px;left:12px;border-right:none;border-bottom:none;border-radius:8px 0 0 0}
     .az_corner.tr{top:12px;right:12px;border-left:none;border-bottom:none;border-radius:0 8px 0 0}
@@ -133,15 +133,15 @@
     @keyframes azCornerPulse{0%,100%{opacity:1}50%{opacity:.45}}
     /* garis laser scan bergerak naik-turun */
     #az_laser{position:absolute;left:8%;right:8%;height:3px;z-index:2;
-        background:linear-gradient(90deg,transparent,#a94442 20%,#cf7a74 50%,#a94442 80%,transparent);
-        border-radius:3px;box-shadow:0 0 12px 3px rgba(169,68,66,.65);
+        background:linear-gradient(90deg,transparent,#d8404d 20%,#ef6a76 50%,#d8404d 80%,transparent);
+        border-radius:3px;box-shadow:0 0 12px 3px rgba(216,64,77,.68);
         animation:azLaser 2.2s ease-in-out infinite}
     @keyframes azLaser{0%,100%{top:12%}50%{top:85%}}
     /* area bidik semi-transparan di tengah */
     #az_reticle{position:absolute;left:8%;right:8%;top:25%;bottom:25%;z-index:1;
         border:1px dashed rgba(255,255,255,.35);border-radius:10px;
         animation:azReticle 2.2s ease-in-out infinite}
-    @keyframes azReticle{0%,100%{border-color:rgba(255,255,255,.35)}50%{border-color:rgba(169,68,66,.75)}}
+    @keyframes azReticle{0%,100%{border-color:rgba(255,255,255,.35)}50%{border-color:rgba(216,64,77,.78)}}
     /* flash hijau saat barcode berhasil terbaca */
     #az_cam_view.az_success::after{content:'';position:absolute;inset:0;z-index:3;
         background:rgba(42,157,63,.45);animation:azSuccess .5s ease}
@@ -489,7 +489,7 @@
         let html = `<div id="az_info">Menampilkan <b>${rows.length}</b> data</div>`;
 
         if (rows.length === 0) {
-            html += `<div id="az_info" style="color:#a94442">❌ Data tidak ditemukan.</div>`;
+            html += `<div id="az_info" style="color:#d8404d">❌ Data tidak ditemukan.</div>`;
             $('#az_hasil').html(html);
             return;
         }
