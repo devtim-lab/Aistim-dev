@@ -32,6 +32,13 @@ Cukup tambah 1 file `.js` di folder **`scripts/`** — user tinggal klik 🔄 di
 // ==/UserScript==
 ```
 
+**Script yang pakai jQuery / variabel `window` milik halaman** (contoh: `$`, `jQuery`) WAJIB tambah tag khusus `@world main` di metadata, supaya didaftarkan ke MAIN world (tetap CSP-safe):
+
+```javascript
+// @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
+// @world        main    <- WAJIB untuk script ber-jQuery (contoh: analisastok.js)
+```
+
 Aturan script:
 - `@match` **selalu** pakai `https://*.erzap.com/...` (jangan `trial.` atau `demo.` saja) + akhiri dengan `*` kalau ada query string
 - `@version` format `x.y.z` — naikkan setiap kali edit script (misal `1.0.0` → `1.0.1`)

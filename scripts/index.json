@@ -4,6 +4,7 @@
     "rekapbeban.js",
     "rekapstokmin.js",
     "koreksiso.js",
-    "aistim_tool.js"
+    "aistim_tool.js",
+    "analisastok.js"
   ]
 }

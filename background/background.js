@@ -16,7 +16,7 @@ const LOAD_SHIM = "window.addEventListener=(function(orig){return function(t,f,o
 
 // ===== METADATA PARSER =====
 function parseMetadata(code) {
-  const meta = { name: 'Unnamed', version: '1.0.0', match: [], include: [], exclude: [] };
+  const meta = { name: 'Unnamed', version: '1.0.0', match: [], include: [], exclude: [], world: 'user_script' };
   const bm = code.match(/\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/);
   if (!bm) return meta;
   bm[1].split('\n').forEach(line => {
@@ -28,6 +28,8 @@ function parseMetadata(code) {
     if (k === 'match') meta.match.push(v);
     if (k === 'include') meta.include.push(v);
     if (k === 'exclude') meta.exclude.push(v);
+    // @world main -> script butuh konteks halaman (akses jQuery / variabel window milik situs)
+    if (k === 'world') meta.world = v.toLowerCase();
   });
   return meta;
 }
@@ -221,9 +223,10 @@ async function syncUserScripts() {
           id: 'aistim-' + (s.source === 'manual' ? s.id : 'auto-' + s.file),
           matches: validMatchPatterns(s.meta.match),
           js: [{ code: LOAD_SHIM }, { code: code }],
-          runAt: 'document_idle'
+          runAt: 'document_idle',
+          world: s.meta.world === 'main' ? 'MAIN' : 'USER_SCRIPT'
         }]);
-        console.log('[Aistim] ✅ registered:', s.meta.name, 'v' + s.meta.version, '(' + s.source + ')');
+        console.log('[Aistim] ✅ registered:', s.meta.name, 'v' + s.meta.version, '(' + s.source + (s.meta.world === 'main' ? ', MAIN world' : '') + ')');
       } catch (e) {
         console.error('[Aistim] ❌ Gagal register:', s.file || s.id, e);
       }
