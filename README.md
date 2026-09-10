@@ -2,6 +2,69 @@
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
+---
+
+# 🤖 PANDUAN WAJIB UNTUK AI / DEVELOPER LAIN
+
+> **BACA INI DULU sebelum mengubah apapun di repo ini!**
+> Repo ini pernah rusak 2x karena perubahan yang melanggar aturan di bawah.
+
+## ⛔ LARANGAN (jangan pernah lakukan)
+
+1. **JANGAN force push / timpa `main` dengan folder lama.** Selalu `git pull` dulu sebelum push. Kalau kamu (AI) tidak yakin versi lokalmu yang terbaru, clone ulang — jangan pernah `push --force`.
+2. **JANGAN ubah `@name` script yang sudah ada.** `@name` adalah kunci dedupe — ganti nama = script lama & baru jalan DOBEL di halaman yang sama. Ubah isi script boleh, `@name` harus tetap.
+3. **JANGAN hapus permission `"userScripts"` dari `manifest.json`.** Tanpa permission ini, semua script jatuh ke fallback script-tag yang **diblokir CSP Erzap** = semua script mati. (Ini bug fatal v2.6.x.)
+4. **JANGAN tambah file script duplikat** (contoh: `aistim_tool_v18.js` — versi lama dari script yang sama). Satu script = satu file.
+5. **JANGAN kembalikan sistem lama** (hardcoded `DEFAULT_SCRIPTS`, `chrome.scripting` MAIN world, inject `<script>` tag). Semua itu diblokir CSP Erzap.
+
+## ✅ Cara Menambah Script Baru (TANPA update ekstensi)
+
+Cukup tambah 1 file `.js` di folder **`scripts/`** — user tinggal klik 🔄 di popup:
+
+```javascript
+// ==UserScript==
+// @name         Nama Unik Script       <- WAJIB unik, jangan sama dgn script lain
+// @namespace    http://tampermonkey.net/
+// @version      1.0.0                  <- format x.y.z (BUKAN tanggal)
+// @description  Deskripsi singkat
+// @match        https://*.erzap.com/path_halaman*   <- WAJIB wildcard *.erzap.com
+// @grant        none
+// ==/UserScript==
+```
+
+Aturan script:
+- `@match` **selalu** pakai `https://*.erzap.com/...` (jangan `trial.` atau `demo.` saja) + akhiri dengan `*` kalau ada query string
+- `@version` format `x.y.z` — naikkan setiap kali edit script (misal `1.0.0` → `1.0.1`)
+- File baru di `scripts/` otomatis terdeteksi dari GitHub — **tidak perlu** edit file lain
+
+## 🔢 Kapan Versi Dinaikkan
+
+| Yang diubah | Yang dinaikkan | Perlu user install ulang? |
+|---|---|---|
+| Isi file di `scripts/` saja | `@version` script itu | ❌ TIDAK — cukup klik 🔄 di popup |
+| `manifest.json`, `background/`, `content/`, `popup/`, `icons/` | `"version"` di manifest | ✅ YA — user download ZIP baru |
+
+Setiap kenaikan `"version"` di manifest → GitHub Actions otomatis buat tag + release `vX.Y.Z` dengan ZIP berversi.
+
+## 🏗️ Arsitektur Singkat
+
+- `background/background.js` — engine utama: load script bundel (`scripts/index.json`) + remote (GitHub API folder `scripts/`), gabung dedupe by `@name` (versi tertinggi menang), daftarkan via `chrome.userScripts` API
+- `content/content.js` — fallback untuk browser tanpa userScripts + badge handshake
+- `popup/` — UI: daftar script, toggle ON/OFF (storage key `disabledAuto` by nama file), cek update release
+- Storage keys: `disabledAuto`, `autoScripts`, `effectiveScripts`, `repoListCache`, `scripts` (legacy manual)
+- Toggle OFF script = tambah nama file ke `disabledAuto` — jangan hapus file-nya
+
+## 📋 Checklist Sebelum Push (untuk AI)
+
+- [ ] `git pull` sudah dilakukan / clone fresh
+- [ ] `node --check` lolos untuk semua file `.js` yang diubah
+- [ ] `@name` script lama tidak berubah
+- [ ] Permission `userScripts` masih ada di manifest
+- [ ] Versi dinaikkan sesuai tabel di atas
+- [ ] TIDAK force push
+
+---
+
 ## ✨ Cara Kerja
 1. Semua script dibundel di folder **`scripts/`** (daftar ada di `scripts/index.json`)
 2. Saat browser start / klik 🔄 di popup, ekstensi cek versi script yang sama di GitHub — **kalau versi di GitHub lebih baru, itu yang dipakai** (update script tanpa reinstall ekstensi)
