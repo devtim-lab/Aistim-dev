@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.8.5
-// @description  v1.8.5 - Fix modal kepotong di HP, kamera kotak berbingkai + laser, nada beep saat barcode terbaca
+// @version      1.8.6
+// @description  v1.8.6 - Toggle filter stok minus (ON = stok < 0, OFF = semua), hapus teks (stok < 0) di info hasil
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -47,6 +47,13 @@
         font:700 14px 'Segoe UI',Arial,sans-serif}
     #az_scan:active{transform:scale(.98)}
     #az_scan:disabled{opacity:.6}
+    /* toggle switch filter stok minus */
+    .az_switch{width:48px;height:27px;border-radius:20px;background:#ccc;position:relative;
+        cursor:pointer;transition:background .2s;flex:0 0 auto;align-self:center}
+    .az_switch.on{background:#e63946}
+    .az_knob{position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;
+        background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+    .az_switch.on .az_knob{left:24px}
     /* hasil */
     #az_hasil{margin-top:14px}
     #az_info{font-size:12px;color:#666;margin-bottom:6px}
@@ -198,21 +205,16 @@
               <select id="az_outlet"><option value="">-- Semua outlet --</option></select>
             </div>
           </div>
-          <!-- Perkiraan Jumlah: hidden, tetap dipakai internal (< 0) -->
-          <div class="az_row" style="display:none">
-            <label>Perkiraan Jumlah</label>
-            <div style="display:flex;gap:6px">
-              <select id="az_cmp" style="flex:0 0 80px">
-                <option value="<" selected>&lt;</option>
-                <option value=">">&gt;</option>
-                <option value="<=">&lt;=</option>
-                <option value=">=">&gt;=</option>
-                <option value="=">=</option>
-                <option value="!=">!=</option>
-              </select>
-              <input type="text" id="az_jml" value="0" style="flex:1" autocomplete="off">
+          <!-- Toggle Filter Stok Minus: ON = stok < 0, OFF = semua (tanpa filter jumlah) -->
+          <div class="az_row" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <label style="margin:0">Filter Stok Minus (&lt; 0)</label>
+            <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
+              <div class="az_knob"></div>
             </div>
           </div>
+          <!-- Nilai internal perkiraan jumlah (hidden) -->
+          <input type="hidden" id="az_cmp" value="<">
+          <input type="hidden" id="az_jml" value="0">
           <button type="button" id="az_scan">🔍 SCAN / CARI</button>
           <div id="az_hasil"></div>
           <div id="az_analisa"></div>
@@ -277,6 +279,14 @@
 
     $('#az_barcode').on('keydown', function (e) { if (e.key === 'Enter') doScan(); });
     $('#az_scan').on('click', doScan);
+
+    // Toggle filter stok minus: ON = stok < 0, OFF = semua (nilai kosong)
+    $('#az_toggle_minus').on('click', function () {
+        $(this).toggleClass('on');
+        const on = $(this).hasClass('on');
+        $('#az_cmp').val(on ? '<' : '');
+        $('#az_jml').val(on ? '0' : '');
+    });
 
     /* ================= SCAN BARCODE VIA KAMERA ================= */
     let camStream = null;
@@ -470,7 +480,7 @@
             return;
         }
 
-        let html = `<div id="az_info">Menampilkan <b>${rows.length}</b> data (stok ${$('#az_cmp').val()} ${$('#az_jml').val()})</div>`;
+        let html = `<div id="az_info">Menampilkan <b>${rows.length}</b> data</div>`;
 
         if (rows.length === 0) {
             html += `<div id="az_info" style="color:#e63946">❌ Data tidak ditemukan.</div>`;
