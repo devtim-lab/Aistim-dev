@@ -240,7 +240,9 @@ function attachHandlers(container) {
   container.querySelectorAll('.toggle-switch[data-file]').forEach(t => {
     t.addEventListener('click', (e) => {
       const file = e.target.dataset.file;
-      chrome.storage.local.get(['disabledAuto'], (d) => {
+      // Update UI langsung (optimistic) — jangan tunggu background yang lambat
+      t.classList.toggle('on');
+      chrome.storage.local.get(['disabledAuto', 'autoScripts'], (d) => {
         let disabled = d.disabledAuto || [];
         const isCurrentlyDisabled = disabled.indexOf(file) !== -1;
         if (isCurrentlyDisabled) {
@@ -248,10 +250,15 @@ function attachHandlers(container) {
         } else {
           disabled.push(file);
         }
-        chrome.storage.local.set({ disabledAuto: disabled }, () => {
+        // Tulis disabledAuto SEKALIGUS patch autoScripts.enabled supaya UI konsisten
+        // tanpa menunggu sync background (yang fetch GitHub dan butuh beberapa detik)
+        const autoPatched = (d.autoScripts || []).map(s =>
+          Object.assign({}, s, { enabled: disabled.indexOf(s.file) === -1 })
+        );
+        chrome.storage.local.set({ disabledAuto: disabled, autoScripts: autoPatched }, () => {
           setStatus(isCurrentlyDisabled ? 'Script auto diaktifkan' : 'Script auto dinonaktifkan', '#16a34a');
-          // background re-sync otomatis (storage.onChanged) & menulis ulang autoScripts
-          setTimeout(renderList, 400);
+          // background re-sync otomatis (storage.onChanged) — nilai akhir tetap sama
+          setTimeout(renderList, 600);
         });
       });
     });
