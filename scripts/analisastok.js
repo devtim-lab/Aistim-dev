@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.8.7
-// @description  v1.8.7 - Toggle filter pindah ke samping tombol cari, ukuran diperkecil agar serasi mobile & desktop
+// @version      1.8.8
+// @description  v1.8.8 - Toggle pindah ke samping dropdown outlet, angka total stok di tengah (plus hijau, minus merah)
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -61,6 +61,8 @@
     #az_tbl td{padding:7px 6px;border-bottom:1px solid #eee;vertical-align:top}
     #az_tbl tr:nth-child(even) td{background:#f9f9f9}
     .az-minus{color:#e63946;font-weight:700}
+    .az-plus{color:#2a9d3f;font-weight:700}
+    #az_tbl td.az-stok-cell{text-align:center}
     .az-harga{color:#b58900;font-weight:600;white-space:nowrap}
     .az-nama{word-break:break-word}
     .az-stok-link{cursor:pointer;color:#1d3557;font-weight:700;text-decoration:underline}
@@ -202,18 +204,20 @@
             </div>
             <div style="flex:1;min-width:0">
               <label>Outlet (kosong = semua)</label>
-              <select id="az_outlet"><option value="">-- Semua outlet --</option></select>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="az_outlet" style="flex:1;min-width:0"><option value="">-- Semua outlet --</option></select>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:0 0 auto">
+                  <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
+                    <div class="az_knob"></div>
+                  </div>
+                  <span style="font-size:9px;color:#888;white-space:nowrap">Stok &lt; 0</span>
+                </div>
+              </div>
             </div>
           </div>
-          <!-- Tombol cari + toggle filter stok minus di samping kanannya -->
-          <div class="az_row" style="display:flex;align-items:center;gap:10px;margin-bottom:0">
-            <button type="button" id="az_scan" style="flex:1;min-width:0">🔍 SCAN / CARI</button>
-            <div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto">
-              <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
-                <div class="az_knob"></div>
-              </div>
-              <span style="font-size:9px;color:#888;white-space:nowrap">Stok &lt; 0</span>
-            </div>
+          <!-- Tombol cari full width -->
+          <div class="az_row" style="margin-bottom:0">
+            <button type="button" id="az_scan">🔍 SCAN / CARI</button>
           </div>
           <!-- Nilai internal perkiraan jumlah (hidden) -->
           <input type="hidden" id="az_cmp" value="<">
@@ -493,7 +497,7 @@
         html += `<div style="overflow:auto;max-height:35vh;border:1px solid #ddd;border-radius:8px">
         <table id="az_tbl">
           <thead><tr>
-            <th>Barcode</th><th>Nama</th><th>Harga Jual</th><th>Total Stok</th><th>Umur</th><th>Merek</th>
+            <th>Barcode</th><th>Nama</th><th>Harga Jual</th><th style="text-align:center">Total Stok</th><th>Umur</th><th>Merek</th>
           </tr></thead><tbody>`;
 
         rows.each(function () {
@@ -504,12 +508,12 @@
             const stok = td.eq(4).text().trim();
             const umur = td.eq(6).text().trim();
             const merek = td.eq(7).text().trim();
-            const clsStok = parseFloat(stok) < 0 ? 'az-minus' : '';
+            const clsStok = parseFloat(stok) < 0 ? 'az-minus' : 'az-plus';
             html += `<tr>
                 <td>${barcode}</td>
                 <td class="az-nama">${nama}</td>
                 <td class="az-harga">${harga}</td>
-                <td class="${clsStok}"><span class="az-stok-link" data-barcode="${barcode}">${stok}</span></td>
+                <td class="az-stok-cell ${clsStok}"><span class="az-stok-link" data-barcode="${barcode}">${stok}</span></td>
                 <td>${umur}</td>
                 <td>${merek}</td>
             </tr>`;
