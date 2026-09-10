@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Aistim Tool",
-  "version": "2.7.2",
+  "version": "2.7.3",
   "description": "AI Multi Userscript Manager — bundled scripts + auto-sync GitHub, engine userScripts (CSP-safe)",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "activeTab", "userScripts"],
