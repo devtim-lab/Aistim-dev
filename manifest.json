@@ -1,19 +1,55 @@
 {
-  "name": "manifest.json",
-  "path": "manifest.json",
-  "sha": "67df0e2db329bbfc8e7ef47f81d64377a9845097",
-  "size": 1154,
-  "url": "https://api.github.com/repos/devtim-lab/Aistim-dev/contents/manifest.json?ref=main",
-  "html_url": "https://github.com/devtim-lab/Aistim-dev/blob/main/manifest.json",
-  "git_url": "https://api.github.com/repos/devtim-lab/Aistim-dev/git/blobs/67df0e2db329bbfc8e7ef47f81d64377a9845097",
-  "download_url": "https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/manifest.json",
-  "type": "file",
-  "content": "ewogICJtYW5pZmVzdF92ZXJzaW9uIjogMywKICAibmFtZSI6ICJBaXN0aW0g\nVG9vbCIsCiAgInZlcnNpb24iOiAiMi44LjAiLAogICJkZXNjcmlwdGlvbiI6\nICJBSSBNdWx0aSBVc2Vyc2NyaXB0IE1hbmFnZXIg4oCUIGJ1bmRsZWQgc2Ny\naXB0cyArIGF1dG8tc3luYyBHaXRIdWIsIGVuZ2luZSB1c2VyU2NyaXB0cyAo\nQ1NQLXNhZmUpIiwKICAibWluaW11bV9jaHJvbWVfdmVyc2lvbiI6ICIxMjAi\nLAogICJwZXJtaXNzaW9ucyI6IFsKICAgICJzdG9yYWdlIiwKICAgICJhY3Rp\ndmVUYWIiLAogICAgInVzZXJTY3JpcHRzIgogIF0sCiAgImhvc3RfcGVybWlz\nc2lvbnMiOiBbCiAgICAiPGFsbF91cmxzPiIKICBdLAogICJhY3Rpb24iOiB7\nCiAgICAiZGVmYXVsdF9wb3B1cCI6ICJwb3B1cC9wb3B1cC5odG1sIiwKICAg\nICJkZWZhdWx0X3RpdGxlIjogIkFpc3RpbSBUb29sIOKAlCBVc2Vyc2NyaXB0\nIE1hbmFnZXIiLAogICAgImRlZmF1bHRfaWNvbiI6IHsKICAgICAgIjE2Ijog\nImljb25zL2ljb24xNi5wbmciLAogICAgICAiNDgiOiAiaWNvbnMvaWNvbjQ4\nLnBuZyIsCiAgICAgICIxMjgiOiAiaWNvbnMvaWNvbjEyOC5wbmciCiAgICB9\nCiAgfSwKICAiYmFja2dyb3VuZCI6IHsKICAgICJzZXJ2aWNlX3dvcmtlciI6\nICJiYWNrZ3JvdW5kL2JhY2tncm91bmQuanMiCiAgfSwKICAiY29udGVudF9z\nY3JpcHRzIjogWwogICAgewogICAgICAibWF0Y2hlcyI6IFsKICAgICAgICAi\nPGFsbF91cmxzPiIKICAgICAgXSwKICAgICAgImpzIjogWwogICAgICAgICJj\nb250ZW50L2NvbnRlbnQuanMiCiAgICAgIF0sCiAgICAgICJydW5fYXQiOiAi\nZG9jdW1lbnRfc3RhcnQiLAogICAgICAiYWxsX2ZyYW1lcyI6IGZhbHNlCiAg\nICB9CiAgXSwKICAiaWNvbnMiOiB7CiAgICAiMTYiOiAiaWNvbnMvaWNvbjE2\nLnBuZyIsCiAgICAiNDgiOiAiaWNvbnMvaWNvbjQ4LnBuZyIsCiAgICAiMTI4\nIjogImljb25zL2ljb24xMjgucG5nIgogIH0sCiAgIndlYl9hY2Nlc3NpYmxl\nX3Jlc291cmNlcyI6IFsKICAgIHsKICAgICAgInJlc291cmNlcyI6IFsKICAg\nICAgICAic2NyaXB0cy8qLmpzIiwKICAgICAgICAic2NyaXB0cy9pbmRleC5q\nc29uIgogICAgICBdLAogICAgICAibWF0Y2hlcyI6IFsKICAgICAgICAiPGFs\nbF91cmxzPiIKICAgICAgXQogICAgfQogIF0KfQo=\n",
-  "encoding": "base64",
-  "_links": {
-    "self": "https://api.github.com/repos/devtim-lab/Aistim-dev/contents/manifest.json?ref=main",
-    "git": "https://api.github.com/repos/devtim-lab/Aistim-dev/git/blobs/67df0e2db329bbfc8e7ef47f81d64377a9845097",
-    "html": "https://github.com/devtim-lab/Aistim-dev/blob/main/manifest.json"
+  "manifest_version": 3,
+  "name": "Aistim Tool",
+  "version": "2.8.1",
+  "description": "AI Multi Userscript Manager — bundled scripts + auto-sync GitHub, engine userScripts (CSP-safe)",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "userScripts"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Aistim Tool — Userscript Manager",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
-  "version": "2.8.1"
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "scripts/*.js",
+        "scripts/index.json"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }
