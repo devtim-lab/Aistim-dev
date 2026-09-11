@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Stok Opname Stok 1, 2 & 3
 // @namespace    http://tampermonkey.net/
-// @version      1.0.6
-// @description  Tambah kolom Stok 1,2,3 setelah Kategori, auto-jumlah ke Stok Aktual, simpan ke localStorage per ID SO + barcode
+// @version      1.1.0
+// @description  Tambah kolom Stok custom (atur via tombol ⚙) setelah Kategori, auto-jumlah ke Stok Aktual, simpan ke localStorage per ID SO + barcode
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @run-at       document-idle
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -12,9 +12,26 @@
 (function() {
     'use strict';
 
-    var KOLOM_STOK = ['Stok 1', 'Stok 2', 'Stok 3'];
     var LS_PREFIX = 'so_stok_';
+    var CONFIG_KEY = 'so_stok_kolom_config';
+    var DEFAULT_KOLOM = ['Stok 1', 'Stok 2', 'Stok 3'];
 
+    function loadKolomConfig() {
+        try {
+            var raw = localStorage.getItem(CONFIG_KEY);
+            if (raw) {
+                var arr = JSON.parse(raw);
+                if (Array.isArray(arr) && arr.length) return arr;
+            }
+        } catch (e) {}
+        return DEFAULT_KOLOM.slice();
+    }
+
+    function saveKolomConfig(arr) {
+        try { localStorage.setItem(CONFIG_KEY, JSON.stringify(arr)); } catch (e) {}
+    }
+
+    var KOLOM_STOK = loadKolomConfig();
     var sudahJalan = false;
     var ID_SO = '';
 
@@ -62,6 +79,11 @@
         if (barcode) simpanStok(barcode, nilaiArr);
     }
 
+    function hapusKolomLama(tabel) {
+        tabel.querySelectorAll('th[class^="th_stok_"]').forEach(function(th) { th.remove(); });
+        tabel.querySelectorAll('td.td_stok').forEach(function(td) { td.remove(); });
+    }
+
     function tambahKolom() {
         var container = document.querySelector('#stok_opnam_details');
         if (!container) return false;
@@ -78,17 +100,14 @@
 
         if (!header.querySelector('.th_stok_0')) {
             var thKategori = header.querySelectorAll('th')[idxKategori];
+            var refTh = thKategori;
             KOLOM_STOK.forEach(function(nama, i) {
                 var th = document.createElement('th');
                 th.className = 'th_stok_' + i;
                 th.style.width = '70px';
                 th.textContent = nama;
-                thKategori.after(th);
-            });
-            KOLOM_STOK.forEach(function(nama, i) {
-                if (i > 0) {
-                    thKategori.after(header.querySelector('.th_stok_' + i));
-                }
+                refTh.after(th);
+                refTh = th;
             });
         }
 
@@ -102,8 +121,10 @@
             var barcode = getBarcode(tr);
             var tersimpan = barcode ? ambilStok(barcode) : null;
 
+            var refTd = tdKategori;
             KOLOM_STOK.forEach(function(nama, i) {
                 var td = document.createElement('td');
+                td.className = 'td_stok';
                 td.style.textAlign = 'right';
                 var input = document.createElement('input');
                 input.type = 'text';
@@ -112,20 +133,14 @@
                 input.style.textAlign = 'right';
                 input.style.width = '60px';
 
-                if (tersimpan && tersimpan[i]) {
+                if (tersimpan && tersimpan[i] !== undefined) {
                     input.value = tersimpan[i];
                 }
 
                 input.addEventListener('input', function() { updateStokAktual(tr); });
                 td.appendChild(input);
-
-                if (i === 0) {
-                    tdKategori.after(td);
-                } else {
-                    tdKategori.parentNode
-                        .querySelector('tr#' + tr.id + ' .stok_input[data-stok-index="' + (i - 1) + '"]')
-                        .parentNode.after(td);
-                }
+                refTd.after(td);
+                refTd = td;
             });
 
             if (tersimpan) updateStokAktual(tr);
@@ -135,10 +150,161 @@
         return true;
     }
 
+    function rebuildKolom() {
+        var container = document.querySelector('#stok_opnam_details');
+        if (!container) return;
+        var tabel = container.querySelector('table');
+        if (!tabel) return;
+        hapusKolomLama(tabel);
+        tambahKolom();
+    }
+
+    // Hapus index tertentu dari semua array nilai stok yg tersimpan di localStorage,
+    // dipanggil saat sebuah kolom benar-benar dihapus (bukan sekadar rename/tambah)
+    // supaya nilai kolom yg tersisa tidak salah geser posisi.
+    function migrasiHapusKolom(idxDihapus) {
+        if (!idxDihapus.length) return;
+        var urut = idxDihapus.slice().sort(function(a, b) { return b - a; });
+        for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            if (!key || key.indexOf(LS_PREFIX) !== 0 || key === CONFIG_KEY) continue;
+            try {
+                var arr = JSON.parse(localStorage.getItem(key));
+                if (!Array.isArray(arr)) continue;
+                urut.forEach(function(idx) {
+                    if (idx < arr.length) arr.splice(idx, 1);
+                });
+                localStorage.setItem(key, JSON.stringify(arr));
+            } catch (e) {}
+        }
+    }
+
+    // ================= FAB + Modal CRUD kolom =================
+    function buatFab() {
+        if (document.querySelector('#stok123_fab')) return;
+
+        var fab = document.createElement('button');
+        fab.id = 'stok123_fab';
+        fab.textContent = '⚙';
+        fab.title = 'Atur kolom Stok';
+        fab.style.cssText = 'position:fixed;right:20px;bottom:20px;width:52px;height:52px;' +
+            'border-radius:50%;background:#2563eb;color:#fff;border:none;font-size:22px;' +
+            'box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;z-index:99999;line-height:1;';
+        fab.addEventListener('click', bukaModal);
+        document.body.appendChild(fab);
+    }
+
+    function bukaModal() {
+        if (document.querySelector('#stok123_modal_overlay')) return;
+
+        var overlay = document.createElement('div');
+        overlay.id = 'stok123_modal_overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);' +
+            'display:flex;align-items:center;justify-content:center;z-index:100000;';
+
+        var box = document.createElement('div');
+        box.style.cssText = 'background:#fff;border-radius:8px;padding:20px;width:320px;' +
+            'max-height:80vh;overflow:auto;font-family:sans-serif;box-sizing:border-box;';
+
+        var judul = document.createElement('h3');
+        judul.textContent = 'Atur Kolom Stok';
+        judul.style.cssText = 'margin:0 0 12px;font-size:16px;';
+        box.appendChild(judul);
+
+        var list = document.createElement('div');
+        box.appendChild(list);
+
+        var kerja = KOLOM_STOK.slice();
+        var kerjaIdxAsal = KOLOM_STOK.map(function(_, i) { return i; });
+
+        function renderList() {
+            list.innerHTML = '';
+            kerja.forEach(function(nama, i) {
+                var row = document.createElement('div');
+                row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;';
+
+                var input = document.createElement('input');
+                input.type = 'text';
+                input.value = nama;
+                input.style.cssText = 'flex:1;padding:6px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;';
+                input.addEventListener('input', function() { kerja[i] = input.value; });
+
+                var btnHapus = document.createElement('button');
+                btnHapus.textContent = '✕';
+                btnHapus.title = 'Hapus kolom';
+                btnHapus.style.cssText = 'background:#ef4444;color:#fff;border:none;' +
+                    'border-radius:4px;width:32px;cursor:pointer;flex-shrink:0;';
+                btnHapus.addEventListener('click', function() {
+                    kerja.splice(i, 1);
+                    kerjaIdxAsal.splice(i, 1);
+                    renderList();
+                });
+
+                row.appendChild(input);
+                row.appendChild(btnHapus);
+                list.appendChild(row);
+            });
+        }
+        renderList();
+
+        var btnTambah = document.createElement('button');
+        btnTambah.textContent = '+ Tambah Kolom';
+        btnTambah.style.cssText = 'width:100%;padding:8px;margin-top:6px;background:#f3f4f6;' +
+            'border:1px dashed #999;border-radius:4px;cursor:pointer;box-sizing:border-box;';
+        btnTambah.addEventListener('click', function() {
+            kerja.push('Stok ' + (kerja.length + 1));
+            kerjaIdxAsal.push(-1);
+            renderList();
+        });
+        box.appendChild(btnTambah);
+
+        var aksi = document.createElement('div');
+        aksi.style.cssText = 'display:flex;gap:8px;margin-top:16px;';
+
+        var btnBatal = document.createElement('button');
+        btnBatal.textContent = 'Batal';
+        btnBatal.style.cssText = 'flex:1;padding:8px;border:1px solid #ccc;border-radius:4px;' +
+            'background:#fff;cursor:pointer;';
+        btnBatal.addEventListener('click', function() { overlay.remove(); });
+
+        var btnSimpan = document.createElement('button');
+        btnSimpan.textContent = 'Simpan';
+        btnSimpan.style.cssText = 'flex:1;padding:8px;border:none;border-radius:4px;' +
+            'background:#2563eb;color:#fff;cursor:pointer;';
+        btnSimpan.addEventListener('click', function() {
+            var final = [], finalIdx = [];
+            for (var k = 0; k < kerja.length; k++) {
+                var t = kerja[k].trim();
+                if (t.length) { final.push(t); finalIdx.push(kerjaIdxAsal[k]); }
+            }
+            if (!final.length) { alert('Minimal 1 kolom.'); return; }
+
+            var idxDihapus = [];
+            KOLOM_STOK.forEach(function(_, i) {
+                if (finalIdx.indexOf(i) === -1) idxDihapus.push(i);
+            });
+
+            migrasiHapusKolom(idxDihapus);
+            KOLOM_STOK = final;
+            saveKolomConfig(KOLOM_STOK);
+            rebuildKolom();
+            overlay.remove();
+        });
+
+        aksi.appendChild(btnBatal);
+        aksi.appendChild(btnSimpan);
+        box.appendChild(aksi);
+
+        overlay.appendChild(box);
+        overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
+    }
+
     function mulai() {
         if (sudahJalan) return;
         if (tambahKolom()) {
             sudahJalan = true;
+            buatFab();
             var container = document.querySelector('#stok_opnam_details');
             if (container) {
                 new MutationObserver(function() { tambahKolom(); })
