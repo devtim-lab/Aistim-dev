@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Erzap - Stok Opname Stok 1, 2 & 3
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Tambah kolom Stok 1,2,3 setelah Kategori, auto-jumlah ke Stok Aktual, simpan ke localStorage per ID SO + barcode
-// @match        https://*.erzap.com/*
+// @match        https://*.erzap.com/stok_opnams/*
 // @run-at       document-idle
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
