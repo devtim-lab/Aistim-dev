@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Stok Opname Stok 1, 2 & 3
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
-// @description  Tambah kolom Stok custom (atur via tombol ⚙) setelah Kategori, auto-jumlah ke Stok Aktual, simpan ke localStorage per ID SO + barcode
+// @version      1.1.1
+// @description  Tambah kolom Stok custom (atur via tombol di atas tabel) setelah Kategori, auto-jumlah ke Stok Aktual, simpan ke localStorage per ID SO + barcode
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @run-at       document-idle
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -179,19 +179,23 @@
         }
     }
 
-    // ================= FAB + Modal CRUD kolom =================
-    function buatFab() {
-        if (document.querySelector('#stok123_fab')) return;
+    // ================= Tombol + Modal CRUD kolom =================
+    function buatTombolAtur() {
+        if (document.querySelector('#stok123_btn')) return;
 
-        var fab = document.createElement('button');
-        fab.id = 'stok123_fab';
-        fab.textContent = '⚙';
-        fab.title = 'Atur kolom Stok';
-        fab.style.cssText = 'position:fixed;right:20px;bottom:20px;width:52px;height:52px;' +
-            'border-radius:50%;background:#2563eb;color:#fff;border:none;font-size:22px;' +
-            'box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;z-index:99999;line-height:1;';
-        fab.addEventListener('click', bukaModal);
-        document.body.appendChild(fab);
+        var container = document.querySelector('#stok_opnam_details');
+        if (!container) return;
+        var tabel = container.querySelector('table');
+        if (!tabel) return;
+
+        var btn = document.createElement('button');
+        btn.id = 'stok123_btn';
+        btn.type = 'button';
+        btn.textContent = '⚙ Atur Kolom Stok';
+        btn.style.cssText = 'margin-bottom:8px;padding:6px 14px;border-radius:4px;' +
+            'background:#2563eb;color:#fff;border:none;font-size:13px;cursor:pointer;';
+        btn.addEventListener('click', bukaModal);
+        tabel.parentNode.insertBefore(btn, tabel);
     }
 
     function bukaModal() {
@@ -304,7 +308,7 @@
         if (sudahJalan) return;
         if (tambahKolom()) {
             sudahJalan = true;
-            buatFab();
+            buatTombolAtur();
             var container = document.querySelector('#stok_opnam_details');
             if (container) {
                 new MutationObserver(function() { tambahKolom(); })
