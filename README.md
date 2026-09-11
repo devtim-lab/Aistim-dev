@@ -117,6 +117,17 @@ Buka DevTools (F12) -> Console:
 - `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol Erzap berhasil
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
 
+## Changelog v2.8.0
+- Rilis untuk **test upgrade** extension (install ZIP baru di atas versi lama)
+- Termasuk semua perbaikan v2.7.1–v2.7.9:
+  - Icon bulat logo AISTIM baru (16/48/128)
+  - `web_accessible_resources` untuk fetch script via content script
+  - Banner peringatan popup jika "Izinkan Skrip Pengguna" belum aktif (Chrome 138+)
+  - Fix toggle aktif/nonaktif yang kembali aktif setelah refresh (race condition)
+  - Dukungan `@world main` untuk script berbasis jQuery halaman
+  - Script baru: analisastok.js (📊 Analisa Stok + scan barcode kamera)
+  - README: panduan wajib untuk AI/developer lain
+
 ## Changelog v2.7.0
 - **Fix error CSP**: kembalikan engine `chrome.userScripts` (sempat hilang di v2.6.x → script jatuh ke script-tag yang diblokir CSP Erzap)
 - Script bundel di folder `scripts/` + `index.json` — tanpa inject script tag, tanpa fetch GitHub saat offline
