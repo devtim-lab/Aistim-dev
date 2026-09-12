@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.9.5
-// @description  v1.9.5 - jenis transaksi digabung dgn kata pertama keterangan (lebih spesifik di breakdown)
+// @version      1.9.6
+// @description  v1.9.6 - tabel Jenis: tambah kolom Operator + Total Qty berwarna (merah/hijau); fix TH tabel aktifitas transparan pas scroll
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -92,8 +92,8 @@
         text-align:left;
         box-shadow:0 3px 6px rgba(230,57,70,.45);
         border:1px solid #b30d1c}
-    #az_tbl th{padding:7px 6px;position:sticky;top:0}
-    .az_trx_tbl th{padding:5px 6px;position:sticky;top:0}
+    #az_tbl th{padding:7px 6px;position:sticky;top:0;z-index:5}
+    .az_trx_tbl th{padding:5px 6px;position:sticky;top:0;z-index:5}
     .az_jenis_tbl th{padding:5px 6px}
     /* barcode input + tombol scan kamera */
     #az_barcode_wrap{display:flex;gap:6px;align-items:stretch}
@@ -637,9 +637,10 @@
             totalTrx++;
             if (isKeluar) totalKeluar += qty; else totalMasuk += qty;
 
-            if (!perJenis[jenis]) perJenis[jenis] = { count: 0, qty: 0 };
+            if (!perJenis[jenis]) perJenis[jenis] = { count: 0, qty: 0, operators: {} };
             perJenis[jenis].count++;
-            perJenis[jenis].qty += qty;
+            perJenis[jenis].qty += isKeluar ? -qty : qty;
+            if (operator) perJenis[jenis].operators[operator] = true;
 
             if (/^penjualan$/i.test(jenisAsli)) { jualCount++; jualQty += qty; }
 
@@ -667,10 +668,14 @@
         </div>`;
 
         html += `<table class="az_jenis_tbl">
-            <thead><tr><th>Jenis</th><th style="width:80px;text-align:center">Jml Trx</th><th style="width:80px;text-align:right">Total Qty</th></tr></thead>
+            <thead><tr><th>Jenis</th><th style="width:60px;text-align:center">Jml Trx</th><th style="width:70px;text-align:right">Total Qty</th><th>Operator</th></tr></thead>
             <tbody>`;
         Object.keys(a.perJenis).forEach(j => {
-            html += `<tr><td>${j}</td><td style="text-align:center">${a.perJenis[j].count}</td><td style="text-align:right">${a.perJenis[j].qty}</td></tr>`;
+            const net = a.perJenis[j].qty;
+            const clsQty = net < 0 ? 'az_out' : (net > 0 ? 'az_in' : '');
+            const tampilQty = (net > 0 ? '+' : '') + net;
+            const ops = Object.keys(a.perJenis[j].operators || {}).join(', ');
+            html += `<tr><td>${j}</td><td style="text-align:center">${a.perJenis[j].count}</td><td style="text-align:right" class="${clsQty}">${tampilQty}</td><td>${ops}</td></tr>`;
         });
         html += `</tbody></table>`;
 
