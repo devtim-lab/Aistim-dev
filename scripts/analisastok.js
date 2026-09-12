@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.9.2
-// @description  v1.9.2 - TH tabel tidak transparan saat scroll, tombol CARI warna tema merah
+// @version      1.9.3
+// @description  v1.9.3 - fix: box-shadow #az_scan hilang krn kurang titik-koma (font tidak kepakai)
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -43,7 +43,7 @@
     .az_row input:focus,.az_row select:focus{outline:none;border-color:#e63946;
         box-shadow:0 0 0 2px rgba(230,57,70,.15)}
     #az_scan{width:100%;padding:9px;border:none;border-radius:8px;cursor:pointer;
-        background:linear-gradient(135deg,#e63946,#b30d1c);color:#fff;box-shadow:0 2px 8px rgba(230,57,70,.4)
+        background:linear-gradient(135deg,#e63946,#b30d1c);color:#fff;box-shadow:0 2px 8px rgba(230,57,70,.4);
         font:700 13px 'Segoe UI',Arial,sans-serif}
     #az_scan:active{transform:scale(.98)}
     #az_scan:disabled{opacity:.6}
