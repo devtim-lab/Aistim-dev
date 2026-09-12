@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.9.7
-// @description  v1.9.7 - fix: kolom Operator bikin tabel Jenis/Aktifitas overflow keluar modal di HP (table-layout:fixed + word-wrap)
+// @version      1.9.8
+// @description  v1.9.8 - kolom panjang (Operator dll) tidak di-wrap, dikasih scroll horizontal dlm box sendiri
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -78,11 +78,12 @@
     .az_chip b{color:#1d3557}
     .az_chip_red b{color:#e63946}
     .az_chip_green b{color:#2a9d3f}
-    .az_jenis_tbl{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px;margin-bottom:8px}
-    .az_jenis_tbl td{padding:5px 6px;border-bottom:1px solid #f0e6cc;word-break:break-word;overflow-wrap:break-word}
+    .az_jenis_wrap{overflow-x:auto;margin-bottom:8px;border:1px solid #f0e6cc;border-radius:6px}
+    .az_jenis_tbl{width:100%;border-collapse:collapse;font-size:11px}
+    .az_jenis_tbl td{padding:5px 6px;border-bottom:1px solid #f0e6cc;white-space:nowrap}
     .az_trx_wrap{max-height:180px;overflow:auto;border:1px solid #f0e6cc;border-radius:6px}
-    .az_trx_tbl{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:11px}
-    .az_trx_tbl td{padding:5px 6px;border-bottom:1px solid #f2f2f2;vertical-align:top;word-break:break-word;overflow-wrap:break-word}
+    .az_trx_tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px}
+    .az_trx_tbl td{padding:5px 6px;border-bottom:1px solid #f2f2f2;vertical-align:top;white-space:nowrap}
     .az_out{color:#e63946;font-weight:700;white-space:nowrap}
     .az_in{color:#2a9d3f;font-weight:700;white-space:nowrap}
     /* semua header tabel di modal = MERAH + shadow merah */
@@ -667,8 +668,8 @@
             <span class="az_chip">Penjualan: <b>${a.jualCount}x</b> (${a.jualQty} pcs)</span>
         </div>`;
 
-        html += `<table class="az_jenis_tbl">
-            <thead><tr><th>Jenis</th><th style="width:44px;text-align:center">Jml Trx</th><th style="width:56px;text-align:right">Total Qty</th><th style="width:90px">Operator</th></tr></thead>
+        html += `<div class="az_jenis_wrap"><table class="az_jenis_tbl">
+            <thead><tr><th>Jenis</th><th style="width:44px;text-align:center">Jml Trx</th><th style="width:56px;text-align:right">Total Qty</th><th>Operator</th></tr></thead>
             <tbody>`;
         Object.keys(a.perJenis).forEach(j => {
             const net = a.perJenis[j].qty;
@@ -677,7 +678,7 @@
             const ops = Object.keys(a.perJenis[j].operators || {}).join(', ');
             html += `<tr><td>${j}</td><td style="text-align:center">${a.perJenis[j].count}</td><td style="text-align:right" class="${clsQty}">${tampilQty}</td><td>${ops}</td></tr>`;
         });
-        html += `</tbody></table>`;
+        html += `</tbody></table></div>`;
 
         html += `<div class="az_trx_wrap"><table class="az_trx_tbl">
             <thead><tr><th style="width:60px">Tanggal</th><th style="width:50px">Kode</th><th>Jenis</th><th style="width:42px">Jml</th><th>Keterangan</th><th style="width:78px">Operator</th></tr></thead>
