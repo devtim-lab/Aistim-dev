@@ -124,8 +124,7 @@ async function loadRemoteScripts() {
     const out = [];
     for (const f of files) {
       try {
-        const bustedUrl = f.url + (f.url.indexOf('?') === -1 ? '?' : '&') + '_cb=' + Date.now();
-        const res = await fetch(bustedUrl, { cache: 'no-store' });
+        const res = await fetch(f.url, { cache: 'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const code = await res.text();
         out.push({ file: f.name, code: code, meta: parseMetadata(code), url: f.url, source: 'remote' });
@@ -160,8 +159,7 @@ async function loadManualScripts() {
   const out = [];
   for (const s of manual) {
     try {
-      const bustedUrl = s.url + (s.url.indexOf('?') === -1 ? '?' : '&') + '_cb=' + Date.now();
-      const res = await fetch(bustedUrl, { cache: 'no-store' });
+      const res = await fetch(s.url, { cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const code = await res.text();
       out.push({ file: s.id, code: code, meta: parseMetadata(code), url: s.url, source: 'manual', id: s.id });
