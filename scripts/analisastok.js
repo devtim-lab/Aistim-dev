@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.9.6
-// @description  v1.9.6 - tabel Jenis: tambah kolom Operator + Total Qty berwarna (merah/hijau); fix TH tabel aktifitas transparan pas scroll
+// @version      1.9.7
+// @description  v1.9.7 - fix: kolom Operator bikin tabel Jenis/Aktifitas overflow keluar modal di HP (table-layout:fixed + word-wrap)
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -35,7 +35,7 @@
         padding:10px 14px;font-weight:700;font-size:14px}
     #az_close{background:rgba(255,255,255,.2);border:none;color:#fff;
         width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:14px}
-    #az_body{padding:12px 14px;overflow-y:auto}
+    #az_body{padding:12px 14px;overflow-y:auto;overflow-x:hidden}
     .az_row{margin-bottom:9px}
     .az_row>label{display:block;font-size:12px;font-weight:600;color:#444;margin-bottom:4px}
     .az_row input[type=text],.az_row select{width:100%;box-sizing:border-box;
@@ -78,11 +78,11 @@
     .az_chip b{color:#1d3557}
     .az_chip_red b{color:#e63946}
     .az_chip_green b{color:#2a9d3f}
-    .az_jenis_tbl{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px}
-    .az_jenis_tbl td{padding:5px 6px;border-bottom:1px solid #f0e6cc}
+    .az_jenis_tbl{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px;margin-bottom:8px}
+    .az_jenis_tbl td{padding:5px 6px;border-bottom:1px solid #f0e6cc;word-break:break-word;overflow-wrap:break-word}
     .az_trx_wrap{max-height:180px;overflow:auto;border:1px solid #f0e6cc;border-radius:6px}
-    .az_trx_tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px}
-    .az_trx_tbl td{padding:5px 6px;border-bottom:1px solid #f2f2f2;vertical-align:top}
+    .az_trx_tbl{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:11px}
+    .az_trx_tbl td{padding:5px 6px;border-bottom:1px solid #f2f2f2;vertical-align:top;word-break:break-word;overflow-wrap:break-word}
     .az_out{color:#e63946;font-weight:700;white-space:nowrap}
     .az_in{color:#2a9d3f;font-weight:700;white-space:nowrap}
     /* semua header tabel di modal = MERAH + shadow merah */
@@ -668,7 +668,7 @@
         </div>`;
 
         html += `<table class="az_jenis_tbl">
-            <thead><tr><th>Jenis</th><th style="width:60px;text-align:center">Jml Trx</th><th style="width:70px;text-align:right">Total Qty</th><th>Operator</th></tr></thead>
+            <thead><tr><th>Jenis</th><th style="width:44px;text-align:center">Jml Trx</th><th style="width:56px;text-align:right">Total Qty</th><th style="width:90px">Operator</th></tr></thead>
             <tbody>`;
         Object.keys(a.perJenis).forEach(j => {
             const net = a.perJenis[j].qty;
@@ -680,7 +680,7 @@
         html += `</tbody></table>`;
 
         html += `<div class="az_trx_wrap"><table class="az_trx_tbl">
-            <thead><tr><th>Tanggal</th><th>Kode</th><th>Jenis</th><th>Jml</th><th>Keterangan</th><th>Operator</th></tr></thead>
+            <thead><tr><th style="width:60px">Tanggal</th><th style="width:50px">Kode</th><th>Jenis</th><th style="width:42px">Jml</th><th>Keterangan</th><th style="width:78px">Operator</th></tr></thead>
             <tbody>`;
         a.listTrx.forEach(t => {
             const cls = t.isKeluar ? 'az_out' : 'az_in';
