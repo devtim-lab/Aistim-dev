@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Stok Opname Stok 1, 2 & 3
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
-// @description  Tambah kolom Stok custom (atur via tombol di atas tabel) setelah Kategori, auto-jumlah ke Stok Aktual, simpan ke localStorage per ID SO + barcode
+// @version      1.2.0
+// @description  Tambah kolom Stok custom per ID SO (atur via tombol di atas tabel) setelah Kategori, auto-jumlah ke Stok Aktual, simpan ke localStorage per ID SO + barcode
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @run-at       document-idle
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -13,12 +13,12 @@
     'use strict';
 
     var LS_PREFIX = 'so_stok_';
-    var CONFIG_KEY = 'so_stok_kolom_config';
+    var CONFIG_PREFIX = 'so_stok_kolom_config_';
     var DEFAULT_KOLOM = ['Stok 1', 'Stok 2', 'Stok 3'];
 
-    function loadKolomConfig() {
+    function loadKolomConfig(idSo) {
         try {
-            var raw = localStorage.getItem(CONFIG_KEY);
+            var raw = localStorage.getItem(CONFIG_PREFIX + idSo);
             if (raw) {
                 var arr = JSON.parse(raw);
                 if (Array.isArray(arr) && arr.length) return arr;
@@ -27,13 +27,14 @@
         return DEFAULT_KOLOM.slice();
     }
 
-    function saveKolomConfig(arr) {
-        try { localStorage.setItem(CONFIG_KEY, JSON.stringify(arr)); } catch (e) {}
+    function saveKolomConfig(idSo, arr) {
+        try { localStorage.setItem(CONFIG_PREFIX + idSo, JSON.stringify(arr)); } catch (e) {}
     }
 
-    var KOLOM_STOK = loadKolomConfig();
+    var KOLOM_STOK = DEFAULT_KOLOM.slice();
     var sudahJalan = false;
     var ID_SO = '';
+    var idSoTerakhir = '';
 
     function simpanStok(barcode, nilaiArr) {
         try {
@@ -89,6 +90,11 @@
         if (!container) return false;
         ID_SO = container.getAttribute('data-idstok_opnam') || '';
         if (!ID_SO) return false;
+
+        if (ID_SO !== idSoTerakhir) {
+            KOLOM_STOK = loadKolomConfig(ID_SO);
+            idSoTerakhir = ID_SO;
+        }
 
         var tabel = container.querySelector('table');
         if (!tabel) return false;
@@ -159,15 +165,17 @@
         tambahKolom();
     }
 
-    // Hapus index tertentu dari semua array nilai stok yg tersimpan di localStorage,
+    // Hapus index tertentu dari array nilai stok yg tersimpan di localStorage
+    // KHUSUS untuk ID SO yang sedang aktif (formulir lain tidak ikut kesentuh),
     // dipanggil saat sebuah kolom benar-benar dihapus (bukan sekadar rename/tambah)
     // supaya nilai kolom yg tersisa tidak salah geser posisi.
     function migrasiHapusKolom(idxDihapus) {
         if (!idxDihapus.length) return;
+        var prefixSesi = LS_PREFIX + ID_SO + '_';
         var urut = idxDihapus.slice().sort(function(a, b) { return b - a; });
         for (var i = 0; i < localStorage.length; i++) {
             var key = localStorage.key(i);
-            if (!key || key.indexOf(LS_PREFIX) !== 0 || key === CONFIG_KEY) continue;
+            if (!key || key.indexOf(prefixSesi) !== 0) continue;
             try {
                 var arr = JSON.parse(localStorage.getItem(key));
                 if (!Array.isArray(arr)) continue;
@@ -293,7 +301,7 @@
 
             migrasiHapusKolom(idxDihapus);
             KOLOM_STOK = final;
-            saveKolomConfig(KOLOM_STOK);
+            saveKolomConfig(ID_SO, KOLOM_STOK);
             rebuildKolom();
             overlay.remove();
         });
