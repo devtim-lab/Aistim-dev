@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Stok Opname Stok 1, 2 & 3
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Tambah kolom Stok custom (atur via tombol di atas tabel) setelah Kategori, auto-jumlah ke Stok Aktual, simpan ke localStorage per ID SO + barcode
 // @match        https://*.erzap.com/stok_opnams/proses_pengisian_hasil_so*
 // @run-at       document-idle
@@ -193,7 +193,8 @@
         btn.type = 'button';
         btn.textContent = '⚙ Atur Kolom Stok';
         btn.style.cssText = 'margin-bottom:8px;padding:6px 14px;border-radius:4px;' +
-            'background:#2563eb;color:#fff;border:none;font-size:13px;cursor:pointer;';
+            'background:#dc2626;color:#fff;border:none;font-size:13px;cursor:pointer;' +
+            'box-shadow:0 3px 10px rgba(220,38,38,.5);';
         btn.addEventListener('click', bukaModal);
         tabel.parentNode.insertBefore(btn, tabel);
     }
@@ -208,7 +209,8 @@
 
         var box = document.createElement('div');
         box.style.cssText = 'background:#fff;border-radius:8px;padding:20px;width:320px;' +
-            'max-height:80vh;overflow:auto;font-family:sans-serif;box-sizing:border-box;';
+            'max-height:80vh;overflow:auto;font-family:sans-serif;box-sizing:border-box;' +
+            'box-shadow:0 8px 30px rgba(220,38,38,.45);border-top:4px solid #dc2626;';
 
         var judul = document.createElement('h3');
         judul.textContent = 'Atur Kolom Stok';
@@ -236,8 +238,9 @@
                 var btnHapus = document.createElement('button');
                 btnHapus.textContent = '✕';
                 btnHapus.title = 'Hapus kolom';
-                btnHapus.style.cssText = 'background:#ef4444;color:#fff;border:none;' +
-                    'border-radius:4px;width:32px;cursor:pointer;flex-shrink:0;';
+                btnHapus.style.cssText = 'background:#dc2626;color:#fff;border:none;' +
+                    'border-radius:4px;width:32px;cursor:pointer;flex-shrink:0;' +
+                    'box-shadow:0 2px 6px rgba(220,38,38,.5);';
                 btnHapus.addEventListener('click', function() {
                     kerja.splice(i, 1);
                     kerjaIdxAsal.splice(i, 1);
@@ -274,7 +277,7 @@
         var btnSimpan = document.createElement('button');
         btnSimpan.textContent = 'Simpan';
         btnSimpan.style.cssText = 'flex:1;padding:8px;border:none;border-radius:4px;' +
-            'background:#2563eb;color:#fff;cursor:pointer;';
+            'background:#dc2626;color:#fff;cursor:pointer;box-shadow:0 3px 10px rgba(220,38,38,.5);';
         btnSimpan.addEventListener('click', function() {
             var final = [], finalIdx = [];
             for (var k = 0; k < kerja.length; k++) {
