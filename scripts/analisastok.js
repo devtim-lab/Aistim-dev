@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.9.3
-// @description  v1.9.3 - fix: box-shadow #az_scan hilang krn kurang titik-koma (font tidak kepakai)
+// @version      1.9.4
+// @description  v1.9.4 - fix: jalur manual analisa aktifitas auto-scroll dulu biar semua baris (lazy-load) ke-capture
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -565,6 +565,48 @@
     /* ============================================================ */
     /* PARSER AKTIFITAS + RENDER PANEL (dipakai manual & otomatis)  */
     /* ============================================================ */
+    /* ============================================================ */
+    /* AUTO-SCROLL: paksa render semua baris di dialog Aktifitas     */
+    /* yang lazy-load, sebelum di-parse                              */
+    /* ============================================================ */
+    function cariScrollAncestor(el) {
+        let node = el;
+        while (node && node !== document.body) {
+            const style = window.getComputedStyle(node);
+            if ((style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+                node.scrollHeight > node.clientHeight) {
+                return node;
+            }
+            node = node.parentElement;
+        }
+        return null;
+    }
+
+    async function scrollSampaiPenuh($scope, statusEl) {
+        const el = $scope.get(0);
+        if (!el) return;
+        const scrollEl = cariScrollAncestor(el) || el;
+        const posisiAwal = scrollEl.scrollTop;
+        let jumlahSebelum = -1;
+        let stabil = 0;
+
+        for (let i = 0; i < 25; i++) {
+            const jumlahSekarang = $scope.find('table tbody tr').length;
+            if (jumlahSekarang === jumlahSebelum) {
+                stabil++;
+                if (stabil >= 2) break;
+            } else {
+                stabil = 0;
+                if (statusEl) statusEl.textContent = '⏳ Memuat aktifitas... (' + jumlahSekarang + ' baris)';
+            }
+            jumlahSebelum = jumlahSekarang;
+            scrollEl.scrollTop = scrollEl.scrollHeight;
+            scrollEl.dispatchEvent(new Event('scroll', { bubbles: true }));
+            await sleep(400);
+        }
+        scrollEl.scrollTop = posisiAwal; // balikin posisi scroll spt semula
+    }
+
     function parseAktifitasRows($scope) {
         const rows = $scope.find('table tbody tr').filter(function () {
             return $(this).find('td').length >= 7 && $(this).find('.dataTables_empty').length === 0;
@@ -648,9 +690,10 @@
     }
 
     // Jalur manual: baca dari dialog Aktifitas yang sedang terbuka
-    function renderAnalisaManual() {
+    async function renderAnalisaManual() {
         const $t = $('#target_aktifitas_aktifitas_stok');
         if ($t.length === 0) return;
+        await scrollSampaiPenuh($t);
         const a = parseAktifitasRows($t);
         if (!a) return;
         const gudang = ($('#gudang_aktifitas').text() || '').trim();
