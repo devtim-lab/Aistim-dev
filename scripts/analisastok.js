@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.9.4
-// @description  v1.9.4 - fix: jalur manual analisa aktifitas auto-scroll dulu biar semua baris (lazy-load) ke-capture
+// @version      1.9.5
+// @description  v1.9.5 - jenis transaksi digabung dgn kata pertama keterangan (lebih spesifik di breakdown)
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -622,10 +622,13 @@
             const td = $(this).find('td');
             const tanggal = td.eq(0).text().trim();
             const kode = td.eq(1).text().trim();
-            const jenis = td.eq(2).text().trim();
+            const jenisAsli = td.eq(2).text().trim();
             const jmlText = td.eq(4).text().trim();
             const keterangan = td.eq(6).text().trim();
             const operator = td.eq(7).length ? td.eq(7).text().trim() : '';
+
+            const kataPertama = keterangan.split(/\s+/)[0] || '';
+            const jenis = kataPertama ? (jenisAsli + ' - ' + kataPertama) : jenisAsli;
 
             const m = jmlText.match(/([+-])\s*([\d.,]+)/);
             const qty = m ? parseFloat(m[2].replace(',', '.')) : 0;
@@ -638,7 +641,7 @@
             perJenis[jenis].count++;
             perJenis[jenis].qty += qty;
 
-            if (/^penjualan$/i.test(jenis)) { jualCount++; jualQty += qty; }
+            if (/^penjualan$/i.test(jenisAsli)) { jualCount++; jualQty += qty; }
 
             listTrx.push({ tanggal, kode, jenis, jmlText, keterangan, operator, isKeluar });
         });
