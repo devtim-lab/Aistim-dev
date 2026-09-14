@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rekap Stok Minus - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
-// @description  Scan stok minus outlet, tunggu tabel stabil (bukan delay tetap), fallback teks tampilan aware format angka Indonesia (titik ribuan/koma desimal). ID unik prefix rsm_.
+// @version      1.3.0
+// @description  Scan stok minus outlet + kolom Jml SKU Min per outlet, tunggu tabel stabil, fallback teks tampilan aware format angka Indonesia. ID unik prefix rsm_.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -65,6 +65,7 @@
                             <thead>
                                 <tr>
                                     <th style="width:30px">No</th>
+                                    <th style="width:70px;text-align:center">Jml SKU Min</th>
                                     <th>Outlet / Cabang</th>
                                     <th>Barcode</th>
                                     <th>Nama Produk</th>
@@ -72,7 +73,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr><td colspan="5" style="text-align: center; color: #888;">Klik tombol mulai di atas.</td></tr>
+                                <tr><td colspan="6" style="text-align: center; color: #888;">Klik tombol mulai di atas.</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -457,9 +458,11 @@
                             let tr = document.createElement('tr');
                             const tdOutlet = idx === 0 ? `<td rowspan="${produkMinus.length}" style="vertical-align:middle;font-weight:bold">${outlet.nama}</td>` : '';
                             const tdNo = idx === 0 ? `<td rowspan="${produkMinus.length}" style="vertical-align:middle;text-align:center">${counterNo++}</td>` : '';
+                            const tdJmlSku = idx === 0 ? `<td rowspan="${produkMinus.length}" style="vertical-align:middle;text-align:center;font-weight:bold">${produkMinus.length}</td>` : '';
 
                             tr.innerHTML = `
                                 ${tdNo}
+                                ${tdJmlSku}
                                 ${tdOutlet}
                                 <td style="font-size:11px;color:#555">${produk.barcode}</td>
                                 <td>${produk.nama}</td>
@@ -473,7 +476,7 @@
                 }
 
                 if (!adaDataDitemukan && !stopRequested) {
-                    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #555;">✅ Tidak ada outlet yang memiliki stok minus.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #555;">✅ Tidak ada outlet yang memiliki stok minus.</td></tr>`;
                 }
 
                 if (!stopRequested) {
