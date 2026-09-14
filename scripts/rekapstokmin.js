@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rekap Stok Minus - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
-// @description  Scan stok minus outlet. Saat mulai scan: semua filter dikosongkan dulu, baru filter perkiraan jumlah diset < 0. Tunggu tabel stabil (bukan delay tetap). ID unik prefix rsm_.
+// @version      1.2.1
+// @description  Scan stok minus outlet, tunggu tabel stabil (bukan delay tetap), fallback teks tampilan aware format angka Indonesia (titik ribuan/koma desimal). ID unik prefix rsm_.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -288,6 +288,16 @@
         return false;
     }
 
+    // Parse angka format tampilan Indonesia (titik = ribuan, koma = desimal), mis. "-1.234,5" -> -1234.5
+    // Dipakai HANYA untuk fallback teks tampilan; data-order tetap parseFloat biasa (nilai mentah DataTables).
+    function parseAngkaTampilan(teks) {
+        if (teks === null || teks === undefined) return NaN;
+        let t = String(teks).trim().replace(/[^\d.,-]/g, '');
+        if (t === '') return NaN;
+        t = t.replace(/\./g, '').replace(',', '.');
+        return parseFloat(t);
+    }
+
     // Fungsi membaca produk stok minus dari tabel Erzap
     function bacaProdukMinusDariTabel() {
         const rows = document.querySelectorAll('#data_table_produk tbody tr');
@@ -303,14 +313,14 @@
             let nilaiStok = NaN;
             const dataOrder = tdStok.getAttribute('data-order');
             if (dataOrder !== null && dataOrder !== '') {
-                nilaiStok = parseFloat(dataOrder);
+                nilaiStok = parseFloat(dataOrder); // nilai mentah DataTables, bukan format tampilan
             }
             if (isNaN(nilaiStok)) {
                 const linkEl = tdStok.querySelector('a');
-                if (linkEl) nilaiStok = parseFloat(linkEl.innerText.trim());
+                if (linkEl) nilaiStok = parseAngkaTampilan(linkEl.innerText.trim());
             }
             if (isNaN(nilaiStok)) {
-                nilaiStok = parseFloat(tdStok.innerText.trim());
+                nilaiStok = parseAngkaTampilan(tdStok.innerText.trim());
             }
 
             if (isNaN(nilaiStok) || nilaiStok >= 0) return;
