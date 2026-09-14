@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rekap Stok Minus - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
-// @description  Scan stok minus outlet. Saat mulai scan: semua filter dikosongkan dulu, baru filter perkiraan jumlah diset < 0. Tombol serasi dengan tombol Analisa.
+// @version      1.2.0
+// @description  Scan stok minus outlet. Saat mulai scan: semua filter dikosongkan dulu, baru filter perkiraan jumlah diset < 0. Tunggu tabel stabil (bukan delay tetap). ID unik prefix rsm_.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -13,53 +13,55 @@
 
     let stopRequested = false;
 
+    function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
     // 1. Styling Tampilan Modal & Posisi Tombol Kanan
     const style = document.createElement('style');
     style.innerHTML = `
-        #erzap-modal-backdrop {
+        #rsm_backdrop {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0, 0, 0, 0.5); z-index: 10000; justify-content: center; align-items: center; font-family: inherit;
         }
-        #erzap-modal-box {
+        #rsm_box {
             background: #fff; width: 750px; max-width: 95%; border-radius: 6px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.3); overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;
         }
-        #erzap-modal-header { background: #dc3545; color: white; padding: 12px 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
-        #erzap-modal-close { background: none; border: none; color: white; font-size: 18px; cursor: pointer; }
-        #erzap-modal-body { padding: 20px; overflow-y: auto; flex-grow: 1; scroll-behavior: smooth; }
-        .erzap-table-outlet { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-        .erzap-table-outlet th, .erzap-table-outlet td { border: 1px solid #dee2e6; padding: 8px 12px; text-align: left; }
-        .erzap-table-outlet th { background-color: #f8f9fa; font-weight: bold; }
-        #erzap-modal-footer { padding: 10px 20px; background: #f1f1f1; display: flex; justify-content: space-between; align-items: center; }
-        .erzap-btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; }
-        .erzap-btn-secondary { background: #6c757d; color: white; }
-        .erzap-btn-stop { background: #343a40; color: white; display: none; }
-        .erzap-btn-scan { background: #dc3545; color: white; }
-        .erzap-btn-scan:hover { background: #c82333; }
-        .container-btn-stokmin { margin-bottom: 10px; display: flex; justify-content: flex-end; }
-        #btn-buka-modal { background: linear-gradient(135deg,#e63946,#b30d1c); color: #fff; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font: 600 13px/1 'Segoe UI',Arial,sans-serif; box-shadow: 0 2px 8px rgba(230,57,70,.4); white-space: nowrap; }
-        #btn-buka-modal:hover { background: linear-gradient(135deg,#d63040,#a50c1a); }
-        #btn-buka-modal:active { transform: scale(.95); }
-        .scan-status { font-size: 12px; color: #666; font-style: italic; }
-        .text-danger-minus { color: red; font-weight: bold; }
+        #rsm_header { background: #dc3545; color: white; padding: 12px 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        #rsm_close { background: none; border: none; color: white; font-size: 18px; cursor: pointer; }
+        #rsm_body { padding: 20px; overflow-y: auto; flex-grow: 1; scroll-behavior: smooth; }
+        .rsm_table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        .rsm_table th, .rsm_table td { border: 1px solid #dee2e6; padding: 8px 12px; text-align: left; }
+        .rsm_table th { background-color: #f8f9fa; font-weight: bold; }
+        #rsm_footer { padding: 10px 20px; background: #f1f1f1; display: flex; justify-content: space-between; align-items: center; }
+        .rsm_btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; }
+        .rsm_btn_secondary { background: #6c757d; color: white; }
+        .rsm_btn_stop { background: #343a40; color: white; display: none; }
+        .rsm_btn_scan { background: #dc3545; color: white; }
+        .rsm_btn_scan:hover { background: #c82333; }
+        .rsm_wrap_btn { margin-bottom: 10px; display: flex; justify-content: flex-end; }
+        #rsm_btn_buka { background: linear-gradient(135deg,#e63946,#b30d1c); color: #fff; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font: 600 13px/1 'Segoe UI',Arial,sans-serif; box-shadow: 0 2px 8px rgba(230,57,70,.4); white-space: nowrap; }
+        #rsm_btn_buka:hover { background: linear-gradient(135deg,#d63040,#a50c1a); }
+        #rsm_btn_buka:active { transform: scale(.95); }
+        .rsm_scan_status { font-size: 12px; color: #666; font-style: italic; }
+        .rsm_minus { color: red; font-weight: bold; }
     `;
     document.head.appendChild(style);
 
     // 2. Struktur HTML Modal
     const modalHTML = `
-        <div id="erzap-modal-backdrop">
-            <div id="erzap-modal-box">
-                <div id="erzap-modal-header">
+        <div id="rsm_backdrop">
+            <div id="rsm_box">
+                <div id="rsm_header">
                     <span>Rekap Stok Minus Outlet (< 0)</span>
-                    <button id="erzap-modal-close">&times;</button>
+                    <button id="rsm_close">&times;</button>
                 </div>
-                <div id="erzap-modal-body">
+                <div id="rsm_body">
                     <p style="margin-top:0; font-size:13px; color:#555;">
                         Sistem sedang memproses sinkronisasi tabel per outlet...
                     </p>
-                    <button class="erzap-btn erzap-btn-scan" id="btn-jalankan-scan">▶️ Mulai Scan</button>
+                    <button class="rsm_btn rsm_btn_scan" id="rsm_jalankan_scan">▶️ Mulai Scan</button>
                     <div style="margin-top: 15px;">
-                        <table class="erzap-table-outlet" id="tabel-hasil-scan">
+                        <table class="rsm_table" id="rsm_tabel_hasil">
                             <thead>
                                 <tr>
                                     <th style="width:30px">No</th>
@@ -75,11 +77,11 @@
                         </table>
                     </div>
                 </div>
-                <div id="erzap-modal-footer">
-                    <span class="scan-status" id="scan-status-text">Siap...</span>
+                <div id="rsm_footer">
+                    <span class="rsm_scan_status" id="rsm_status_text">Siap...</span>
                     <div style="display: flex; gap: 8px;">
-                        <button class="erzap-btn erzap-btn-stop" id="modal-stop">🛑 Stop</button>
-                        <button class="erzap-btn erzap-btn-secondary" id="modal-tutup">Tutup</button>
+                        <button class="rsm_btn rsm_btn_stop" id="rsm_stop">🛑 Stop</button>
+                        <button class="rsm_btn rsm_btn_secondary" id="rsm_tutup">Tutup</button>
                     </div>
                 </div>
             </div>
@@ -90,8 +92,28 @@
     document.body.appendChild(modalContainer);
 
     function scrollToBottom() {
-        const modalBody = document.getElementById('erzap-modal-body');
+        const modalBody = document.getElementById('rsm_body');
         if (modalBody) modalBody.scrollTop = modalBody.scrollHeight;
+    }
+
+    // === TUNGGU TABEL STABIL (bukan delay tetap) ===
+    // Poll jumlah baris #data_table_produk sampai nggak berubah 2x berturut-turut,
+    // atau sampai batas maksimal tercapai (jaring pengaman kalau ajax gagal/lambat).
+    async function tungguTabelStabil(maxTries = 15, jedaMs = 300) {
+        await sleep(400); // beri waktu request tabel mulai jalan dulu
+        let jumlahSebelum = -1;
+        let stabil = 0;
+        for (let i = 0; i < maxTries; i++) {
+            const jumlahSekarang = document.querySelectorAll('#data_table_produk tbody tr').length;
+            if (jumlahSekarang === jumlahSebelum) {
+                stabil++;
+                if (stabil >= 2) return;
+            } else {
+                stabil = 0;
+            }
+            jumlahSebelum = jumlahSekarang;
+            await sleep(jedaMs);
+        }
     }
 
     // === SET FILTER STOK < 0 DI HALAMAN ERZAP ===
@@ -176,7 +198,7 @@
     // Cek setiap filter; yang masih terisi dikembalikan ke kosong / "-- Semua --".
     // Select outlet & checkbox outlet TIDAK disentuh (diatur oleh logika scan).
     function kosongkanSemuaFilter() {
-        const diModalKita = el => el.closest('#erzap-modal-backdrop, #az_overlay, #az_modal');
+        const diModalKita = el => el.closest('#rsm_backdrop, #az_overlay, #az_modal');
 
         // 1. Input teks / angka / pencarian → kosongkan
         document.querySelectorAll('input[type="text"], input[type="number"], input[type="search"]').forEach(inp => {
@@ -299,7 +321,7 @@
             const tdNama = row.querySelector('td.nama_produk');
             const nama = tdNama ? tdNama.innerText.trim() : '-';
 
-            hasilMinus.push({ barcode, nama, stok: Math.floor(nilaiStok) });
+            hasilMinus.push({ barcode, nama, stok: Math.trunc(nilaiStok) });
         });
 
         return hasilMinus;
@@ -308,30 +330,30 @@
     // Injeksi Tombol ke Halaman (Pojok Kanan)
     function injectButton() {
         const tabIndexProduk = document.getElementById('tab_index_produk');
-        if (tabIndexProduk && !document.getElementById('btn-buka-modal')) {
+        if (tabIndexProduk && !document.getElementById('rsm_btn_buka')) {
             const wrapperDiv = document.createElement('div');
-            wrapperDiv.className = 'container-btn-stokmin';
+            wrapperDiv.className = 'rsm_wrap_btn';
 
             const btn = document.createElement('button');
-            btn.id = 'btn-buka-modal';
+            btn.id = 'rsm_btn_buka';
             btn.innerHTML = '🌐 Rekap Stok Min';
 
             wrapperDiv.appendChild(btn);
             tabIndexProduk.insertBefore(wrapperDiv, tabIndexProduk.firstChild);
 
-            const backdrop = document.getElementById('erzap-modal-backdrop');
-            const btnStop = document.getElementById('modal-stop');
+            const backdrop = document.getElementById('rsm_backdrop');
+            const btnStop = document.getElementById('rsm_stop');
 
             btn.onclick = () => backdrop.style.display = 'flex';
-            document.getElementById('erzap-modal-close').onclick = () => { stopRequested = true; backdrop.style.display = 'none'; };
-            document.getElementById('modal-tutup').onclick = () => { stopRequested = true; backdrop.style.display = 'none'; };
+            document.getElementById('rsm_close').onclick = () => { stopRequested = true; backdrop.style.display = 'none'; };
+            document.getElementById('rsm_tutup').onclick = () => { stopRequested = true; backdrop.style.display = 'none'; };
             backdrop.onclick = (e) => { if (e.target === backdrop) { stopRequested = true; backdrop.style.display = 'none'; } };
-            btnStop.onclick = () => { stopRequested = true; document.getElementById('scan-status-text').innerText = "Proses dihentikan."; };
+            btnStop.onclick = () => { stopRequested = true; document.getElementById('rsm_status_text').innerText = "Proses dihentikan."; };
 
-            document.getElementById('btn-jalankan-scan').onclick = async () => {
-                const statusText = document.getElementById('scan-status-text');
-                const tbody = document.querySelector('#tabel-hasil-scan tbody');
-                const btnScan = document.getElementById('btn-jalankan-scan');
+            document.getElementById('rsm_jalankan_scan').onclick = async () => {
+                const statusText = document.getElementById('rsm_status_text');
+                const tbody = document.querySelector('#rsm_tabel_hasil tbody');
+                const btnScan = document.getElementById('rsm_jalankan_scan');
 
                 stopRequested = false;
                 btnScan.disabled = true;
@@ -361,16 +383,16 @@
                 // LANGKAH 1: Kosongkan dulu SEMUA filter (teks, select, radio, checkbox)
                 statusText.innerText = "Mengosongkan semua filter...";
                 kosongkanSemuaFilter();
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await sleep(500);
 
                 // LANGKAH 2: Setelah semua filter kosong, baru set filter perkiraan jumlah < 0
                 statusText.innerText = "Mengatur filter perkiraan jumlah < 0...";
                 const filterTerSet = setFilterStokMinus();
                 setTabelTampilSemua();
-                await new Promise(resolve => setTimeout(resolve, 300));
+                await sleep(300);
                 if (!filterTerSet) {
                     statusText.innerText = "⚠️ Filter stok < 0 tidak ditemukan di halaman, scan tetap jalan (filter manual via baca tabel)...";
-                    await new Promise(resolve => setTimeout(resolve, 1200));
+                    await sleep(1200);
                 }
 
                 for (let i = 0; i < outletsList.length; i++) {
@@ -401,16 +423,17 @@
                         }
                     }
 
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    await sleep(500);
 
                     // 3. Pastikan filter stok < 0 tetap ter-set, lalu klik tombol pencarian
                     setFilterStokMinus();
                     setTabelTampilSemua();
-                    await new Promise(resolve => setTimeout(resolve, 300));
+                    await sleep(300);
                     klikTombolCari();
 
-                    // 4. Jeda waktu tunggu respons tabel
-                    await new Promise(resolve => setTimeout(resolve, 3500));
+                    // 4. Tunggu tabel stabil (bukan delay tetap 3.5 detik)
+                    statusText.innerText = `Memproses outlet [${i + 1}/${outletsList.length}]: ${outlet.nama}... (menunggu tabel)`;
+                    await tungguTabelStabil();
 
                     if (stopRequested) break;
 
@@ -430,7 +453,7 @@
                                 ${tdOutlet}
                                 <td style="font-size:11px;color:#555">${produk.barcode}</td>
                                 <td>${produk.nama}</td>
-                                <td style="text-align:center"><span class="text-danger-minus">${produk.stok}</span></td>
+                                <td style="text-align:center"><span class="rsm_minus">${produk.stok}</span></td>
                             `;
                             tbody.appendChild(tr);
                         });
