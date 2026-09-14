@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Rekap Stok Minus - Lihat Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  Scan stok minus outlet + kolom Jml SKU Min per outlet, tunggu tabel stabil, fallback teks tampilan aware format angka Indonesia. ID unik prefix rsm_.
+// @version      1.3.1
+// @description  Scan stok minus outlet + kolom Jml SKU Min (merah) per outlet, tunggu tabel stabil, fallback teks tampilan aware format angka Indonesia. ID unik prefix rsm_.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -458,7 +458,7 @@
                             let tr = document.createElement('tr');
                             const tdOutlet = idx === 0 ? `<td rowspan="${produkMinus.length}" style="vertical-align:middle;font-weight:bold">${outlet.nama}</td>` : '';
                             const tdNo = idx === 0 ? `<td rowspan="${produkMinus.length}" style="vertical-align:middle;text-align:center">${counterNo++}</td>` : '';
-                            const tdJmlSku = idx === 0 ? `<td rowspan="${produkMinus.length}" style="vertical-align:middle;text-align:center;font-weight:bold">${produkMinus.length}</td>` : '';
+                            const tdJmlSku = idx === 0 ? `<td rowspan="${produkMinus.length}" style="vertical-align:middle;text-align:center;font-weight:bold;color:red">${produkMinus.length}</td>` : '';
 
                             tr.innerHTML = `
                                 ${tdNo}
