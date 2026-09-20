@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.11.0
-// @description  v1.11.0 - kolom Gudang di tabel hasil: setelah data ketemu, gudang + stok per gudang diambil otomatis dari detail stok
+// @version      1.12.0
+// @description  v1.12.0 - dropdown Outlet hardcode (id = data-otl), kolom Gudang di tabel hasil: outlet (label bold) + gudang + stok dari detail stok
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -70,6 +70,8 @@
     .az-gudang{white-space:nowrap;font-size:11px;color:#333}
     .az-gudang div{padding:1px 0}
     .az-gudang b{color:#1d3557}
+    .az-gudang .az-outlet{font-weight:700;color:#555;margin-top:3px}
+    .az-gudang .az-gdn{padding-left:8px}
     .az-gudang .az-minus{color:#e63946}
     .az-gudang .az-muted{color:#999}
     /* panel analisa aktifitas */
@@ -209,9 +211,9 @@
               </div>
             </div>
             <div style="flex:1;min-width:0">
-              <label>Gudang (kosong = semua)</label>
+              <label>Outlet (kosong = semua)</label>
               <div style="display:flex;gap:6px;align-items:center">
-                <select id="az_outlet" style="flex:1;min-width:0"><option value="">-- Semua gudang --</option></select>
+                <select id="az_outlet" style="flex:1;min-width:0"><option value="">-- Semua outlet --</option></select>
                 <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:0 0 auto">
                   <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
                     <div class="az_knob"></div>
@@ -263,38 +265,34 @@
         document.body.appendChild(azBtn);
     }
 
-    /* ================= DATA GUDANG ================= */
-    // Sumber dropdown = field "Gudang:" di sidebar pencarian Erzap (#pencarian_idgudang).
-    // Cadangan: <select> yang label-nya berteks "Gudang".
-    function cariSelectGudang() {
-        const byId = document.getElementById('pencarian_idgudang');
-        if (byId && byId.tagName === 'SELECT') return byId;
-        const byName = document.querySelector('select[name*="idgudang"]');
-        if (byName) return byName;
-        const label = Array.from(document.querySelectorAll('label')).find(l => /^\s*gudang\s*:?\s*$/i.test(l.textContent));
-        if (label) {
-            const target = label.htmlFor ? document.getElementById(label.htmlFor) : null;
-            if (target && target.tagName === 'SELECT') return target;
-            const dekat = label.parentElement && label.parentElement.querySelector('select');
-            if (dekat) return dekat;
-        }
-        return null;
-    }
-
-    const gudangs = [];
-    const selGudangSrc = cariSelectGudang();
-    if (selGudangSrc) {
-        Array.from(selGudangSrc.options).forEach(o => {
-            const nama = (o.textContent || '').trim();
-            if (o.value !== '' && nama && !/^-+\s*(semua|pilih)/i.test(nama)) gudangs.push({ id: o.value, nama: nama });
-        });
-    } else {
-        console.warn('[Aistim] Field "Gudang:" (#pencarian_idgudang) tidak ditemukan, dropdown gudang kosong');
-    }
+    /* ================= DATA OUTLET (hardcode) ================= */
+    // id = data-otl di pop-up detail stok (= id checkbox #outlet_list_<id> di sidebar), nama = label bold di pop-up
+    const OUTLETS = [
+        [1, 'A1 PUSAT'],
+        [2, 'P01 TIMORITEL MADIUN'], [3, 'P02 TIMORITEL PONOROGO'], [4, 'P03 TIMORITEL KEDIRI'],
+        [5, 'P04 TIMORITEL GAJAYANA'], [6, 'P05 TIMORITEL GRESIK'], [7, 'P06 PARTDISTRO JEMBER'],
+        [8, 'P07 KALIBRASI WTC'], [9, 'P08 TIMORITEL WTC'], [10, 'P09 PARTDISTRO WTC'],
+        [11, 'P10 PARTDISTRO MOJOKERTO'], [12, 'P11 PARTDISTRO BLITAR'], [13, 'P12 PARTDISTRO SIDOARJO'],
+        [15, 'P13 PARTDISTRO JOMBANG'], [16, 'P14 PARTDISTRO MALANG'], [18, 'P15 PARTDISTRO TULUNGAGUNG'],
+        [20, 'P16 PARTDISTRO PROBOLINGGO'], [21, 'P17 PARTDISTRO PANDAAN'], [22, 'P18 PARTDISTRO KEPANJEN'],
+        [44, 'P19 PARTDISTRO TROPODO'], [47, 'P22 PARTDISTRO PARE'], [49, 'P23 PARTDISTRO DENPASAR'],
+        [51, 'P24 PARTDISTRO NGAWI'],
+        [24, 'S01 TIMORITEL MADIUN'], [25, 'S02 TIMORITEL PONOROGO'], [26, 'S03 TIMORITEL KEDIRI'],
+        [27, 'S04 TIMORITEL GAJAYANA'], [28, 'S05 TIMORITEL GRESIK'], [23, 'S06 PARTDISTRO JEMBER'],
+        [29, 'S07 KALIBRASI WTC'], [30, 'S08 TIMORITEL WTC'], [31, 'S09 PARTDISTRO WTC'],
+        [34, 'S10 PARTDISTRO MOJOKERTO'], [35, 'S11 PARTDISTRO BLITAR'], [36, 'S12 PARTDISTRO SIDOARJO'],
+        [37, 'S13 PARTDISTRO JOMBANG'], [38, 'S14 PARTDISTRO MALANG'], [39, 'S15 PARTDISTRO TULUNGAGUNG'],
+        [40, 'S16 PARTDISTRO PROBOLINGGO'], [41, 'S17 PARTDISTRO PANDAAN'], [43, 'S18 PARTDISTRO KEPANJEN'],
+        [46, 'S19 PARTDISTRO TROPODO'], [32, 'S20 MILLENNIAL WTC'], [33, "S21 DEAL N'FIX WTC"],
+        [48, 'S22 PARTDISTRO PARE'], [50, 'S23 PARTDISTRO DENPASAR'], [52, 'S24 PARTDISTRO NGAWI'],
+        [45, 'Y-MILLENNIAL ACADEMY'],
+    ];
+    const OUTLET_NAMA = {};
+    OUTLETS.forEach(([id, nama]) => { OUTLET_NAMA[id] = nama; });
 
     const selOutlet = $('#az_outlet');
-    gudangs.forEach(g => {
-        selOutlet.append($('<option>').val(g.id).text(g.nama));
+    OUTLETS.forEach(([id, nama]) => {
+        selOutlet.append($('<option>').val(id).text(nama));
     });
 
     /* ================= EVENT ================= */
@@ -425,7 +423,7 @@
     /* ================= SCAN ================= */
     function doScan() {
         const cari = $('#az_barcode').val().trim();
-        const gudangId = $('#az_outlet').val();
+        const outletId = $('#az_outlet').val();
         const cmp = $('#az_cmp').val();
         const jml = $('#az_jml').val().trim();
 
@@ -464,12 +462,11 @@
         $('#pencarian_perbandingan_jumlah').val(cmp);
         $('#pencarian_jumlah').val(jml);
 
-        // 3) Gudang: terpilih = hanya itu, kosong = semua (field "Gudang:" sidebar)
-        const $gudang = selGudangSrc ? $(selGudangSrc) : $('#pencarian_idgudang');
-        $gudang.val(gudangId || '').trigger('change');
-
-        // Outlet selalu semua (filter per gudang sudah cukup spesifik)
-        $('.checkbox_list_outlets').prop('checked', true);
+        // 3) Outlet: terpilih = hanya itu, kosong = semua
+        $('#pencarian_idgudang').val('');
+        const boxes = $('.checkbox_list_outlets');
+        boxes.prop('checked', !outletId);
+        if (outletId) $('#outlet_list_' + outletId).prop('checked', true);
 
         // 4) Klik tombol Cari
         setTimeout(function () {
@@ -577,7 +574,8 @@
         return parseFloat(m[0].replace(/\./g, '').replace(',', '.'));
     }
 
-    // -> [{id, nama, stok}] ; stok NaN kalau tidak ketemu di markup detail
+    // -> [{id, nama, outlet, stok}] urut sesuai pop-up detail stok.
+    // Markup: <label bold>OUTLET</label> (label atas) lalu <label>GUDANG</label> : <a .bt_detail_stok_aktifitas>STOK</a>
     async function ambilGudangProduk(idproduk, idoutlet) {
         const key = idproduk + '|' + idoutlet;
         if (gudangCache[key]) return gudangCache[key];
@@ -588,22 +586,23 @@
         });
         const $detail = $('<div>').html(detailHtml);
         const list = [];
-        $detail.find('.bt_detail_stok_aktifitas').each(function () {
+        let outlet = '', gudangLabel = '';
+        $detail.find('label, a.bt_detail_stok_aktifitas').each(function () {
             const $el = $(this);
+            if (this.tagName === 'LABEL') {
+                const teks = $el.text().trim();
+                if (/bold/i.test($el.attr('style') || '') || $el.css('font-weight') === 'bold' || $el.css('font-weight') === '700') outlet = teks; // label atas = outlet
+                else gudangLabel = teks;
+                return;
+            }
             const d = $el.data();
-            let stok = NaN;
-            // 1) atribut data-* yang mengandung stok/jumlah/qty
-            for (const k in d) {
-                if (/stok|jumlah|qty|order/i.test(k)) { stok = angkaDariTeks(d[k]); if (!isNaN(stok)) break; }
-            }
-            // 2) teks elemen sendiri, 3) sel angka lain di baris yang sama
-            if (isNaN(stok)) stok = angkaDariTeks($el.text());
-            if (isNaN(stok)) {
-                $el.closest('tr').find('td').each(function () {
-                    if (isNaN(stok) && /^-?[\d.,]+$/.test($(this).text().trim())) stok = angkaDariTeks($(this).text());
-                });
-            }
-            list.push({ id: d.gdn, nama: d.gudangNama || $el.attr('data-gudang-nama') || '', stok: stok });
+            list.push({
+                id: d.gdn,
+                nama: gudangLabel || d.gudangNama || $el.attr('data-gudang-nama') || '',
+                outlet: outlet,
+                stok: angkaDariTeks($el.text())
+            });
+            gudangLabel = '';
         });
         gudangCache[key] = list;
         return list;
@@ -611,12 +610,20 @@
 
     function htmlGudang(list) {
         if (!list.length) return '<span class="az-muted">(gudang tunggal)</span>';
-        return list.map(g => {
-            const nama = g.nama || g.id || '?';
-            if (isNaN(g.stok)) return `<div>${nama}</div>`;
+        const outletPilih = OUTLET_NAMA[$('#az_outlet').val()];
+        if (outletPilih) list = list.filter(g => g.outlet === outletPilih);
+        if (!list.length) return `<span class="az-muted">tidak ada gudang di ${outletPilih}</span>`;
+        const ada = outletPilih ? list : list.filter(g => !isNaN(g.stok) && g.stok !== 0);
+        if (!ada.length) return `<span class="az-muted">stok 0 di semua gudang (${list.length})</span>`;
+        let html = '', outletTerakhir = null;
+        ada.forEach(g => {
+            if (g.outlet !== outletTerakhir) { html += `<div class="az-outlet">${g.outlet || '-'}</div>`; outletTerakhir = g.outlet; }
             const cls = g.stok < 0 ? 'az-minus' : '';
-            return `<div>${nama}: <b class="${cls}">${g.stok}</b></div>`;
-        }).join('');
+            html += `<div class="az-gdn">${g.nama || g.id || '?'}: <b class="${cls}">${g.stok}</b></div>`;
+        });
+        const sisa = list.length - ada.length;
+        if (sisa > 0) html += `<div class="az-muted">+${sisa} gudang stok 0</div>`;
+        return html;
     }
 
     async function isiKolomGudang() {
@@ -858,7 +865,7 @@
                         });
                         const a = parseAktifitasRows($('<div>').html(aktHtml));
                         if (a) {
-                            sections.push(analisaSectionHtml(a, g.nama || g.id, barcode, nama));
+                            sections.push(analisaSectionHtml(a, (g.outlet ? g.outlet + ' › ' : '') + (g.nama || g.id), barcode, nama));
                         }
                     } catch (e) { /* gudang tanpa aktifitas, lanjut */ }
                     await sleep(400);
