@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.10.0
-// @description  v1.10.0 - dropdown filter diambil dari field "Gudang:" sidebar (#pencarian_idgudang), bukan checkbox outlet
+// @version      1.11.0
+// @description  v1.11.0 - kolom Gudang di tabel hasil: setelah data ketemu, gudang + stok per gudang diambil otomatis dari detail stok
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -67,6 +67,11 @@
     .az-nama{word-break:break-word}
     .az-stok-link{cursor:pointer;color:#1d3557;font-weight:700;text-decoration:underline}
     .az-stok-link:hover{color:#e63946}
+    .az-gudang{white-space:nowrap;font-size:11px;color:#333}
+    .az-gudang div{padding:1px 0}
+    .az-gudang b{color:#1d3557}
+    .az-gudang .az-minus{color:#e63946}
+    .az-gudang .az-muted{color:#999}
     /* panel analisa aktifitas */
     #az_analisa{margin-top:14px}
     .az_analisa_box{border:1px solid #f0c36d;background:#fffdf5;
@@ -521,7 +526,7 @@
         html += `<div style="overflow:auto;max-height:35vh;border:1px solid #ddd;border-radius:8px">
         <table id="az_tbl">
           <thead><tr>
-            <th>Barcode</th><th>Nama</th><th>Harga Jual</th><th style="text-align:center">Total Stok</th><th>Umur</th><th>Merek</th>
+            <th>Barcode</th><th>Nama</th><th>Harga Jual</th><th style="text-align:center">Total Stok</th><th>Gudang</th><th>Umur</th><th>Merek</th>
           </tr></thead><tbody>`;
 
         rows.each(function () {
@@ -533,11 +538,15 @@
             const umur = td.eq(6).text().trim();
             const merek = td.eq(7).text().trim();
             const clsStok = parseFloat(stok) < 0 ? 'az-minus' : 'az-plus';
+            const $cellStok = $(this).find('td.bt_dialog_aktifitas_stok');
+            const idprd = $cellStok.data('prd') || '';
+            const idotl = $cellStok.data('otl') || '';
             html += `<tr>
                 <td>${barcode}</td>
                 <td class="az-nama">${nama}</td>
                 <td class="az-harga">${harga}</td>
                 <td class="az-stok-cell ${clsStok}"><span class="az-stok-link" data-barcode="${barcode}">${stok}</span></td>
+                <td class="az-gudang" data-prd="${idprd}" data-otl="${idotl}"><span class="az-muted">⏳</span></td>
                 <td>${umur}</td>
                 <td>${merek}</td>
             </tr>`;
@@ -545,12 +554,86 @@
 
         html += `</tbody></table></div>`;
         $('#az_hasil').html(html);
+        isiKolomGudang();
 
         // Analisa otomatis (sekali per scan, maks 3 produk)
         const token = lastCari + '|' + rows.length;
         if (autoToken !== token && rows.length > 0) {
             autoToken = token;
             setTimeout(autoAnalisa, 600);
+        }
+    }
+
+    /* ============================================================ */
+    /* GUDANG PER PRODUK: ambil dari detail stok, dipakai kolom     */
+    /* Gudang di tabel hasil & analisa otomatis (cache per produk)  */
+    /* ============================================================ */
+    const gudangCache = {};
+    const MAKS_BARIS_GUDANG = 15; // batas fetch detail per hasil pencarian
+
+    function angkaDariTeks(t) {
+        const m = String(t || '').match(/-?[\d.,]+/);
+        if (!m) return NaN;
+        return parseFloat(m[0].replace(/\./g, '').replace(',', '.'));
+    }
+
+    // -> [{id, nama, stok}] ; stok NaN kalau tidak ketemu di markup detail
+    async function ambilGudangProduk(idproduk, idoutlet) {
+        const key = idproduk + '|' + idoutlet;
+        if (gudangCache[key]) return gudangCache[key];
+        const detailHtml = await $.ajax({
+            url: '/produk_gudangs/detail_stok/new',
+            dataType: 'text',
+            data: { idproduk: idproduk, idgudang: '', idoutlet: idoutlet }
+        });
+        const $detail = $('<div>').html(detailHtml);
+        const list = [];
+        $detail.find('.bt_detail_stok_aktifitas').each(function () {
+            const $el = $(this);
+            const d = $el.data();
+            let stok = NaN;
+            // 1) atribut data-* yang mengandung stok/jumlah/qty
+            for (const k in d) {
+                if (/stok|jumlah|qty|order/i.test(k)) { stok = angkaDariTeks(d[k]); if (!isNaN(stok)) break; }
+            }
+            // 2) teks elemen sendiri, 3) sel angka lain di baris yang sama
+            if (isNaN(stok)) stok = angkaDariTeks($el.text());
+            if (isNaN(stok)) {
+                $el.closest('tr').find('td').each(function () {
+                    if (isNaN(stok) && /^-?[\d.,]+$/.test($(this).text().trim())) stok = angkaDariTeks($(this).text());
+                });
+            }
+            list.push({ id: d.gdn, nama: d.gudangNama || $el.attr('data-gudang-nama') || '', stok: stok });
+        });
+        gudangCache[key] = list;
+        return list;
+    }
+
+    function htmlGudang(list) {
+        if (!list.length) return '<span class="az-muted">(gudang tunggal)</span>';
+        return list.map(g => {
+            const nama = g.nama || g.id || '?';
+            if (isNaN(g.stok)) return `<div>${nama}</div>`;
+            const cls = g.stok < 0 ? 'az-minus' : '';
+            return `<div>${nama}: <b class="${cls}">${g.stok}</b></div>`;
+        }).join('');
+    }
+
+    async function isiKolomGudang() {
+        const cells = $('#az_tbl td.az-gudang').toArray();
+        for (let i = 0; i < cells.length; i++) {
+            const $c = $(cells[i]);
+            if (i >= MAKS_BARIS_GUDANG) { $c.html('<span class="az-muted">–</span>'); continue; }
+            const idprd = $c.data('prd'), idotl = $c.data('otl');
+            if (!idprd) { $c.html('<span class="az-muted">–</span>'); continue; }
+            try {
+                const list = await ambilGudangProduk(idprd, idotl);
+                if (!$c.closest('body').length) return; // tabel sudah dirender ulang
+                $c.html(htmlGudang(list));
+            } catch (e) {
+                $c.html('<span class="az-muted">gagal</span>');
+            }
+            await sleep(150);
         }
     }
 
@@ -756,20 +839,7 @@
             const idoutlet = $cell.data('otl');
 
             try {
-                const detailHtml = await $.ajax({
-                    url: '/produk_gudangs/detail_stok/new',
-                    dataType: 'text',
-                    data: { idproduk: idproduk, idgudang: '', idoutlet: idoutlet }
-                });
-                const $detail = $('<div>').html(detailHtml);
-
-                const gudangs = [];
-                $detail.find('.bt_detail_stok_aktifitas').each(function () {
-                    gudangs.push({
-                        id: $(this).data('gdn'),
-                        nama: $(this).data('gudang-nama') || ''
-                    });
-                });
+                const gudangs = (await ambilGudangProduk(idproduk, idoutlet)).slice();
                 if (gudangs.length === 0) {
                     gudangs.push({ id: $cell.data('gdn') || '', nama: '(gudang tunggal)' });
                 }
