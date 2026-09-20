@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.18.1
-// @description  v1.18.1 - hapus tombol & handler debug "Cek struktur field pencarian_idoutlet" (sudah tidak dibutuhkan)
+// @version      1.19.0
+// @description  v1.19.0 - tombol CARI disembunyikan setelah data ketemu, muncul lagi tiap mulai pencarian baru
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -434,7 +434,7 @@
 
         $('#az_hasil').html('<div id="az_info">⏳ Mencari data...</div>');
         $('#az_analisa').html('');
-        $('#az_scan').prop('disabled', true);
+        $('#az_scan').prop('disabled', true).show();
         clearTimeout(renderTimer);
 
         // 1) Bersihkan sisa filter manual di sidebar
@@ -558,6 +558,7 @@
 
         html += `</tbody></table></div>`;
         $('#az_hasil').html(html);
+        $('#az_scan').hide(); // data sudah ketemu, tombol CARI disembunyikan sampai pencarian baru dimulai
         isiKolomGudang();
 
         // Analisa aktifitas gudang TIDAK lagi otomatis di sini — nunggu user
