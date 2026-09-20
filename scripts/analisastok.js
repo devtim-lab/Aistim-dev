@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.14.0
-// @description  v1.14.0 - tambah tombol debug sementara "Cek struktur outlet" buat lihat markup checkbox sidebar (persiapan dropdown dinamis)
+// @version      1.15.0
+// @description  v1.15.0 - dropdown Outlet auto-nambah opsi baru dari nama yang muncul di kolom Gudang (nggak perlu hardcode manual lagi); id lama tetap dipakai kalau namanya cocok
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -290,11 +290,28 @@
     ];
     const OUTLET_NAMA = {};
     OUTLETS.forEach(([id, nama]) => { OUTLET_NAMA[id] = nama; });
+    const OUTLET_ID = {}; // reverse: nama -> id (buat resolve id kalau nama sudah dikenal)
+    OUTLETS.forEach(([id, nama]) => { OUTLET_ID[nama] = id; });
 
     const selOutlet = $('#az_outlet');
     OUTLETS.forEach(([id, nama]) => {
         selOutlet.append($('<option>').val(id).text(nama));
     });
+
+    // Tambah outlet baru ke dropdown otomatis kalau namanya muncul di kolom Gudang
+    // tapi belum ada sebagai opsi (misal outlet baru yang belum sempat di-update manual).
+    // Kalau namanya cocok dengan OUTLET_ID (list lama), pakai id itu (filter server tetap jalan).
+    // Kalau benar-benar baru/tidak dikenal, pakai nama sebagai value (filter tampilan tetap jalan,
+    // tapi filter pencarian server-side dilewati untuk outlet ini).
+    function pastikanOutletDiDropdown(nama) {
+        if (!nama) return;
+        const sudahAda = selOutlet.find('option').filter(function () {
+            return $(this).text().trim() === nama;
+        }).length > 0;
+        if (sudahAda) return;
+        const id = OUTLET_ID[nama];
+        selOutlet.append($('<option>').val(id !== undefined ? id : nama).text(nama));
+    }
 
     /* ================= EVENT ================= */
     let lastCari = '';
@@ -482,13 +499,17 @@
         $('#pencarian_jumlah').val(jml);
 
         // 3) Outlet: terpilih = hanya itu, kosong = semua
+        // outletId bisa berupa id (dikenal) atau nama outlet baru (belum ada id-nya, lihat
+        // pastikanOutletDiDropdown) — untuk kasus nama, filter server-side ini dilewati,
+        // tapi filter tampilan kolom Gudang (htmlGudang) tetap jalan karena berbasis nama.
+        const outletIdValid = (outletId && OUTLET_NAMA[outletId] !== undefined) ? outletId : '';
         $('#pencarian_idgudang').val('');
         const boxes = $('.checkbox_list_outlets');
-        boxes.prop('checked', !outletId);
-        if (outletId) $('#outlet_list_' + outletId).prop('checked', true);
+        boxes.prop('checked', !outletIdValid);
+        if (outletIdValid) $('#outlet_list_' + outletIdValid).prop('checked', true);
         // Kirim juga ke field pencarian_idoutlet supaya server-side ikut memfilter
         // (checkbox sidebar saja tidak selalu terbaca oleh pencarian AJAX #cari)
-        $('#pencarian_idoutlet').val(outletId || '').trigger('change');
+        $('#pencarian_idoutlet').val(outletIdValid || '').trigger('change');
 
         // 4) Klik tombol Cari
         setTimeout(function () {
@@ -613,7 +634,10 @@
             const $el = $(this);
             if (this.tagName === 'LABEL') {
                 const teks = $el.text().trim();
-                if (/bold/i.test($el.attr('style') || '') || $el.css('font-weight') === 'bold' || $el.css('font-weight') === '700') outlet = teks; // label atas = outlet
+                if (/bold/i.test($el.attr('style') || '') || $el.css('font-weight') === 'bold' || $el.css('font-weight') === '700') {
+                    outlet = teks; // label atas = outlet
+                    pastikanOutletDiDropdown(outlet);
+                }
                 else gudangLabel = teks;
                 return;
             }
@@ -632,7 +656,8 @@
 
     function htmlGudang(list) {
         if (!list.length) return '<span class="az-muted">(gudang tunggal)</span>';
-        const outletPilih = OUTLET_NAMA[$('#az_outlet').val()];
+        const azVal = $('#az_outlet').val();
+        const outletPilih = OUTLET_NAMA[azVal] || azVal || '';
         if (outletPilih) list = list.filter(g => g.outlet === outletPilih);
         if (!list.length) return `<span class="az-muted">tidak ada gudang di ${outletPilih}</span>`;
         const ada = outletPilih ? list : list.filter(g => !isNaN(g.stok) && g.stok !== 0);
