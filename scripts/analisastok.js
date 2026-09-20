@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.16.1
-// @description  v1.16.1 - debug: cek apakah #pencarian_idoutlet adalah select multiple (widget chip) dan list semua option id+nama-nya
+// @version      1.17.0
+// @description  v1.17.0 - alur baru: cari dulu (tanpa auto-analisa), dropdown outlet terisi dari hasil, analisa aktifitas gudang baru jalan setelah outlet dipilih
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -591,12 +591,9 @@
         $('#az_hasil').html(html);
         isiKolomGudang();
 
-        // Analisa otomatis (sekali per scan, maks 3 produk)
-        const token = lastCari + '|' + rows.length;
-        if (autoToken !== token && rows.length > 0) {
-            autoToken = token;
-            setTimeout(autoAnalisa, 600);
-        }
+        // Analisa aktifitas gudang TIDAK lagi otomatis di sini — nunggu user
+        // pilih outlet spesifik dari dropdown (lihat handler 'change' #az_outlet).
+        $('#az_analisa').html('<div class="az_analisa_box"><h4 style="color:#888;font-weight:normal">Pilih outlet di atas untuk mulai analisa aktifitas gudang.</h4></div>');
     }
 
     /* ============================================================ */
@@ -869,7 +866,7 @@
     /* ============================================================ */
     /* ANALISA OTOMATIS PER GUDANG                                  */
     /* ============================================================ */
-    async function autoAnalisa() {
+    async function autoAnalisa(outletFilterNama) {
         const rows = getMatchedRows();
         if (rows.length === 0) return;
 
@@ -888,9 +885,13 @@
             const idoutlet = $cell.data('otl');
 
             try {
-                const gudangs = (await ambilGudangProduk(idproduk, idoutlet)).slice();
+                let gudangs = (await ambilGudangProduk(idproduk, idoutlet)).slice();
                 if (gudangs.length === 0) {
                     gudangs.push({ id: $cell.data('gdn') || '', nama: '(gudang tunggal)' });
+                }
+                if (outletFilterNama) {
+                    gudangs = gudangs.filter(g => g.outlet === outletFilterNama);
+                    if (gudangs.length === 0) continue; // produk ini tidak ada di outlet terpilih
                 }
 
                 for (const g of gudangs) {
@@ -920,7 +921,21 @@
         if (sections.length > 0) {
             $('#az_analisa').html(sections.join(''));
         } else {
-            $('#az_analisa').html('<div class="az_analisa_box"><h4>ℹ️ Tidak ada data aktifitas.</h4></div>');
+            const pesan = outletFilterNama
+                ? 'Tidak ada data aktifitas untuk outlet <b>' + outletFilterNama + '</b>.'
+                : 'Tidak ada data aktifitas.';
+            $('#az_analisa').html('<div class="az_analisa_box"><h4>ℹ️ ' + pesan + '</h4></div>');
         }
     }
+
+    // Mulai analisa begitu outlet dipilih dari dropdown (kosong = balik ke placeholder).
+    $('#az_outlet').on('change', function () {
+        const val = $(this).val();
+        if (!val) {
+            $('#az_analisa').html('<div class="az_analisa_box"><h4 style="color:#888;font-weight:normal">Pilih outlet di atas untuk mulai analisa aktifitas gudang.</h4></div>');
+            return;
+        }
+        const outletNama = OUTLET_NAMA[val] || val;
+        autoAnalisa(outletNama);
+    });
 })();
