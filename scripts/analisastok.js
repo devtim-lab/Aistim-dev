@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.9.8
-// @description  v1.9.8 - kolom panjang (Operator dll) tidak di-wrap, dikasih scroll horizontal dlm box sendiri
+// @version      1.10.0
+// @description  v1.10.0 - dropdown filter diambil dari field "Gudang:" sidebar (#pencarian_idgudang), bukan checkbox outlet
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -204,9 +204,9 @@
               </div>
             </div>
             <div style="flex:1;min-width:0">
-              <label>Outlet (kosong = semua)</label>
+              <label>Gudang (kosong = semua)</label>
               <div style="display:flex;gap:6px;align-items:center">
-                <select id="az_outlet" style="flex:1;min-width:0"><option value="">-- Semua outlet --</option></select>
+                <select id="az_outlet" style="flex:1;min-width:0"><option value="">-- Semua gudang --</option></select>
                 <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:0 0 auto">
                   <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
                     <div class="az_knob"></div>
@@ -258,16 +258,38 @@
         document.body.appendChild(azBtn);
     }
 
-    /* ================= DATA OUTLET ================= */
-    const outlets = [];
-    $('#checkbox_outlet .checkbox_list_outlets').each(function () {
-        const nama = $(this).nextAll('span').first().text().trim();
-        if (nama) outlets.push({ id: $(this).val(), nama: nama });
-    });
+    /* ================= DATA GUDANG ================= */
+    // Sumber dropdown = field "Gudang:" di sidebar pencarian Erzap (#pencarian_idgudang).
+    // Cadangan: <select> yang label-nya berteks "Gudang".
+    function cariSelectGudang() {
+        const byId = document.getElementById('pencarian_idgudang');
+        if (byId && byId.tagName === 'SELECT') return byId;
+        const byName = document.querySelector('select[name*="idgudang"]');
+        if (byName) return byName;
+        const label = Array.from(document.querySelectorAll('label')).find(l => /^\s*gudang\s*:?\s*$/i.test(l.textContent));
+        if (label) {
+            const target = label.htmlFor ? document.getElementById(label.htmlFor) : null;
+            if (target && target.tagName === 'SELECT') return target;
+            const dekat = label.parentElement && label.parentElement.querySelector('select');
+            if (dekat) return dekat;
+        }
+        return null;
+    }
+
+    const gudangs = [];
+    const selGudangSrc = cariSelectGudang();
+    if (selGudangSrc) {
+        Array.from(selGudangSrc.options).forEach(o => {
+            const nama = (o.textContent || '').trim();
+            if (o.value !== '' && nama && !/^-+\s*(semua|pilih)/i.test(nama)) gudangs.push({ id: o.value, nama: nama });
+        });
+    } else {
+        console.warn('[Aistim] Field "Gudang:" (#pencarian_idgudang) tidak ditemukan, dropdown gudang kosong');
+    }
 
     const selOutlet = $('#az_outlet');
-    outlets.forEach(o => {
-        selOutlet.append(`<option value="${o.id}">${o.nama}</option>`);
+    gudangs.forEach(g => {
+        selOutlet.append($('<option>').val(g.id).text(g.nama));
     });
 
     /* ================= EVENT ================= */
@@ -398,7 +420,7 @@
     /* ================= SCAN ================= */
     function doScan() {
         const cari = $('#az_barcode').val().trim();
-        const outletId = $('#az_outlet').val();
+        const gudangId = $('#az_outlet').val();
         const cmp = $('#az_cmp').val();
         const jml = $('#az_jml').val().trim();
 
@@ -434,14 +456,15 @@
 
         // 2) Isi form pencarian
         $('#pencarian_nama').val(cari);
-        $('#pencarian_idgudang').val('');
         $('#pencarian_perbandingan_jumlah').val(cmp);
         $('#pencarian_jumlah').val(jml);
 
-        // 3) Outlet: terpilih = hanya itu, kosong = semua
-        const boxes = $('.checkbox_list_outlets');
-        boxes.prop('checked', !outletId);
-        if (outletId) $('#outlet_list_' + outletId).prop('checked', true);
+        // 3) Gudang: terpilih = hanya itu, kosong = semua (field "Gudang:" sidebar)
+        const $gudang = selGudangSrc ? $(selGudangSrc) : $('#pencarian_idgudang');
+        $gudang.val(gudangId || '').trigger('change');
+
+        // Outlet selalu semua (filter per gudang sudah cukup spesifik)
+        $('.checkbox_list_outlets').prop('checked', true);
 
         // 4) Klik tombol Cari
         setTimeout(function () {
