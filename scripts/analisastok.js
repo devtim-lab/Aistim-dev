@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.17.0
-// @description  v1.17.0 - alur baru: cari dulu (tanpa auto-analisa), dropdown outlet terisi dari hasil, analisa aktifitas gudang baru jalan setelah outlet dipilih
+// @version      1.18.0
+// @description  v1.18.0 - kolom Gudang dihapus dari tabel hasil (data-nya tetap di-prefetch diam-diam buat isi dropdown Outlet)
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -561,7 +561,7 @@
         html += `<div style="overflow:auto;max-height:35vh;border:1px solid #ddd;border-radius:8px">
         <table id="az_tbl">
           <thead><tr>
-            <th>Barcode</th><th>Nama</th><th>Harga Jual</th><th style="text-align:center">Total Stok</th><th>Gudang</th><th>Umur</th><th>Merek</th>
+            <th>Barcode</th><th>Nama</th><th>Harga Jual</th><th style="text-align:center">Total Stok</th><th>Umur</th><th>Merek</th>
           </tr></thead><tbody>`;
 
         rows.each(function () {
@@ -576,12 +576,11 @@
             const $cellStok = $(this).find('td.bt_dialog_aktifitas_stok');
             const idprd = $cellStok.data('prd') || '';
             const idotl = $cellStok.data('otl') || '';
-            html += `<tr>
+            html += `<tr data-prd="${idprd}" data-otl="${idotl}">
                 <td>${barcode}</td>
                 <td class="az-nama">${nama}</td>
                 <td class="az-harga">${harga}</td>
                 <td class="az-stok-cell ${clsStok}"><span class="az-stok-link" data-barcode="${barcode}">${stok}</span></td>
-                <td class="az-gudang" data-prd="${idprd}" data-otl="${idotl}"><span class="az-muted">⏳</span></td>
                 <td>${umur}</td>
                 <td>${merek}</td>
             </tr>`;
@@ -665,20 +664,20 @@
         return html;
     }
 
+    // Kolom Gudang di tabel sudah dihapus dari tampilan (v1.18.0) — fungsi ini sekarang
+    // cuma prefetch data gudang di belakang layar, khusus buat isi dropdown Outlet
+    // (lewat pastikanOutletDiDropdown di dalam ambilGudangProduk) dan warm cache.
     async function isiKolomGudang() {
-        const cells = $('#az_tbl td.az-gudang').toArray();
-        for (let i = 0; i < cells.length; i++) {
-            const $c = $(cells[i]);
-            if (i >= MAKS_BARIS_GUDANG) { $c.html('<span class="az-muted">–</span>'); continue; }
-            const idprd = $c.data('prd'), idotl = $c.data('otl');
-            if (!idprd) { $c.html('<span class="az-muted">–</span>'); continue; }
+        const trs = $('#az_tbl tbody tr').toArray();
+        for (let i = 0; i < trs.length; i++) {
+            if (i >= MAKS_BARIS_GUDANG) break;
+            const $tr = $(trs[i]);
+            const idprd = $tr.data('prd'), idotl = $tr.data('otl');
+            if (!idprd) continue;
+            if (!$tr.closest('body').length) return; // tabel sudah dirender ulang
             try {
-                const list = await ambilGudangProduk(idprd, idotl);
-                if (!$c.closest('body').length) return; // tabel sudah dirender ulang
-                $c.html(htmlGudang(list));
-            } catch (e) {
-                $c.html('<span class="az-muted">gagal</span>');
-            }
+                await ambilGudangProduk(idprd, idotl);
+            } catch (e) { /* lanjut ke produk berikutnya */ }
             await sleep(150);
         }
     }
