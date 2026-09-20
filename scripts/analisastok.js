@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.12.0
-// @description  v1.12.0 - dropdown Outlet hardcode (id = data-otl), kolom Gudang di tabel hasil: outlet (label bold) + gudang + stok dari detail stok
+// @version      1.13.0
+// @description  v1.13.0 - outlet terpilih juga dikirim ke field pencarian_idoutlet (filter server-side), selain checkbox sidebar
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -467,6 +467,9 @@
         const boxes = $('.checkbox_list_outlets');
         boxes.prop('checked', !outletId);
         if (outletId) $('#outlet_list_' + outletId).prop('checked', true);
+        // Kirim juga ke field pencarian_idoutlet supaya server-side ikut memfilter
+        // (checkbox sidebar saja tidak selalu terbaca oleh pencarian AJAX #cari)
+        $('#pencarian_idoutlet').val(outletId || '');
 
         // 4) Klik tombol Cari
         setTimeout(function () {
