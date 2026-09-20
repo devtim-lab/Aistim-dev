@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.15.0
-// @description  v1.15.0 - dropdown Outlet auto-nambah opsi baru dari nama yang muncul di kolom Gudang (nggak perlu hardcode manual lagi); id lama tetap dipakai kalau namanya cocok
+// @version      1.16.0
+// @description  v1.16.0 - hapus semua hardcode list outlet; dropdown mulai kosong, murni terisi dari nama di kolom Gudang saat pencarian
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -266,28 +266,12 @@
         document.body.appendChild(azBtn);
     }
 
-    /* ================= DATA OUTLET (hardcode) ================= */
-    // id = data-otl di pop-up detail stok (= id checkbox #outlet_list_<id> di sidebar), nama = label bold di pop-up
-    const OUTLETS = [
-        [1, 'A1 PUSAT'],
-        [2, 'P01 TIMORITEL MADIUN'], [3, 'P02 TIMORITEL PONOROGO'], [4, 'P03 TIMORITEL KEDIRI'],
-        [5, 'P04 TIMORITEL GAJAYANA'], [6, 'P05 TIMORITEL GRESIK'], [7, 'P06 PARTDISTRO JEMBER'],
-        [8, 'P07 KALIBRASI WTC'], [9, 'P08 TIMORITEL WTC'], [10, 'P09 PARTDISTRO WTC'],
-        [11, 'P10 PARTDISTRO MOJOKERTO'], [12, 'P11 PARTDISTRO BLITAR'], [13, 'P12 PARTDISTRO SIDOARJO'],
-        [15, 'P13 PARTDISTRO JOMBANG'], [16, 'P14 PARTDISTRO MALANG'], [18, 'P15 PARTDISTRO TULUNGAGUNG'],
-        [20, 'P16 PARTDISTRO PROBOLINGGO'], [21, 'P17 PARTDISTRO PANDAAN'], [22, 'P18 PARTDISTRO KEPANJEN'],
-        [44, 'P19 PARTDISTRO TROPODO'], [47, 'P22 PARTDISTRO PARE'], [49, 'P23 PARTDISTRO DENPASAR'],
-        [51, 'P24 PARTDISTRO NGAWI'],
-        [24, 'S01 TIMORITEL MADIUN'], [25, 'S02 TIMORITEL PONOROGO'], [26, 'S03 TIMORITEL KEDIRI'],
-        [27, 'S04 TIMORITEL GAJAYANA'], [28, 'S05 TIMORITEL GRESIK'], [23, 'S06 PARTDISTRO JEMBER'],
-        [29, 'S07 KALIBRASI WTC'], [30, 'S08 TIMORITEL WTC'], [31, 'S09 PARTDISTRO WTC'],
-        [34, 'S10 PARTDISTRO MOJOKERTO'], [35, 'S11 PARTDISTRO BLITAR'], [36, 'S12 PARTDISTRO SIDOARJO'],
-        [37, 'S13 PARTDISTRO JOMBANG'], [38, 'S14 PARTDISTRO MALANG'], [39, 'S15 PARTDISTRO TULUNGAGUNG'],
-        [40, 'S16 PARTDISTRO PROBOLINGGO'], [41, 'S17 PARTDISTRO PANDAAN'], [43, 'S18 PARTDISTRO KEPANJEN'],
-        [46, 'S19 PARTDISTRO TROPODO'], [32, 'S20 MILLENNIAL WTC'], [33, "S21 DEAL N'FIX WTC"],
-        [48, 'S22 PARTDISTRO PARE'], [50, 'S23 PARTDISTRO DENPASAR'], [52, 'S24 PARTDISTRO NGAWI'],
-        [45, 'Y-MILLENNIAL ACADEMY'],
-    ];
+    /* ================= DATA OUTLET (dinamis, tanpa hardcode) ================= */
+    // Dropdown Outlet dimulai kosong, terisi otomatis dari nama yang muncul
+    // di kolom Gudang (lihat pastikanOutletDiDropdown). Id numerik cuma kepakai
+    // kalau nanti ketemu sumber id resmi (misal dari checkbox sidebar) — untuk
+    // sekarang value opsi = nama outlet itu sendiri.
+    const OUTLETS = [];
     const OUTLET_NAMA = {};
     OUTLETS.forEach(([id, nama]) => { OUTLET_NAMA[id] = nama; });
     const OUTLET_ID = {}; // reverse: nama -> id (buat resolve id kalau nama sudah dikenal)
