@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.13.0
-// @description  v1.13.0 - outlet terpilih juga dikirim ke field pencarian_idoutlet (filter server-side), selain checkbox sidebar
+// @version      1.13.1
+// @description  v1.13.1 - trigger('change') setelah isi pencarian_idoutlet, jaga-jaga kalau widget autocomplete butuh event itu
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -469,7 +469,7 @@
         if (outletId) $('#outlet_list_' + outletId).prop('checked', true);
         // Kirim juga ke field pencarian_idoutlet supaya server-side ikut memfilter
         // (checkbox sidebar saja tidak selalu terbaca oleh pencarian AJAX #cari)
-        $('#pencarian_idoutlet').val(outletId || '');
+        $('#pencarian_idoutlet').val(outletId || '').trigger('change');
 
         // 4) Klik tombol Cari
         setTimeout(function () {
