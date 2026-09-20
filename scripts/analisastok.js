@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.18.0
-// @description  v1.18.0 - kolom Gudang dihapus dari tabel hasil (data-nya tetap di-prefetch diam-diam buat isi dropdown Outlet)
+// @version      1.18.1
+// @description  v1.18.1 - hapus tombol & handler debug "Cek struktur field pencarian_idoutlet" (sudah tidak dibutuhkan)
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -221,7 +221,6 @@
                   <span style="font-size:9px;color:#888;white-space:nowrap">Stok &lt; 0</span>
                 </div>
               </div>
-              <button id="az_debug_outlet" type="button" style="margin-top:4px;font-size:10px;color:#888;background:none;border:none;text-decoration:underline;cursor:pointer;padding:0">🔍 Cek struktur field pencarian_idoutlet (debug)</button>
             </div>
           </div>
           <!-- Tombol cari full width -->
@@ -310,35 +309,6 @@
     $('#az_close').on('click', closeModal);
     $('#az_overlay').on('click', function (e) { if (e.target === this) closeModal(); });
     function closeModal() { $('#az_overlay').removeClass('az_open'); }
-
-    // Debug sementara: cek struktur field pencarian_idoutlet (apakah <select multiple>
-    // yang dibungkus widget chip, dan kalau iya list semua option id+nama-nya).
-    $('#az_debug_outlet').on('click', function () {
-        const $f = $('#pencarian_idoutlet');
-        let out = '';
-        if (!$f.length) {
-            out = 'Elemen #pencarian_idoutlet TIDAK ditemukan di halaman.';
-        } else {
-            out = 'Tag: <' + $f.prop('tagName') + '>\n';
-            out += 'multiple attr: ' + $f.prop('multiple') + '\n';
-            out += 'value sekarang: ' + JSON.stringify($f.val()) + '\n\n';
-            const opts = $f.find('option');
-            out += 'Jumlah <option>: ' + opts.length + '\n\n';
-            if (opts.length) {
-                opts.slice(0, 60).each(function () {
-                    out += $(this).val() + ' | ' + $(this).text().trim() + '\n';
-                });
-                if (opts.length > 60) out += '... (' + (opts.length - 60) + ' lagi, dipotong)\n';
-            } else {
-                out += '--- outerHTML (dipotong) ---\n' + $f.prop('outerHTML').slice(0, 600);
-            }
-        }
-        $('#az_hasil').html(
-            '<pre style="white-space:pre-wrap;word-break:break-all;font-size:10px;background:#f5f5f5;' +
-            'border:1px solid #ddd;border-radius:6px;padding:8px;max-height:340px;overflow:auto">' +
-            out.replace(/</g, '&lt;') + '</pre>'
-        );
-    });
 
     $('#az_barcode').on('keydown', function (e) { if (e.key === 'Enter') doScan(); });
     $('#az_scan').on('click', doScan);
