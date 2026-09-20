@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Rekap Pesanan Baru per Outlet (Tema Merah)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.4
-// @description  [v1.2.4] Jangkar tombol by ID marketplace + observer agar pasti muncul. Rekap otomatis antar halaman, urutkan dari yang tertinggi (Tema Merah).
+// @version      1.2.5
+// @description  [v1.2.5] Modal & tombol responsif untuk mobile (full-screen di layar sempit). Rekap otomatis antar halaman, urutkan dari yang tertinggi (Tema Merah).
 // @author       You
 // @match        https://*.erzap.com/pesanan_penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -12,6 +12,52 @@
 (function() {
     'use strict';
     console.log("[Aistim] Script Rekap Pesanan berhasil dimuat dan sedang berjalan...");
+
+    // 0. CSS terpusat (prefix rp_) + responsif mobile
+    function pasangStyle() {
+        if (document.getElementById('rp_style')) return;
+        const st = document.createElement('style');
+        st.id = 'rp_style';
+        st.textContent = `
+            #btn-rekap-pesanan { white-space: nowrap; margin: 4px 8px 4px 0; background: #dc3545 !important; border-color: #dc3545 !important; color: #fff !important; }
+            #erzap-rekap-modal-overlay { position: fixed; inset: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 9999999;
+                display: flex; justify-content: center; align-items: center; padding: 12px; box-sizing: border-box; font-family: sans-serif; }
+            .rp_box { background: #fff; width: 500px; max-width: 100%; max-height: 90vh; max-height: 90dvh; border-radius: 6px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box; }
+            .rp_box.rp_loading { width: 450px; text-align: center; padding: 30px 20px; }
+            .rp_box.rp_loading h3 { margin-top: 0; color: #333; }
+            #loading-status { color: #666; margin-bottom: 20px; font-size: 13px; word-break: break-word; }
+            .rp_bar { width: 100%; background: #eee; height: 10px; border-radius: 5px; overflow: hidden; }
+            .rp_bar div { width: 100%; height: 100%; background: #dc3545; animation: rp_progress 1s infinite linear; }
+            @keyframes rp_progress { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+            .rp_head { background: #dc3545; color: #fff; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; flex: 0 0 auto; }
+            .rp_head h3 { margin: 0; font-size: 16px; }
+            #close-rekap-modal { background: none; border: none; color: #fff; font-size: 24px; line-height: 1; cursor: pointer; padding: 0 4px; }
+            .rp_body { padding: 15px; overflow-y: auto; flex: 1 1 auto; -webkit-overflow-scrolling: touch; }
+            .rp_table { width: 100%; border-collapse: collapse; font-size: 14px; }
+            .rp_table th { padding: 8px; border-bottom: 2px solid #ddd; background: #f4f4f4; position: sticky; top: -15px; }
+            .rp_table td { padding: 8px; border-bottom: 1px solid #ddd; word-break: break-word; }
+            .rp_table .rp_jml { text-align: center; font-weight: bold; color: #dc3545; white-space: nowrap; }
+            .rp_total { margin-top: 15px; padding-top: 10px; font-weight: bold; text-align: right; font-size: 16px; border-top: 2px solid #333; }
+            .rp_total span { color: #dc3545; }
+            .rp_foot { background: #f9f9f9; padding: 10px 15px; text-align: right; border-top: 1px solid #ddd; flex: 0 0 auto; }
+            #btn-close-footer { padding: 8px 16px; background: #6c757d; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+            @media (max-width: 600px) {
+                #erzap-rekap-modal-overlay { padding: 0; }
+                .rp_box { width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: none; border-radius: 0; }
+                .rp_box.rp_loading { width: calc(100vw - 32px); height: auto; border-radius: 6px; padding: 24px 16px; }
+                .rp_head { padding: 12px; }
+                .rp_body { padding: 12px; }
+                .rp_table { font-size: 13px; }
+                .rp_table th { top: -12px; }
+                .rp_table th, .rp_table td { padding: 8px 6px; }
+                .rp_total { font-size: 15px; }
+                #btn-close-footer { width: 100%; padding: 12px; font-size: 15px; }
+            }
+        `;
+        (document.head || document.documentElement).appendChild(st);
+    }
+    pasangStyle();
 
     // 1. Fitur Auto Search saat Outlet Berubah
     setInterval(() => {
@@ -35,10 +81,6 @@
         rekapBtn.id = 'btn-rekap-pesanan';
         rekapBtn.type = 'button';
         rekapBtn.className = 'btn btn-danger';
-        rekapBtn.style.marginRight = '8px';
-        rekapBtn.style.backgroundColor = '#dc3545';
-        rekapBtn.style.borderColor = '#dc3545';
-        rekapBtn.style.color = '#fff';
         rekapBtn.innerHTML = '<i class="fa fa-bars" style="margin-right: 5px;"></i> Rekap Pesanan Baru';
         rekapBtn.addEventListener('click', mulaiRekapPesananBaru);
         return rekapBtn;
@@ -46,10 +88,12 @@
 
     function pasangTombolRekap() {
         if (document.getElementById('btn-rekap-pesanan')) return true; // Sudah ada
+        pasangStyle();
+        const terlihat = el => !!el && el.offsetParent !== null; // elemen display:none (mis. disembunyikan di mobile) dilewati
 
         // Strategi 1: jangkar ID asli tombol marketplace (paling akurat)
         let anchor = document.getElementById('btn_cari_pesanan_marketplace_online');
-        if (anchor) {
+        if (terlihat(anchor)) {
             anchor.parentNode.insertBefore(buatTombolRekap(), anchor);
             console.log("[Aistim] Tombol Rekap dipasang via ID marketplace");
             return true;
@@ -57,7 +101,7 @@
 
         // Strategi 2: cari tombol/link apa saja berteks "marketplace"
         anchor = Array.from(document.querySelectorAll('a, button')).find(el =>
-            (el.textContent || '').toLowerCase().includes('marketplace')
+            (el.textContent || '').toLowerCase().includes('marketplace') && terlihat(el)
         );
         if (anchor) {
             anchor.parentNode.insertBefore(buatTombolRekap(), anchor);
@@ -86,7 +130,7 @@
         const titleArea = document.querySelector('.panel-heading, .page-title, h1, h2, h3');
         if (titleArea) {
             const btn = buatTombolRekap();
-            btn.style.marginLeft = '10px';
+            btn.style.margin = '4px 0 4px 10px';
             titleArea.appendChild(btn);
             console.log("[Aistim] Tombol Rekap dipasang di judul halaman");
             return true;
@@ -259,14 +303,11 @@
         const modalOverlay = buatOverlayUI();
 
         modalOverlay.innerHTML = `
-            <div style="background: #fff; width: 450px; border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); font-family: sans-serif; text-align: center; padding: 30px;">
-                <h3 style="margin-top: 0; color: #333;">Memproses Rekap Data...</h3>
-                <p id="loading-status" style="color: #666; margin-bottom: 20px; font-size: 13px;">Mempersiapkan pengaturan pencarian...</p>
-                <div style="width: 100%; background: #eee; height: 10px; border-radius: 5px; overflow: hidden;">
-                    <div style="width: 100%; height: 100%; background: #dc3545; animation: progress 1s infinite linear;"></div>
-                </div>
+            <div class="rp_box rp_loading">
+                <h3>Memproses Rekap Data...</h3>
+                <p id="loading-status">Mempersiapkan pengaturan pencarian...</p>
+                <div class="rp_bar"><div></div></div>
             </div>
-            <style>@keyframes progress { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }</style>
         `;
         document.body.appendChild(modalOverlay);
     }
@@ -284,7 +325,7 @@
 
         let tableContent = '';
         rekapData.forEach(data => {
-            tableContent += `<tr><td style="padding: 8px; border-bottom: 1px solid #ddd;">${data.nama}</td><td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center; font-weight: bold; color: #dc3545;">${data.jumlah}</td></tr>`;
+            tableContent += `<tr><td>${data.nama}</td><td class="rp_jml">${data.jumlah}</td></tr>`;
         });
 
         if (rekapData.length === 0) {
@@ -292,29 +333,27 @@
         }
 
         modalOverlay.innerHTML = `
-            <div style="background: #fff; width: 500px; border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); overflow: hidden; font-family: sans-serif;">
-                <div style="background: #dc3545; color: #fff; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; font-size: 16px;">Rekap (Filter: Pesanan Baru)</h3>
-                    <button id="close-rekap-modal" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer;">&times;</button>
+            <div class="rp_box">
+                <div class="rp_head">
+                    <h3>Rekap (Filter: Pesanan Baru)</h3>
+                    <button id="close-rekap-modal" type="button" aria-label="Tutup">&times;</button>
                 </div>
-                <div style="padding: 15px; max-height: 350px; overflow-y: auto;">
-                    <table style="width: 100%; border-collapse: collapse;">
+                <div class="rp_body">
+                    <table class="rp_table">
                         <thead>
-                            <tr style="background: #f4f4f4;">
-                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Nama Outlet</th>
-                                <th style="padding: 8px; text-align: center; border-bottom: 2px solid #ddd;">Jumlah Pesanan</th>
+                            <tr>
+                                <th style="text-align:left">Nama Outlet</th>
+                                <th style="text-align:center">Jumlah Pesanan</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${tableContent}
                         </tbody>
                     </table>
-                    <div style="margin-top: 15px; padding-top: 10px; font-weight: bold; text-align: right; font-size: 16px; border-top: 2px solid #333;">
-                        Total Pesanan Baru Keseluruhan: <span style="color: #dc3545;">${totalSemua}</span>
-                    </div>
+                    <div class="rp_total">Total Pesanan Baru Keseluruhan: <span>${totalSemua}</span></div>
                 </div>
-                <div style="background: #f9f9f9; padding: 10px 15px; text-align: right; border-top: 1px solid #ddd;">
-                    <button id="btn-close-footer" style="padding: 6px 14px; background: #6c757d; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Tutup</button>
+                <div class="rp_foot">
+                    <button id="btn-close-footer" type="button">Tutup</button>
                 </div>
             </div>
         `;
@@ -328,11 +367,7 @@
     function buatOverlayUI() {
         const overlay = document.createElement('div');
         overlay.id = 'erzap-rekap-modal-overlay';
-        overlay.style.cssText = `
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.6); z-index: 9999999; display: flex;
-            justify-content: center; align-items: center;
-        `;
+        pasangStyle();
         return overlay;
     }
 
