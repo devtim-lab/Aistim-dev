@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.16.0
-// @description  v1.16.0 - hapus semua hardcode list outlet; dropdown mulai kosong, murni terisi dari nama di kolom Gudang saat pencarian
+// @version      1.16.1
+// @description  v1.16.1 - debug: cek apakah #pencarian_idoutlet adalah select multiple (widget chip) dan list semua option id+nama-nya
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -221,7 +221,7 @@
                   <span style="font-size:9px;color:#888;white-space:nowrap">Stok &lt; 0</span>
                 </div>
               </div>
-              <button id="az_debug_outlet" type="button" style="margin-top:4px;font-size:10px;color:#888;background:none;border:none;text-decoration:underline;cursor:pointer;padding:0">🔍 Cek struktur outlet (debug, sementara)</button>
+              <button id="az_debug_outlet" type="button" style="margin-top:4px;font-size:10px;color:#888;background:none;border:none;text-decoration:underline;cursor:pointer;padding:0">🔍 Cek struktur field pencarian_idoutlet (debug)</button>
             </div>
           </div>
           <!-- Tombol cari full width -->
@@ -311,17 +311,28 @@
     $('#az_overlay').on('click', function (e) { if (e.target === this) closeModal(); });
     function closeModal() { $('#az_overlay').removeClass('az_open'); }
 
-    // Debug sementara: tampilkan struktur HTML checkbox outlet di sidebar,
-    // supaya bisa dibangun mapping id+nama outlet secara otomatis (bukan hardcode).
+    // Debug sementara: cek struktur field pencarian_idoutlet (apakah <select multiple>
+    // yang dibungkus widget chip, dan kalau iya list semua option id+nama-nya).
     $('#az_debug_outlet').on('click', function () {
-        const boxes = $('.checkbox_list_outlets');
-        let out = 'Jumlah checkbox_list_outlets ditemukan: ' + boxes.length + '\n\n';
-        boxes.slice(0, 6).each(function (i) {
-            const $box = $(this);
-            const wrap = $box.closest('label, li, div, span');
-            out += '--- item ' + (i + 1) + ' ---\n';
-            out += (wrap.length ? wrap.prop('outerHTML') : this.outerHTML).slice(0, 400) + '\n\n';
-        });
+        const $f = $('#pencarian_idoutlet');
+        let out = '';
+        if (!$f.length) {
+            out = 'Elemen #pencarian_idoutlet TIDAK ditemukan di halaman.';
+        } else {
+            out = 'Tag: <' + $f.prop('tagName') + '>\n';
+            out += 'multiple attr: ' + $f.prop('multiple') + '\n';
+            out += 'value sekarang: ' + JSON.stringify($f.val()) + '\n\n';
+            const opts = $f.find('option');
+            out += 'Jumlah <option>: ' + opts.length + '\n\n';
+            if (opts.length) {
+                opts.slice(0, 60).each(function () {
+                    out += $(this).val() + ' | ' + $(this).text().trim() + '\n';
+                });
+                if (opts.length > 60) out += '... (' + (opts.length - 60) + ' lagi, dipotong)\n';
+            } else {
+                out += '--- outerHTML (dipotong) ---\n' + $f.prop('outerHTML').slice(0, 600);
+            }
+        }
         $('#az_hasil').html(
             '<pre style="white-space:pre-wrap;word-break:break-all;font-size:10px;background:#f5f5f5;' +
             'border:1px solid #ddd;border-radius:6px;padding:8px;max-height:340px;overflow:auto">' +
