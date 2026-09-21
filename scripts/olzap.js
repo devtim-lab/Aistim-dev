@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Produk OLZAP
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit
 // @author       You
 // @match        https://*.erzap.com/produks*
@@ -462,16 +462,75 @@
   const urlEdit = id => location.origin + '/produks/' + id + '/edit?' + PARAM_IFRAME + '=1';
   const tandaiUrlFrame = u => { try { const x = new URL(u, location.href); x.searchParams.set(PARAM_IFRAME, '1'); return x.href; } catch (e) { return u; } };
 
+  // FAB Simpan untuk halaman Edit. Bisa dipanggil dari halaman induk (doc = iframe.contentDocument)
+  // maupun dari dalam iframe sendiri (doc = document). Tidak bergantung pada script berjalan di dalam frame,
+  // karena engine chrome.userScripts (ekstensi Aistim) tidak menyuntik script ke iframe (allFrames=false).
+  function pasangFabSimpan(doc, win) {
+    try {
+      if (!doc || !doc.body || !win) return false;
+      if (!/\/edit\b/.test(win.location.pathname)) return false;
+      if (doc.getElementById('tm_olzap_fab_save')) return true;
+
+      const fab = doc.createElement('button');
+      fab.id = 'tm_olzap_fab_save';
+      fab.type = 'button';
+      fab.title = 'Simpan';
+      // ikon sama dengan tombol simpan asli Erzap (#ok: <i class="fa fa-check">); fallback teks centang kalau FontAwesome belum termuat
+      fab.innerHTML = '<i class="fa fa-check" aria-hidden="true"></i><span class="tm-fab-label">Simpan</span>';
+      win.setTimeout(() => {
+        const i = fab.querySelector('i.fa');
+        if (i && !/FontAwesome|Font Awesome/i.test(win.getComputedStyle(i).fontFamily)) i.replaceWith(doc.createTextNode('\u2713'));
+      }, 800);
+      fab.onclick = () => {
+        const okDisable = doc.getElementById('ok_disable');
+        if (okDisable && win.getComputedStyle(okDisable).display !== 'none') return;   // Erzap sedang memproses simpan
+        fab.disabled = true;
+        win.setTimeout(() => { fab.disabled = false; }, 3000);
+        try {
+          if (typeof win.submit_form_function === 'function') { win.submit_form_function(); return; }
+          if (typeof win.submit_form2 === 'function') { win.submit_form2(); return; }
+          const ok = doc.getElementById('ok');
+          if (ok) { ok.click(); return; }
+          const f = doc.querySelector('form.edit_produk, form[id^="edit_produk"], form[action*="/produks/"], form');
+          if (f) { if (f.requestSubmit) f.requestSubmit(); else f.submit(); }
+          else win.alert('Tombol simpan tidak ditemukan di halaman ini.');
+        } catch (e) { fab.disabled = false; win.alert('Gagal simpan: ' + e.message); }
+      };
+      doc.body.appendChild(fab);
+
+      // Ctrl+S / Cmd+S di halaman edit = simpan
+      if (!doc.__tmOlzapCtrlS) {
+        doc.__tmOlzapCtrlS = true;
+        doc.addEventListener('keydown', e => {
+          if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 's') { e.preventDefault(); fab.click(); }
+        });
+      }
+      log('FAB Simpan dipasang di', win.location.pathname);
+      return true;
+    } catch (e) { log('FAB gagal dipasang:', e.message); return false; }
+  }
+
   // Cadangan: suntik CSS ke dokumen iframe (satu domain) setelah selesai dimuat
   function sembunyikanHeaderFrame(fr) {
     try {
       const d = fr.contentDocument;
-      if (!d || !d.head || d.getElementById('tm_olzap_css_frame')) return;
+      if (!d || !d.head) return;
+      if (d.getElementById('tm_olzap_css_frame')) { pasangFabFrame(fr); return; }
       const st = d.createElement('style');
       st.id = 'tm_olzap_css_frame';
       st.textContent = CSS_IFRAME;
       d.head.appendChild(st);
     } catch (e) { /* beda origin -> abaikan */ }
+    pasangFabFrame(fr);
+  }
+  // FAB dipasang dari induk; coba beberapa kali karena body iframe bisa belum siap saat event load pertama
+  function pasangFabFrame(fr, percobaan = 0) {
+    let ok = false;
+    try { ok = pasangFabSimpan(fr.contentDocument, fr.contentWindow); } catch (e) { ok = false; }
+    if (!ok && percobaan < 10) {
+      try { if (!/\/edit\b/.test(fr.contentWindow.location.pathname)) return; } catch (e) { return; }
+      setTimeout(() => pasangFabFrame(fr, percobaan + 1), 300);
+    }
   }
 
   const namaProduk = tr => { const t = tr.querySelector('td.nama_produk'); return rapikan(t && (t.getAttribute('title') || t.textContent)); };
@@ -736,44 +795,10 @@
     pasang();
     document.addEventListener('DOMContentLoaded', pasang);
 
-    // Halaman Edit: FAB Save di pojok kanan bawah -> memanggil simpan Erzap (tombol centang #ok yang disembunyikan)
-    if (/\/edit\b/.test(location.pathname)) {
-      const pasangFab = () => {
-        if (!document.body || document.getElementById('tm_olzap_fab_save')) return;
-        const fab = document.createElement('button');
-        fab.id = 'tm_olzap_fab_save';
-        fab.type = 'button';
-        fab.title = 'Simpan';
-        // ikon sama dengan tombol simpan asli Erzap (#ok: <i class="fa fa-check">); fallback teks centang kalau FontAwesome belum termuat
-        fab.innerHTML = '<i class="fa fa-check" aria-hidden="true"></i><span class="tm-fab-label">Simpan</span>';
-        setTimeout(() => {
-          const i = fab.querySelector('i.fa');
-          if (i && !/FontAwesome|Font Awesome/i.test(getComputedStyle(i).fontFamily)) i.replaceWith(document.createTextNode('✓'));
-        }, 800);
-        fab.onclick = () => {
-          const okDisable = document.getElementById('ok_disable');
-          if (okDisable && getComputedStyle(okDisable).display !== 'none') return;   // Erzap sedang memproses simpan
-          fab.disabled = true;
-          setTimeout(() => { fab.disabled = false; }, 3000);
-          try {
-            if (typeof window.submit_form_function === 'function') { window.submit_form_function(); return; }
-            if (typeof window.submit_form2 === 'function') { window.submit_form2(); return; }
-            const ok = document.getElementById('ok');
-            if (ok) { ok.click(); return; }
-            const f = document.querySelector('form.edit_produk, form[id^="edit_produk"], form[action*="/produks/"], form');
-            if (f) { if (f.requestSubmit) f.requestSubmit(); else f.submit(); }
-            else alert('Tombol simpan tidak ditemukan di halaman ini.');
-          } catch (e) { fab.disabled = false; alert('Gagal simpan: ' + e.message); }
-        };
-        document.body.appendChild(fab);
-      };
-      pasangFab();
-      document.addEventListener('DOMContentLoaded', pasangFab);
-      // Ctrl+S / Cmd+S di dalam iframe = simpan
-      document.addEventListener('keydown', e => {
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); const f = document.getElementById('tm_olzap_fab_save'); if (f) f.click(); }
-      });
-    }
+    // Halaman Edit: FAB Simpan (cadangan kalau script memang berjalan di dalam iframe, mis. Tampermonkey)
+    const pasangFabSini = () => pasangFabSimpan(document, window);
+    pasangFabSini();
+    document.addEventListener('DOMContentLoaded', pasangFabSini);
     // link di dalam iframe (mis. setelah simpan edit -> redirect) tetap membawa penanda supaya header tetap tersembunyi
     document.addEventListener('click', e => {
       const a = e.target && e.target.closest && e.target.closest('a[href]');
