@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.20.6
-// @description  v1.20.6 - default outlet = "Semua outlet" (tidak perlu pilih manual) dan toggle "Stok < 0" default OFF (tampil semua stok)
+// @version      1.20.7
+// @description  v1.20.7 - fix: bacaAktifitasViaFetch (panel otomatis) sekarang panggil langsung endpoint paginasi asli (GET halaman 1, POST halaman berikutnya dengan cursor page/idproduk_harga_last/kode_transaksi_last) ketauan dari Network tab — bukan scroll-simulasi ke DOM tersembunyi yang tidak pernah trigger lazy-load-nya
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -787,35 +787,81 @@
         scrollEls.forEach((scrollEl, i) => { scrollEl.scrollTop = posisiAwal[i]; }); // balikin posisi scroll spt semula
     }
 
-    // Sama tujuannya dengan scrollSampaiPenuh, tapi untuk fetch AJAX autoAnalisa
-    // yang tidak lewat dialog asli. HTML hasil fetch ditempel sebentar ke DOM asli
-    // di luar layar (BUKAN display:none, supaya beneran punya scrollHeight) dengan
-    // overflow-y:auto sendiri, supaya lazy-load tabel yang sama tetap ke-trigger
-    // saat di-scroll — sebelumnya fetch ini di-parse langsung dari <div> lepas
-    // (tidak nempel ke halaman) jadi cuma dapat halaman pertama dari data yang
-    // sebenarnya di-load bertahap pas di-scroll. Elemen dihapus lagi sesudahnya.
-    async function bacaAktifitasViaFetch(idproduk, idgudang, idoutlet) {
-        const aktHtml = await $.ajax({
-            url: '/produk_gudangs/aktifitas_stok/new',
-            dataType: 'text',
-            data: {
-                idproduk: idproduk,
-                idgudang: idgudang,
-                idoutlet: idoutlet,
-                idproduk_harga: '',
-                hide_stok_awal_stok_akhir: $('#hide_stok_awal_stok_akhir').val() || 'false'
-            }
+    // Baris data asli di tabel Aktifitas (bukan sentinel "Loading..." / baris kosong).
+    function barisAktifitasValid($tbl) {
+        return $tbl.find('table tbody tr').filter(function () {
+            const $tr = $(this);
+            if ($tr.attr('id') === 'new_tr_tabel_aktifitas_produk') return false;
+            return $tr.find('td').length >= 7 && $tr.find('.dataTables_empty').length === 0;
         });
-        const $temp = $('<div>').css({
-            position: 'fixed', left: '-9999px', top: '0', zIndex: -1,
-            width: '600px', height: '400px', overflowY: 'auto', overflowX: 'hidden'
-        }).html(aktHtml).appendTo(document.body);
-        try {
-            await scrollSampaiPenuh($temp);
-            return parseAktifitasRows($temp);
-        } finally {
-            $temp.remove();
+    }
+
+    // Ketauan dari DevTools Network tab (bukan scroll-simulasi): halaman pertama
+    // tabel Aktifitas di-fetch via GET biasa, tapi halaman berikutnya (yang di
+    // situsnya di-trigger pas discroll) itu POST ke URL yang sama TANPA query
+    // string, bawa page + cursor dari baris terakhir yang sudah kebaca
+    // (idproduk_harga_last dari kolom tersembunyi .for_debug, kode_transaksi_last
+    // dari kolom Kode Transaksi). Jadi di sini kita panggil langsung endpoint
+    // paginasinya berkali-kali sampai halamannya kosong, bukan pura-pura scroll.
+    async function bacaAktifitasViaFetch(idproduk, idgudang, idoutlet) {
+        const $semua = $('<table>').append($('<tbody>'));
+        const $tbody = $semua.find('tbody');
+        let page = 1;
+        let idprodukHargaLast = '';
+        let kodeTransaksiLast = '';
+
+        for (let i = 0; i < 30; i++) {
+            let html;
+            if (page === 1) {
+                html = await $.ajax({
+                    url: '/produk_gudangs/aktifitas_stok/new',
+                    method: 'GET',
+                    dataType: 'text',
+                    data: {
+                        idproduk: idproduk,
+                        idgudang: idgudang,
+                        idoutlet: idoutlet,
+                        idproduk_harga: '',
+                        hide_stok_awal_stok_akhir: $('#hide_stok_awal_stok_akhir').val() || 'false'
+                    }
+                });
+            } else {
+                html = await $.ajax({
+                    url: '/produk_gudangs/aktifitas_stok/new',
+                    method: 'POST',
+                    dataType: 'text',
+                    data: {
+                        idproduk: idproduk,
+                        idgudang: idgudang,
+                        idproduk_harga: '',
+                        page: page,
+                        idproduk_harga_last: idprodukHargaLast,
+                        kode_transaksi_last: kodeTransaksiLast,
+                        hide_stok_awal_stok_akhir: $('#hide_stok_awal_stok_akhir').val() || 'false'
+                    }
+                });
+            }
+
+            const $frag = $('<div>').html(html);
+            const $rows = barisAktifitasValid($frag);
+            if ($rows.length === 0) break; // halaman kosong -> sudah habis
+
+            $rows.each(function () { $tbody.append(this); });
+
+            const $last = $rows.last();
+            const kode = $last.find('td').eq(1).text().trim();
+            const $debug = $last.find('td.for_debug');
+            const idHarga = $debug.length ? $debug.text().trim() : '';
+            // Kalau cursor sama kayak sebelumnya (server tidak maju), berhenti
+            // supaya tidak infinite loop.
+            if (page > 1 && kode === kodeTransaksiLast && idHarga === idprodukHargaLast) break;
+            kodeTransaksiLast = kode;
+            idprodukHargaLast = idHarga;
+            page++;
+            await sleep(150);
         }
+
+        return parseAktifitasRows($semua);
     }
 
     function parseAktifitasRows($scope) {
