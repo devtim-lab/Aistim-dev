@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Produk OLZAP
 // @namespace    http://tampermonkey.net/
-// @version      1.3.4
+// @version      1.3.5
 // @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / Edit Nama / OLZAP (cek barcode di partdistro.com)
 // @author       You
 // @match        https://*.erzap.com/produks*
@@ -264,6 +264,7 @@
     #${ID_MODAL} .tm-nama-saran{font-size:12px;background:var(--tm-merah-pucat);border:1px solid var(--tm-garis);border-radius:4px;padding:8px;margin-bottom:10px;word-break:break-word;}
     #${ID_MODAL} .tm-nama-saran button{margin-left:6px;padding:4px 10px;border:1px solid var(--tm-merah);background:#fff;color:var(--tm-merah);border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;}
     #${ID_MODAL} .tm-nama-label{font-size:12px;color:#666;margin-bottom:6px;}
+    #${ID_MODAL} .tm-nama-info{font-size:12px;color:#444;background:#f5f5f5;border:1px solid #e2e2e2;border-radius:4px;padding:8px;margin-bottom:10px;word-break:break-word;}
     #${ID_MODAL} .tm-olzap-info{font-size:12px;color:#666;margin-bottom:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
     #${ID_MODAL} .tm-olzap-info a{color:var(--tm-merah);}
     #${ID_MODAL} .tm-olzap-kartu{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--tm-garis);border-radius:6px;padding:10px;margin-bottom:10px;background:#fff;}
@@ -850,9 +851,10 @@
     }
     function renderFormNama(t, d, w, field) {
       t.isi.innerHTML = '';
+      const namaAsli = rapikan(field.value);
 
       const srcOlzap = el.olzap && el.olzap.hasilOlzap && el.olzap.hasilOlzap.produk && el.olzap.hasilOlzap.produk[0];
-      if (srcOlzap && srcOlzap.nama && rapikan(srcOlzap.nama) !== rapikan(field.value)) {
+      if (srcOlzap && srcOlzap.nama && rapikan(srcOlzap.nama) !== namaAsli) {
         const saran = document.createElement('div');
         saran.className = 'tm-nama-saran';
         saran.innerHTML = 'Nama di partdistro (OLZAP): <b>' + esc(srcOlzap.nama) + '</b>';
@@ -863,6 +865,12 @@
         saran.appendChild(btnPakai);
         t.isi.appendChild(saran);
       }
+
+      // info nama yang sedang tersimpan di Erzap sekarang, supaya kelihatan sebelum diganti
+      const infoAsli = document.createElement('div');
+      infoAsli.className = 'tm-nama-info';
+      infoAsli.innerHTML = 'Nama di Erzap (saat ini): <b>' + esc(namaAsli || '(kosong)') + '</b>';
+      t.isi.appendChild(infoAsli);
 
       const label = document.createElement('div');
       label.className = 'tm-nama-label';
