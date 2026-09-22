@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Rekap Beban
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapbeban.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapbeban.js
-// @description  [v1.1.0] Tombol rekap beban kompak, sticky header, centang pindah ke bawah, HD zoom, pop-up jurnal, dan tombol tutup (Mobile Responsive Update)
+// @description  [v1.1.2] Fix: Grand Total salah hitung untuk nominal >= Rp 1.000 (titik ribuan ikut ke-parse, bukan cuma dibuang)
 // @author       You
 // @match        https://*.erzap.com/jurnals/index_transaksi_beban/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -573,7 +573,10 @@
                         const contentJP = cols[5].innerHTML.trim();
                         const textTotal = cols[7].innerText.trim();
 
-                        let numericValue = textTotal.replace(/[^\d.]/g, '');
+                        // Format Rupiah Indonesia: titik = pemisah ribuan, koma = desimal (mis. "1.234.567,00").
+                        // replace(/[^\d.]/g,'') SEBELUMNYA salah: titik ribuan ikut kebawa, lalu parseFloat
+                        // berhenti di titik kedua -> "1.234.567,00" jadi cuma 1.234 (Grand Total meleset jauh).
+                        let numericValue = textTotal.replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.');
                         if (numericValue) {
                             grandTotalNum += parseFloat(numericValue);
                             dataDitemukan = true;
