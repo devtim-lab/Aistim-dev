@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.19.0
-// @description  v1.19.0 - tombol CARI disembunyikan setelah data ketemu, muncul lagi tiap mulai pencarian baru
+// @version      1.20.0
+// @description  v1.20.0 - pilih outlet dulu (diisi dari sidebar sejak awal), baru scan barcode; analisa aktifitas gudang langsung jalan untuk outlet terpilih
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -46,7 +46,11 @@
         background:linear-gradient(135deg,#e63946,#b30d1c);color:#fff;box-shadow:0 2px 8px rgba(230,57,70,.4);
         font:700 13px 'Segoe UI',Arial,sans-serif}
     #az_scan:active{transform:scale(.98)}
-    #az_scan:disabled{opacity:.6}
+    #az_scan:disabled{opacity:.6;cursor:not-allowed}
+    .az_row input[type=text]:disabled{background:#f3f3f3;color:#999;cursor:not-allowed}
+    #az_btn_barcode:disabled{opacity:.5;cursor:not-allowed}
+    #az_outlet.az_belum{border-color:#e63946;background:#fff5f5}
+    #az_langkah{font-size:11px;color:#777;margin:-4px 0 8px}
     /* toggle switch filter stok minus */
     .az_switch{width:42px;height:24px;border-radius:20px;background:#ccc;position:relative;
         cursor:pointer;transition:background .2s;flex:0 0 auto;align-self:center}
@@ -197,23 +201,10 @@
         <div id="az_head"><span>📊 Analisa Stok</span><button id="az_close">✕</button></div>
         <div id="az_body">
           <div class="az_row" style="display:flex;gap:10px">
-            <div style="flex:1.4;min-width:0">
-              <label>Barcode</label>
-              <div id="az_barcode_wrap">
-                <input type="text" id="az_barcode" placeholder="Scan / ketik barcode lalu Enter" autocomplete="off" inputmode="numeric">
-                <button type="button" id="az_btn_barcode" title="Scan barcode dengan kamera">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
-                    <line x1="7" y1="8" x2="7" y2="16"/><line x1="10.5" y1="8" x2="10.5" y2="16"/>
-                    <line x1="13.5" y1="8" x2="13.5" y2="16"/><line x1="17" y1="8" x2="17" y2="16"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
             <div style="flex:1;min-width:0">
-              <label>Outlet (kosong = semua)</label>
+              <label>1. Outlet (pilih dulu)</label>
               <div style="display:flex;gap:6px;align-items:center">
-                <select id="az_outlet" style="flex:1;min-width:0"><option value="">-- Semua outlet --</option></select>
+                <select id="az_outlet" class="az_belum" style="flex:1;min-width:0"><option value="">-- Pilih outlet --</option><option value="all">Semua outlet</option></select>
                 <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:0 0 auto">
                   <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
                     <div class="az_knob"></div>
@@ -222,10 +213,24 @@
                 </div>
               </div>
             </div>
+            <div style="flex:1.4;min-width:0">
+              <label>2. Barcode</label>
+              <div id="az_barcode_wrap">
+                <input type="text" id="az_barcode" placeholder="Pilih outlet dulu" autocomplete="off" inputmode="numeric" disabled>
+                <button type="button" id="az_btn_barcode" title="Scan barcode dengan kamera" disabled>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                    <line x1="7" y1="8" x2="7" y2="16"/><line x1="10.5" y1="8" x2="10.5" y2="16"/>
+                    <line x1="13.5" y1="8" x2="13.5" y2="16"/><line x1="17" y1="8" x2="17" y2="16"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
+          <div id="az_langkah">Langkah 1: pilih outlet. Barcode & tombol CARI aktif setelah outlet dipilih.</div>
           <!-- Tombol cari full width -->
           <div class="az_row" style="margin-bottom:0">
-            <button type="button" id="az_scan">🔍 CARI</button>
+            <button type="button" id="az_scan" disabled>🔍 CARI</button>
           </div>
           <!-- Nilai internal perkiraan jumlah (hidden) -->
           <input type="hidden" id="az_cmp" value="<">
@@ -272,14 +277,49 @@
     // sekarang value opsi = nama outlet itu sendiri.
     const OUTLETS = [];
     const OUTLET_NAMA = {};
-    OUTLETS.forEach(([id, nama]) => { OUTLET_NAMA[id] = nama; });
     const OUTLET_ID = {}; // reverse: nama -> id (buat resolve id kalau nama sudah dikenal)
-    OUTLETS.forEach(([id, nama]) => { OUTLET_ID[nama] = id; });
 
     const selOutlet = $('#az_outlet');
-    OUTLETS.forEach(([id, nama]) => {
-        selOutlet.append($('<option>').val(id).text(nama));
-    });
+
+    // Outlet diisi SEJAK AWAL dari checkbox sidebar halaman (.checkbox_list_outlets / #outlet_list_<id>),
+    // supaya user bisa pilih outlet dulu sebelum scan. Nama diambil dari label yang terkait checkbox.
+    function isiOutletDariSidebar() {
+        $('.checkbox_list_outlets').each(function () {
+            const $cb = $(this);
+            const idm = String($cb.attr('id') || '').match(/outlet_list_(\d+)/);
+            const id = idm ? idm[1] : ($cb.val() || '');
+            if (!id) return;
+            let nama = '';
+            if ($cb.attr('id')) nama = $('label[for="' + $cb.attr('id') + '"]').text().trim();
+            if (!nama) nama = $cb.closest('label').text().trim();
+            if (!nama) nama = $cb.parent().text().trim();
+            if (!nama) nama = $cb.next('label,span').text().trim();
+            nama = nama.replace(/\s+/g, ' ').trim();
+            if (!nama || OUTLET_NAMA[id] !== undefined) return;
+            OUTLETS.push([id, nama]);
+            OUTLET_NAMA[id] = nama;
+            OUTLET_ID[nama] = id;
+            selOutlet.append($('<option>').val(id).text(nama));
+        });
+        console.log('[AnalisaStok] outlet dari sidebar:', OUTLETS.length);
+    }
+    isiOutletDariSidebar();
+    if (OUTLETS.length === 0) setTimeout(isiOutletDariSidebar, 1500); // sidebar kadang dirender belakangan
+
+    // Outlet sudah dipilih? ('all' = semua outlet juga dianggap sudah memilih)
+    const outletSudahDipilih = () => !!$('#az_outlet').val();
+    function perbaruiLangkah() {
+        const siap = outletSudahDipilih();
+        $('#az_barcode').prop('disabled', !siap).attr('placeholder', siap ? 'Scan / ketik barcode lalu Enter' : 'Pilih outlet dulu');
+        $('#az_btn_barcode').prop('disabled', !siap);
+        $('#az_scan').prop('disabled', !siap);
+        $('#az_outlet').toggleClass('az_belum', !siap);
+        const val = $('#az_outlet').val();
+        $('#az_langkah').text(!siap
+            ? 'Langkah 1: pilih outlet. Barcode & tombol CARI aktif setelah outlet dipilih.'
+            : 'Outlet: ' + (val === 'all' ? 'Semua outlet' : (OUTLET_NAMA[val] || val)) + ' \u2192 Langkah 2: scan / ketik barcode lalu Enter.');
+    }
+    perbaruiLangkah();
 
     // Tambah outlet baru ke dropdown otomatis kalau namanya muncul di kolom Gudang
     // tapi belum ada sebagai opsi (misal outlet baru yang belum sempat di-update manual).
@@ -304,7 +344,9 @@
     $('#az_btn').on('click', function () {
         $('#az_overlay').addClass('az_open');
         $('#az_hasil').html('');
-        $('#az_barcode').trigger('focus');
+        if (OUTLETS.length === 0) isiOutletDariSidebar();
+        perbaruiLangkah();
+        if (outletSudahDipilih()) $('#az_barcode').trigger('focus'); else $('#az_outlet').trigger('focus');
     });
     $('#az_close').on('click', closeModal);
     $('#az_overlay').on('click', function (e) { if (e.target === this) closeModal(); });
@@ -428,6 +470,7 @@
         const cmp = $('#az_cmp').val();
         const jml = $('#az_jml').val().trim();
 
+        if (!outletSudahDipilih()) { perbaruiLangkah(); $('#az_outlet').trigger('focus'); return; }
         if (!cari) { alert('Isi barcode dulu.'); return; }
         lastCari = cari;
         autoToken = '';
@@ -467,7 +510,7 @@
         // outletId bisa berupa id (dikenal) atau nama outlet baru (belum ada id-nya, lihat
         // pastikanOutletDiDropdown) — untuk kasus nama, filter server-side ini dilewati,
         // tapi filter tampilan kolom Gudang (htmlGudang) tetap jalan karena berbasis nama.
-        const outletIdValid = (outletId && OUTLET_NAMA[outletId] !== undefined) ? outletId : '';
+        const outletIdValid = (outletId && outletId !== 'all' && OUTLET_NAMA[outletId] !== undefined) ? outletId : '';
         $('#pencarian_idgudang').val('');
         const boxes = $('.checkbox_list_outlets');
         boxes.prop('checked', !outletIdValid);
@@ -561,9 +604,10 @@
         $('#az_scan').hide(); // data sudah ketemu, tombol CARI disembunyikan sampai pencarian baru dimulai
         isiKolomGudang();
 
-        // Analisa aktifitas gudang TIDAK lagi otomatis di sini — nunggu user
-        // pilih outlet spesifik dari dropdown (lihat handler 'change' #az_outlet).
-        $('#az_analisa').html('<div class="az_analisa_box"><h4 style="color:#888;font-weight:normal">Pilih outlet di atas untuk mulai analisa aktifitas gudang.</h4></div>');
+        // Outlet sudah dipilih sebelum scan -> analisa aktifitas gudang langsung jalan
+        const val = $('#az_outlet').val();
+        if (val && val !== 'all') autoAnalisa(OUTLET_NAMA[val] || val);
+        else $('#az_analisa').html('<div class="az_analisa_box"><h4 style="color:#888;font-weight:normal">Mode semua outlet: pilih satu outlet di atas untuk analisa aktifitas gudang.</h4></div>');
     }
 
     /* ============================================================ */
@@ -619,7 +663,7 @@
     function htmlGudang(list) {
         if (!list.length) return '<span class="az-muted">(gudang tunggal)</span>';
         const azVal = $('#az_outlet').val();
-        const outletPilih = OUTLET_NAMA[azVal] || azVal || '';
+        const outletPilih = (!azVal || azVal === 'all') ? '' : (OUTLET_NAMA[azVal] || azVal);
         if (outletPilih) list = list.filter(g => g.outlet === outletPilih);
         if (!list.length) return `<span class="az-muted">tidak ada gudang di ${outletPilih}</span>`;
         const ada = outletPilih ? list : list.filter(g => !isNaN(g.stok) && g.stok !== 0);
@@ -771,7 +815,16 @@
         });
 
         const stokAkhir = rows.first().find('td').eq(5).text().trim();
-        return { totalTrx, totalKeluar, totalMasuk, jualCount, jualQty, perJenis, listTrx, stokAkhir };
+        // "Jumlah Total pada Gudang = 200.0 PCS" (label di atas tabel aktifitas)
+        let totalGudang = '';
+        $scope.find('label').each(function () {
+            if (/Jumlah Total pada Gudang/i.test($(this).text())) {
+                const $nx = $(this).nextAll('label').first();
+                if ($nx.length) totalGudang = $nx.text().trim();
+                return false;
+            }
+        });
+        return { totalTrx, totalKeluar, totalMasuk, jualCount, jualQty, perJenis, listTrx, stokAkhir, totalGudang };
     }
 
     function analisaSectionHtml(a, gudang, barcode, nama) {
@@ -787,6 +840,7 @@
             <span class="az_chip az_chip_red">Keluar: <b>-${a.totalKeluar}</b></span>
             <span class="az_chip az_chip_green">Masuk: <b>+${a.totalMasuk}</b></span>
             <span class="az_chip">Stok Akhir: <b>${a.stokAkhir}</b></span>
+            ${a.totalGudang ? `<span class="az_chip">Total di Gudang: <b>${a.totalGudang}</b></span>` : ''}
             <span class="az_chip">Penjualan: <b>${a.jualCount}x</b> (${a.jualQty} pcs)</span>
         </div>`;
 
@@ -901,11 +955,17 @@
     // Mulai analisa begitu outlet dipilih dari dropdown (kosong = balik ke placeholder).
     $('#az_outlet').on('change', function () {
         const val = $(this).val();
+        perbaruiLangkah();
         if (!val) {
-            $('#az_analisa').html('<div class="az_analisa_box"><h4 style="color:#888;font-weight:normal">Pilih outlet di atas untuk mulai analisa aktifitas gudang.</h4></div>');
+            $('#az_analisa').html('');
             return;
         }
-        const outletNama = OUTLET_NAMA[val] || val;
-        autoAnalisa(outletNama);
+        // outlet dipilih -> siap scan
+        setTimeout(() => $('#az_barcode').trigger('focus'), 30);
+        // kalau sudah ada hasil pencarian, analisa ulang untuk outlet yang baru dipilih
+        if (lastCari && $('#az_tbl').length) {
+            if (val === 'all') $('#az_analisa').html('<div class="az_analisa_box"><h4 style="color:#888;font-weight:normal">Mode semua outlet: pilih satu outlet di atas untuk analisa aktifitas gudang.</h4></div>');
+            else autoAnalisa(OUTLET_NAMA[val] || val);
+        }
     });
 })();
