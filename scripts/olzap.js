@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Erzap - Produk OLZAP
 // @namespace    http://tampermonkey.net/
-// @version      1.0.4
-// @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit
+// @version      1.1.1
+// @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / OLZAP (cek barcode di partdistro.com)
 // @author       You
 // @match        https://*.erzap.com/produks*
+// @connect      partdistro.com
 // @world        main
 // @run-at       document-start
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -39,6 +40,8 @@
     @media (max-width: 640px) { #tm_olzap_fab_save { width: 56px; height: 56px; right: 14px; bottom: 40px; } }
   `;
   const PARAM_IFRAME = 'tm_olzap_frame';   // penanda di URL: halaman ini dibuka di dalam iframe modal
+  const OLZAP_BASE = 'https://partdistro.com';   // web OLZAP (partdistro) untuk cek barcode
+  const urlOlzapCari = barcode => OLZAP_BASE + '/main/pencarian?param=' + encodeURIComponent(barcode);
 
   const rapikan = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
   const tunggu = ms => new Promise(r => setTimeout(r, ms));
@@ -256,6 +259,17 @@
     #${ID_MODAL} .tm-tab-alat{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12px;color:#666;border-bottom:1px solid var(--tm-garis);}
     #${ID_MODAL} .tm-tab-alat a{color:var(--tm-merah);}
     #${ID_MODAL} .tm-tab-alat a{white-space:nowrap;}
+    #${ID_MODAL} .tm-olzap-isi{padding:12px;min-height:120px;}
+    #${ID_MODAL} .tm-olzap-info{font-size:12px;color:#666;margin-bottom:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+    #${ID_MODAL} .tm-olzap-info a{color:var(--tm-merah);}
+    #${ID_MODAL} .tm-olzap-kartu{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--tm-garis);border-radius:6px;padding:10px;margin-bottom:10px;background:#fff;}
+    #${ID_MODAL} .tm-olzap-kartu img{width:72px;height:72px;object-fit:contain;border:1px solid #eee;border-radius:4px;background:#fafafa;flex:none;}
+    #${ID_MODAL} .tm-olzap-nama{font-weight:bold;margin-bottom:4px;word-break:break-word;}
+    #${ID_MODAL} .tm-olzap-harga{color:var(--tm-merah);font-weight:bold;font-size:15px;}
+    #${ID_MODAL} .tm-olzap-coret{color:#999;text-decoration:line-through;margin-left:6px;font-weight:normal;font-size:13px;}
+    #${ID_MODAL} .tm-olzap-stok{font-size:12px;color:#444;margin-top:2px;}
+    #${ID_MODAL} .tm-olzap-kartu a{color:var(--tm-merah);font-size:12px;}
+    #${ID_MODAL} .tm-olzap-kosong{padding:12px;background:var(--tm-merah-muda);color:#c00000;border-radius:4px;}
     #${ID_MODAL} .tm-panel{display:none;position:relative;}
     #${ID_MODAL} .tm-panel.aktif{display:block;}
     #${ID_MODAL} .tm-panel iframe{width:100%;height:65vh;border:0;background:#fff;display:block;}
@@ -557,6 +571,92 @@
     pasangFabFrame(fr);
   }
 
+  // ---------- OLZAP (partdistro.com) ----------
+  // Alur sama dengan cek_partdistro.py: GET /main/pencarian?param=... (parameter disimpan di session),
+  // lalu GET /main/pencarian/new via AJAX -> respons JS  $('#...').html("<html di-escape>")
+  // Ambil teks lintas domain. partdistro.com tidak kirim header CORS, jadi fetch biasa dari erzap.com diblokir.
+  // Jalur 1: jembatan ekstensi Aistim (content script -> background, credentials include). Jalur 2: fetch biasa (kalau suatu saat CORS dibuka).
+  let seqXFetch = 0;
+  const adaJembatan = () => document.documentElement.getAttribute('data-aistim-xfetch') === '1';
+  function xfetch(url, opts) {
+    if (!adaJembatan()) return fetch(url, { ...(opts || {}), credentials: 'include', mode: 'cors', cache: 'no-store' })
+      .then(async r => ({ ok: r.ok, status: r.status, text: await r.text() }));
+    return new Promise((resolve, reject) => {
+      const id = 'xf' + (++seqXFetch) + '_' + Date.now();
+      const timer = setTimeout(() => { window.removeEventListener('message', onMsg); reject(new Error('timeout jembatan Aistim')); }, 30000);
+      function onMsg(ev) {
+        if (ev.source !== window || !ev.data || !ev.data.aistimFetchResult || ev.data.aistimFetchResult.id !== id) return;
+        clearTimeout(timer);
+        window.removeEventListener('message', onMsg);
+        const r = ev.data.aistimFetchResult;
+        if (r.error) reject(new Error(r.error)); else resolve(r);
+      }
+      window.addEventListener('message', onMsg);
+      window.postMessage({ aistimFetch: { id, url, opts: opts || {} } }, location.origin);
+    });
+  }
+
+  // Alur sama dengan cek_partdistro.py: GET /main/pencarian?param=... (parameter disimpan di session),
+  // lalu GET /main/pencarian/new via AJAX -> respons JS  $('#...').html("<html di-escape>")
+  async function fetchOlzap(barcode) {
+    await xfetch(urlOlzapCari(barcode));
+    const r = await xfetch(OLZAP_BASE + '/main/pencarian/new', { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/javascript' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const teks = r.text || '';
+    const m = teks.match(/\.html\("([\s\S]*)"\);?\s*$/);
+    if (!m) return { produk: [], mentah: teks };
+    // string JS: escape \" \/ \n \uXXXX, tapi bisa berisi TAB/newline mentah -> escape dulu supaya JSON.parse tidak gagal
+    const aman = m[1]
+      .replace(/[\u0000-\u001f]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))
+      .replace(/\\(?!["\\\/bfnrtu])/g, '');      // escape JS yang bukan JSON (mis. \' \&) -> buang backslash-nya
+    let html;
+    try { html = JSON.parse('"' + aman + '"'); }
+    catch (e) { html = m[1].replace(/\\\//g, '/').replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\t/g, '\t'); }
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const produk = Array.from(doc.querySelectorAll('.box_thumb_produk')).map(b => {
+      const t = sel => rapikan((b.querySelector(sel) || {}).textContent);
+      const a = b.querySelector('a[href*="/produks/"]');
+      const img = b.querySelector('img');
+      return {
+        nama: t('.thumb_nama_produk'),
+        harga: t('.thumb_harga_produk_normal'),
+        hargaCoret: t('.thumb_harga_produk_line_through'),
+        stok: t('[class*="class_stok"]'),
+        url: a ? new URL(a.getAttribute('href'), OLZAP_BASE).href : '',
+        gambar: img && img.getAttribute('src') ? new URL(img.getAttribute('src'), OLZAP_BASE).href : '',
+      };
+    }).filter(p => p.nama);
+    return { produk, mentah: html };
+  }
+
+  function renderOlzap(wadah, barcode, hasil) {
+    wadah.innerHTML = '';
+    const info = document.createElement('div');
+    info.className = 'tm-olzap-info';
+    info.innerHTML = `<span>partdistro.com &middot; barcode <b>${esc(barcode)}</b> &middot; ${hasil.produk.length} produk</span>
+      <a href="${esc(urlOlzapCari(barcode))}" target="_blank" rel="noopener">Buka di partdistro</a>`;
+    wadah.appendChild(info);
+    if (!hasil.produk.length) {
+      const k = document.createElement('div');
+      k.className = 'tm-olzap-kosong';
+      k.textContent = 'TIDAK DITEMUKAN di partdistro.com';
+      wadah.appendChild(k);
+      return;
+    }
+    for (const p of hasil.produk) {
+      const k = document.createElement('div');
+      k.className = 'tm-olzap-kartu';
+      k.innerHTML = `${p.gambar ? `<img src="${esc(p.gambar)}" alt="">` : ''}
+        <div style="flex:1;min-width:0">
+          <div class="tm-olzap-nama">${esc(p.nama)}</div>
+          <div class="tm-olzap-harga">${esc(p.harga)}${p.hargaCoret ? `<span class="tm-olzap-coret">${esc(p.hargaCoret)}</span>` : ''}</div>
+          ${p.stok ? `<div class="tm-olzap-stok">Stok: ${esc(p.stok)}</div>` : ''}
+          ${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">Lihat di partdistro &rarr;</a>` : ''}
+        </div>`;
+      wadah.appendChild(k);
+    }
+  }
+
   const namaProduk = tr => { const t = tr.querySelector('td.nama_produk'); return rapikan(t && (t.getAttribute('title') || t.textContent)); };
 
   // Link di baris hasil (clone) tidak boleh pindah halaman: arahkan ke tab Lihat/Edit
@@ -605,9 +705,11 @@
     // ikon mata (lihat) & pensil (edit), inline SVG supaya tidak bergantung font ikon halaman
     const IKON_LIHAT = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
     const IKON_EDIT = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+    const IKON_OLZAP = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
     const daftar = {
       lihat: { ikon: IKON_LIHAT, label: 'Lihat', url: urlLihat(id) },
       edit: { ikon: IKON_EDIT, label: 'Edit', url: urlEdit(id) },
+      olzap: { ikon: IKON_OLZAP, label: 'OLZAP', url: urlOlzapCari(barcode), olzap: true },
     };
     const el = {};
     for (const k of Object.keys(daftar)) {
@@ -622,6 +724,18 @@
 
       const panel = document.createElement('div');
       panel.className = 'tm-panel';
+      if (daftar[k].olzap) {
+        // tab OLZAP: hasil fetch partdistro dirender sendiri; iframe hanya sebagai fallback kalau fetch diblokir CORS
+        const isi = document.createElement('div');
+        isi.className = 'tm-olzap-isi';
+        isi.textContent = barcode ? 'Klik tab untuk memuat...' : 'Barcode produk tidak diketahui.';
+        const frO = document.createElement('iframe');
+        frO.style.display = 'none';
+        panel.append(isi, frO);
+        panelWadah.appendChild(panel);
+        el[k] = { b, panel, fr: frO, isi, url: daftar[k].url, olzap: true, dimuat: false };
+        continue;
+      }
       const muat = document.createElement('div');
       muat.className = 'tm-muat';
       muat.textContent = 'Memuat...';
@@ -649,15 +763,37 @@
       const t = el[k];
       const url = urlKhusus || t.url;
       linkBaru.href = url;
-      if (t.fr.getAttribute('src') !== url) {          // lazy load: iframe dimuat saat tab pertama dibuka
+      if (t.olzap) { muatOlzap(t); }
+      else if (t.fr.getAttribute('src') !== url) {     // lazy load: iframe dimuat saat tab pertama dibuka
         t.muat.style.display = '';
         t.fr.src = url;
       }
       wadah.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
+    async function muatOlzap(t, paksa) {
+      if (!barcode) return;
+      if (t.dimuat && !paksa) return;
+      t.dimuat = true;
+      t.isi.textContent = 'Mengambil data dari partdistro.com...';
+      t.fr.style.display = 'none';
+      try {
+        const hasil = await fetchOlzap(barcode);
+        log('OLZAP', barcode, hasil.produk);
+        renderOlzap(t.isi, barcode, hasil);
+      } catch (e) {
+        // partdistro memblokir CORS dan iframe (X-Frame-Options: SAMEORIGIN) -> tanpa jembatan ekstensi tidak bisa ditampilkan di sini
+        log('fetch OLZAP gagal:', e.message);
+        const sebab = adaJembatan() ? esc(e.message)
+          : 'Jembatan fetch ekstensi Aistim tidak tersedia (perlu Aistim Tool v2.9.0+). ' + esc(e.message);
+        t.isi.innerHTML = `<div class="tm-olzap-kosong">Gagal mengambil data dari partdistro.com.<br><small>${sebab}</small></div>
+          <div class="tm-olzap-info"><a href="${esc(t.url)}" target="_blank" rel="noopener">Buka pencarian di partdistro (tab baru)</a></div>`;
+        t.dimuat = false;
+      }
+    }
     btnMuatUlang.onclick = e => {
       e.preventDefault();
       if (!aktif) return;
+      if (el[aktif].olzap) { muatOlzap(el[aktif], true); return; }
       el[aktif].muat.style.display = '';
       el[aktif].fr.src = el[aktif].fr.src;
     };

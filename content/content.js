@@ -1,7 +1,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2.7.7';
+  var VERSION = '2.9.0';
   console.log('[Aistim] ===== Content script v' + VERSION + ' loaded =====');
   console.log('[Aistim] URL:', window.location.href);
 
@@ -331,6 +331,30 @@
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
+  }
+
+  // ===== JEMBATAN FETCH LINTAS DOMAIN =====
+  // Userscript (MAIN world) kirim: window.postMessage({ aistimFetch: { id, url, opts } }, location.origin)
+  // Balasan:                        window.postMessage({ aistimFetchResult: { id, ok, status, text, error } }, location.origin)
+  // Hanya dilayani di halaman *.erzap.com; host tujuan dibatasi lagi di background (X_FETCH_ALLOW).
+  if (/(^|\.)erzap\.com$/i.test(location.hostname)) {
+    window.addEventListener('message', function(ev) {
+      if (ev.source !== window || !ev.data || !ev.data.aistimFetch) return;
+      var q = ev.data.aistimFetch;
+      if (!q.id || !q.url) return;
+      try {
+        chrome.runtime.sendMessage({ action: 'x-fetch', url: q.url, opts: q.opts || {} }, function(res) {
+          var err = chrome.runtime.lastError;
+          var out = res || { ok: false, status: 0, error: err ? err.message : 'tidak ada respons' };
+          out.id = q.id;
+          window.postMessage({ aistimFetchResult: out }, location.origin);
+        });
+      } catch (e) {
+        window.postMessage({ aistimFetchResult: { id: q.id, ok: false, status: 0, error: String(e && e.message || e) } }, location.origin);
+      }
+    });
+    // penanda supaya userscript tahu jembatan tersedia
+    try { document.documentElement.setAttribute('data-aistim-xfetch', '1'); } catch (e) {}
   }
 
   // Turbolinks / SPA navigation

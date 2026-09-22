@@ -1,4 +1,5 @@
-const VERSION = '2.7.0';
+const VERSION = '2.9.0';
+const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
 // Script dibundel di folder scripts/ (daftar ada di scripts/index.json)
@@ -267,6 +268,35 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       sendResponse({ userScripts: active, version: VERSION });
     })();
     return true; // async response
+  }
+
+  // Jembatan fetch lintas domain untuk userscript (dipakai olzap.js -> partdistro.com).
+  // Dibatasi: hanya dari halaman *.erzap.com dan hanya ke host yang ada di X_FETCH_ALLOW,
+  // supaya ekstensi tidak jadi proxy terbuka untuk situs lain.
+  if (req.action === 'x-fetch') {
+    (async () => {
+      try {
+        const asal = sender && sender.url ? new URL(sender.url) : null;
+        if (!asal || !/(^|\.)erzap\.com$/i.test(asal.hostname)) throw new Error('asal tidak diizinkan');
+        const target = new URL(req.url);
+        if (target.protocol !== 'https:' || !X_FETCH_ALLOW.some(h => target.hostname === h || target.hostname.endsWith('.' + h)))
+          throw new Error('host tidak diizinkan: ' + target.hostname);
+        const opts = req.opts || {};
+        const res = await fetch(target.href, {
+          method: opts.method || 'GET',
+          headers: opts.headers || {},
+          body: opts.body,
+          credentials: 'include',
+          cache: 'no-store',
+          redirect: 'follow'
+        });
+        const text = await res.text();
+        sendResponse({ ok: res.ok, status: res.status, url: res.url, text: text });
+      } catch (e) {
+        sendResponse({ ok: false, status: 0, error: String(e && e.message || e) });
+      }
+    })();
+    return true;
   }
 
   if (req.action === 'resync') {

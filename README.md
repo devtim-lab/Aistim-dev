@@ -53,6 +53,22 @@ Aturan script:
 
 Setiap kenaikan `"version"` di manifest → GitHub Actions otomatis buat tag + release `vX.Y.Z` dengan ZIP berversi.
 
+## 🌉 Jembatan Fetch Lintas Domain (v2.9.0+)
+
+Userscript di halaman `*.erzap.com` bisa mengambil data dari situs lain lewat ekstensi (bypass CORS), contoh `olzap.js` → `partdistro.com`:
+
+```javascript
+window.postMessage({ aistimFetch: { id: 'unik1', url: 'https://partdistro.com/...', opts: { headers: {...} } } }, location.origin);
+window.addEventListener('message', ev => {
+  const r = ev.data && ev.data.aistimFetchResult;      // { id, ok, status, url, text, error }
+  if (r && r.id === 'unik1') console.log(r.text);
+});
+```
+
+- Tersedia hanya kalau `document.documentElement.dataset.aistimXfetch === '1'`
+- Hanya dilayani dari halaman `*.erzap.com`, dan hanya ke host di `X_FETCH_ALLOW` (`background/background.js`) — tambah host di situ kalau butuh situs lain
+- Request memakai cookie browser (`credentials: include`), jadi alur yang butuh session (mis. pencarian partdistro) ikut jalan
+
 ## 🏗️ Arsitektur Singkat
 
 - `background/background.js` — engine utama: load script bundel (`scripts/index.json`) + remote (GitHub API folder `scripts/`), gabung dedupe by `@name` (versi tertinggi menang), daftarkan via `chrome.userScripts` API
