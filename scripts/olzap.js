@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Produk OLZAP
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
-// @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, pilih outlet lalu scan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / OLZAP (cek barcode di partdistro.com)
+// @version      1.2.1
+// @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / OLZAP (cek barcode di partdistro.com)
 // @author       You
 // @match        https://*.erzap.com/produks*
 // @connect      partdistro.com
@@ -47,36 +47,9 @@
   const tunggu = ms => new Promise(r => setTimeout(r, ms));
 
   // ---------- filter tabel ----------
-  const KUNCI_PENDING = 'tm_olzap_pending';
-  const KUNCI_OUTLET = 'tm_olzap_outlet';     // localStorage: outlet terakhir yang dipilih (value select)   // sessionStorage: barcode yang sedang dicari (kalau filter memuat ulang halaman)
+  const KUNCI_PENDING = 'tm_olzap_pending';   // sessionStorage: barcode yang sedang dicari (kalau filter memuat ulang halaman)
 
   const terlihat = el => !!el && el.offsetParent !== null && getComputedStyle(el).visibility !== 'hidden';
-
-  // Select outlet di form filter halaman produk (Erzap: pencarian[idoutlet_own]); fallback: select yang label/name-nya mengandung "outlet"
-  function cariSelectOutlet() {
-    const kand = ['select[name="pencarian[idoutlet_own]"]', 'select[name*="idoutlet"]', 'select[id*="idoutlet"]', 'select[name*="outlet" i]', 'select[id*="outlet" i]'];
-    for (const sel of kand) {
-      const el = document.querySelector(sel);
-      if (el && !el.closest('#' + ID_MODAL)) return el;
-    }
-    return null;
-  }
-  function daftarOutlet() {
-    const sel = cariSelectOutlet();
-    if (!sel) return [];
-    return Array.from(sel.options).map(o => ({ value: o.value, teks: rapikan(o.textContent) })).filter(o => o.value !== '');
-  }
-  // Set outlet di select halaman (dipanggil sebelum barcode diisi)
-  function setOutletHalaman(value) {
-    const sel = cariSelectOutlet();
-    if (!sel || !value) return false;
-    if (sel.value !== value) {
-      sel.value = value;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-      if (window.jQuery) window.jQuery(sel).trigger('change');
-    }
-    return sel.value === value;
-  }
 
   // Teks label yang terkait input (label[for], label pembungkus, placeholder, title, name, id)
   function deskripsiInput(inp) {
@@ -133,18 +106,12 @@
   }
 
   // Isi filter dengan barcode & jalankan pencarian. Return: cara yang dipakai (untuk log), null kalau tidak ketemu.
-  async function isiFilter(barcode, outlet) {
+  async function isiFilter(barcode) {
     const $ = window.jQuery;
     const tabel = document.querySelector('#data_table_produk');
 
     // 1) input filter di halaman (dibuka lewat #cari kalau perlu)
     const kand = await bukaPanelFilter();
-    // 0) outlet dipilih dulu supaya stok/harga yang tampil sesuai outlet
-    if (outlet) {
-      const okOutlet = setOutletHalaman(outlet);
-      log('Set outlet halaman:', outlet, okOutlet ? 'OK' : 'GAGAL (select tidak ditemukan)');
-      await tunggu(150);
-    }
     log('Kandidat input filter:', kand.map(k => `${k.skor}: ${k.inp.tagName}#${k.inp.id}[name=${k.inp.name}] "${k.d.slice(0, 60)}"`));
     const inp = kand.length ? kand[0].inp : null;
 
@@ -168,7 +135,7 @@
       if ($) $(inp).trigger('keyup').trigger('change');
 
       // simpan dulu: kalau submit memuat ulang halaman, setelah reload modal dibuka lagi
-      sessionStorage.setItem(KUNCI_PENDING, JSON.stringify({ barcode, outlet: outlet || '', t: Date.now() }));
+      sessionStorage.setItem(KUNCI_PENDING, JSON.stringify({ barcode, t: Date.now() }));
 
       const btn = tombolSubmitDekat(inp);
       const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true };
@@ -237,7 +204,7 @@
   }
 
   // ---------- modal ----------
-  let elIsiHasil = null, elInput = null, elBtnCari = null, elStatus = null, elOutlet = null, elLangkah = null;
+  let elIsiHasil = null, elInput = null, elBtnCari = null, elStatus = null;
 
   // CSS modal: desktop = kotak di tengah, mobile (<= 640px) = lembar penuh layar
   const CSS_MODAL = `
@@ -251,11 +218,6 @@
     #${ID_MODAL} .tm-tutup:hover{background:rgba(255,255,255,.2);}
     #${ID_MODAL} .tm-isi{padding:16px;overflow:auto;flex:1;-webkit-overflow-scrolling:touch;}
     #${ID_MODAL} .tm-form{display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap;}
-    #${ID_MODAL} .tm-outlet{flex:1 1 220px;min-width:0;padding:10px 12px;border:1px solid var(--tm-garis);border-radius:4px;font-size:15px;box-sizing:border-box;background:#fff;min-height:44px;}
-    #${ID_MODAL} .tm-outlet:focus{border-color:var(--tm-merah);box-shadow:0 0 0 3px rgba(220,53,69,.2);outline:none;}
-    #${ID_MODAL} .tm-outlet.tm-belum{border-color:var(--tm-merah);background:var(--tm-merah-pucat);}
-    #${ID_MODAL} .tm-input:disabled{background:#f3f3f3;color:#999;}
-    #${ID_MODAL} .tm-langkah{font-size:12px;color:#666;margin:-6px 0 8px;}
     #${ID_MODAL} .tm-input{flex:1 1 200px;min-width:0;padding:10px 12px;border:1px solid var(--tm-garis);border-radius:4px;font-size:16px;box-sizing:border-box;outline:none;}
     #${ID_MODAL} .tm-input:focus{border-color:var(--tm-merah);box-shadow:0 0 0 3px rgba(220,53,69,.2);}
     #${ID_MODAL} .tm-cari{flex:0 0 auto;padding:10px 18px;background:var(--tm-merah);border:1px solid var(--tm-merah);color:#fff;border-radius:4px;cursor:pointer;font-size:15px;min-height:44px;font-weight:bold;}
@@ -276,7 +238,6 @@
       #${ID_MODAL} .tm-isi{padding:12px;}
       #${ID_MODAL} .tm-form{flex-direction:column;align-items:stretch;}
       #${ID_MODAL} .tm-input{flex:none;width:100%;}
-      #${ID_MODAL} .tm-outlet{flex:none;width:100%;}
       #${ID_MODAL} .tm-cari{width:100%;}
       #${ID_MODAL} .tm-kaki{text-align:center;}
       #${ID_MODAL} .tm-kaki button{width:100%;}
@@ -375,16 +336,6 @@
 
     const form = document.createElement('form');
     form.className = 'tm-form';
-    // 1) pilih outlet dulu
-    elOutlet = document.createElement('select');
-    elOutlet.className = 'tm-outlet';
-    elOutlet.title = 'Pilih outlet dulu, baru scan barcode';
-    elOutlet.onchange = () => {
-      try { localStorage.setItem(KUNCI_OUTLET, elOutlet.value); } catch (e) { /* abaikan */ }
-      perbaruiLangkah();
-      if (elOutlet.value) setTimeout(() => { elInput.focus(); elInput.select(); }, 30);
-    };
-    // 2) baru barcode
     elInput = document.createElement('input');
     elInput.type = 'text';
     elInput.className = 'tm-input';
@@ -395,19 +346,15 @@
     elBtnCari.type = 'submit';
     elBtnCari.className = 'tm-cari';
     elBtnCari.textContent = 'Cari';
-    form.append(elOutlet, elInput, elBtnCari);
+    form.append(elInput, elBtnCari);
     form.onsubmit = e => { e.preventDefault(); e.stopPropagation(); cariBarcode(); };
-
-    elLangkah = document.createElement('div');
-    elLangkah.className = 'tm-langkah';
 
     elStatus = document.createElement('div');
     elStatus.className = 'tm-status';
 
     elIsiHasil = document.createElement('div');
 
-    isi.append(form, elLangkah, elStatus, elIsiHasil);
-    isiDropdownOutlet();
+    isi.append(form, elStatus, elIsiHasil);
 
     // kaki
     const kaki = document.createElement('div');
@@ -429,47 +376,13 @@
     return overlay;
   }
 
-  // Isi dropdown outlet dari select halaman; kalau halaman tidak punya select outlet, langkah outlet dilewati
-  function isiDropdownOutlet() {
-    if (!elOutlet) return;
-    const daftar = daftarOutlet();
-    const nilaiSebelumnya = elOutlet.value || (() => { try { return localStorage.getItem(KUNCI_OUTLET) || ''; } catch (e) { return ''; } })();
-    elOutlet.innerHTML = '';
-    const o0 = document.createElement('option');
-    o0.value = '';
-    o0.textContent = daftar.length ? '-- Pilih outlet dulu --' : '(filter outlet tidak ada di halaman ini)';
-    elOutlet.appendChild(o0);
-    for (const o of daftar) {
-      const op = document.createElement('option');
-      op.value = o.value;
-      op.textContent = o.teks;
-      elOutlet.appendChild(op);
-    }
-    elOutlet.disabled = !daftar.length;
-    if (daftar.some(o => o.value === nilaiSebelumnya)) elOutlet.value = nilaiSebelumnya;
-    perbaruiLangkah();
-  }
-  const outletWajib = () => elOutlet && !elOutlet.disabled;
-  const outletTerpilih = () => (elOutlet && !elOutlet.disabled) ? elOutlet.value : '';
-  function perbaruiLangkah() {
-    if (!elInput) return;
-    const siap = !outletWajib() || !!outletTerpilih();
-    elInput.disabled = !siap;
-    elOutlet.classList.toggle('tm-belum', outletWajib() && !outletTerpilih());
-    if (!outletWajib()) elLangkah.textContent = 'Scan / ketik barcode, lalu Enter.';
-    else if (!siap) elLangkah.textContent = 'Langkah 1: pilih outlet. Input barcode aktif setelah outlet dipilih.';
-    else elLangkah.textContent = 'Outlet: ' + rapikan(elOutlet.options[elOutlet.selectedIndex].textContent) + ' \u2192 Langkah 2: scan / ketik barcode, lalu Enter.';
-  }
-
   const layarLebar = () => window.matchMedia('(min-width:641px)').matches;
 
-  async function bukaModal() {
+  function bukaModal() {
     buatModal().classList.add('tm-buka');
     document.body.style.overflow = 'hidden';
-    if (!daftarOutlet().length) { await bukaPanelFilter(); }   // select outlet biasanya baru ada setelah panel filter (#cari) dibuka
-    isiDropdownOutlet();
-    // di mobile jangan auto-fokus (keyboard langsung naik menutupi hasil); di desktop fokus ke langkah yang belum diisi
-    if (layarLebar()) setTimeout(() => { if (outletWajib() && !outletTerpilih()) elOutlet.focus(); else { elInput.focus(); elInput.select(); } }, 50);
+    // di mobile jangan auto-fokus (keyboard langsung naik menutupi hasil); di desktop fokus + pilih
+    if (layarLebar()) setTimeout(() => { elInput.focus(); elInput.select(); }, 50);
   }
   function tutupModal() {
     tutupPopup();
@@ -937,10 +850,8 @@
   let sedangCari = false;
   async function cariBarcode() {
     if (sedangCari) return;
-    if (outletWajib() && !outletTerpilih()) { perbaruiLangkah(); elOutlet.focus(); return; }
     const barcode = rapikan(elInput.value);
     if (!barcode) { elInput.focus(); return; }
-    const outlet = outletTerpilih();
 
     sedangCari = true;
     elBtnCari.disabled = true;
@@ -948,7 +859,7 @@
     elIsiHasil.innerHTML = '';
     elStatus.textContent = 'Memasukkan barcode ke filter tabel...';
     try {
-      const cara = await isiFilter(barcode, outlet);
+      const cara = await isiFilter(barcode);
       if (!cara) {
         elStatus.textContent = '';
         elIsiHasil.innerHTML = '<div class="tm-pesan" style="background:#fde8e8;color:#c00000;">Kolom filter/pencarian tabel tidak ditemukan di halaman ini. Buka console (F12), lihat log [ProdukOLZAP], dan kirim id/name input filternya.</div>';
@@ -1021,8 +932,7 @@
     if (!pending || !pending.barcode || Date.now() - pending.t > 60000) { sessionStorage.removeItem(KUNCI_PENDING); return; }
     sessionStorage.removeItem(KUNCI_PENDING);
     log('Lanjut setelah reload, barcode', pending.barcode);
-    await bukaModal();
-    if (pending.outlet && elOutlet) { elOutlet.value = pending.outlet; perbaruiLangkah(); }
+    bukaModal();
     elInput.value = pending.barcode;
     elStatus.textContent = 'Halaman dimuat ulang oleh filter, menunggu hasil...';
     sedangCari = true;
