@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.20.4
-// @description  v1.20.4 - fix: scrollSampaiPenuh sekarang scroll SEMUA ancestor yang scrollable (dialog Aktifitas punya 2 lapis scroll, luar & dalam) — sebelumnya cuma lapis pertama yang ke-scroll jadi data masih kepotong
+// @version      1.20.5
+// @description  v1.20.5 - fix: scrollSampaiPenuh lebih sabar nunggu (interval & batas stabil dinaikkan) karena tiap gudang di mode Semua Gudang di-fetch satu-satu lewat request terpisah pas discroll, bukan sekali fetch langsung lengkap; tambah parameter idproduk_harga yang kurang di fetch autoAnalisa
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -764,11 +764,15 @@
         let jumlahSebelum = -1;
         let stabil = 0;
 
-        for (let i = 0; i < 25; i++) {
+        // Tiap gudang di mode "Semua Gudang" di-fetch satu-satu lewat network request
+        // terpisah pas discroll (bukan sekali fetch langsung lengkap) — jadi butuh lebih
+        // sabar nunggu (interval lebih panjang + lebih banyak percobaan stabil) supaya
+        // tidak berhenti duluan pas gudang berikutnya masih dalam proses di-load.
+        for (let i = 0; i < 40; i++) {
             const jumlahSekarang = $scope.find('table tbody tr').length;
             if (jumlahSekarang === jumlahSebelum) {
                 stabil++;
-                if (stabil >= 2) break;
+                if (stabil >= 4) break;
             } else {
                 stabil = 0;
                 if (statusEl) statusEl.textContent = '⏳ Memuat aktifitas... (' + jumlahSekarang + ' baris)';
@@ -778,7 +782,7 @@
                 scrollEl.scrollTop = scrollEl.scrollHeight;
                 scrollEl.dispatchEvent(new Event('scroll', { bubbles: true }));
             });
-            await sleep(400);
+            await sleep(700);
         }
         scrollEls.forEach((scrollEl, i) => { scrollEl.scrollTop = posisiAwal[i]; }); // balikin posisi scroll spt semula
     }
@@ -798,6 +802,7 @@
                 idproduk: idproduk,
                 idgudang: idgudang,
                 idoutlet: idoutlet,
+                idproduk_harga: '',
                 hide_stok_awal_stok_akhir: $('#hide_stok_awal_stok_akhir').val() || 'false'
             }
         });
