@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.20.3
-// @description  v1.20.3 - fix: panel Analisa Aktifitas otomatis (autoAnalisa) sekarang scroll dulu sebelum baca tabel Aktifitas Stok, sama seperti dialog manual — sebelumnya cuma baca halaman pertama karena tabelnya lazy-load pas di-scroll
+// @version      1.20.4
+// @description  v1.20.4 - fix: scrollSampaiPenuh sekarang scroll SEMUA ancestor yang scrollable (dialog Aktifitas punya 2 lapis scroll, luar & dalam) — sebelumnya cuma lapis pertama yang ke-scroll jadi data masih kepotong
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -738,24 +738,29 @@
     /* AUTO-SCROLL: paksa render semua baris di dialog Aktifitas     */
     /* yang lazy-load, sebelum di-parse                              */
     /* ============================================================ */
-    function cariScrollAncestor(el) {
+    // Dialog Aktifitas ternyata punya 2 lapis scroll (luar & dalam) — ambil SEMUA
+    // ancestor yang scrollable, bukan cuma yang pertama ketemu, supaya lazy-load
+    // yang dipicu scroll di lapis manapun tetap ke-trigger.
+    function cariSemuaScrollAncestor(el) {
+        const hasil = [];
         let node = el;
         while (node && node !== document.body) {
             const style = window.getComputedStyle(node);
             if ((style.overflowY === 'auto' || style.overflowY === 'scroll') &&
                 node.scrollHeight > node.clientHeight) {
-                return node;
+                hasil.push(node);
             }
             node = node.parentElement;
         }
-        return null;
+        return hasil;
     }
 
     async function scrollSampaiPenuh($scope, statusEl) {
         const el = $scope.get(0);
         if (!el) return;
-        const scrollEl = cariScrollAncestor(el) || el;
-        const posisiAwal = scrollEl.scrollTop;
+        const scrollEls = cariSemuaScrollAncestor(el);
+        if (scrollEls.length === 0) scrollEls.push(el);
+        const posisiAwal = scrollEls.map(n => n.scrollTop);
         let jumlahSebelum = -1;
         let stabil = 0;
 
@@ -769,11 +774,13 @@
                 if (statusEl) statusEl.textContent = '⏳ Memuat aktifitas... (' + jumlahSekarang + ' baris)';
             }
             jumlahSebelum = jumlahSekarang;
-            scrollEl.scrollTop = scrollEl.scrollHeight;
-            scrollEl.dispatchEvent(new Event('scroll', { bubbles: true }));
+            scrollEls.forEach(scrollEl => {
+                scrollEl.scrollTop = scrollEl.scrollHeight;
+                scrollEl.dispatchEvent(new Event('scroll', { bubbles: true }));
+            });
             await sleep(400);
         }
-        scrollEl.scrollTop = posisiAwal; // balikin posisi scroll spt semula
+        scrollEls.forEach((scrollEl, i) => { scrollEl.scrollTop = posisiAwal[i]; }); // balikin posisi scroll spt semula
     }
 
     // Sama tujuannya dengan scrollSampaiPenuh, tapi untuk fetch AJAX autoAnalisa
