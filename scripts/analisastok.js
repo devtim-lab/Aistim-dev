@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.20.2
-// @description  v1.20.2 - fix: nama outlet diambil dari span sibling checkbox (bukan label/parent) supaya dropdown outlet terisi benar
+// @version      1.20.3
+// @description  v1.20.3 - fix: panel Analisa Aktifitas otomatis (autoAnalisa) sekarang scroll dulu sebelum baca tabel Aktifitas Stok, sama seperti dialog manual — sebelumnya cuma baca halaman pertama karena tabelnya lazy-load pas di-scroll
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -776,6 +776,36 @@
         scrollEl.scrollTop = posisiAwal; // balikin posisi scroll spt semula
     }
 
+    // Sama tujuannya dengan scrollSampaiPenuh, tapi untuk fetch AJAX autoAnalisa
+    // yang tidak lewat dialog asli. HTML hasil fetch ditempel sebentar ke DOM asli
+    // di luar layar (BUKAN display:none, supaya beneran punya scrollHeight) dengan
+    // overflow-y:auto sendiri, supaya lazy-load tabel yang sama tetap ke-trigger
+    // saat di-scroll — sebelumnya fetch ini di-parse langsung dari <div> lepas
+    // (tidak nempel ke halaman) jadi cuma dapat halaman pertama dari data yang
+    // sebenarnya di-load bertahap pas di-scroll. Elemen dihapus lagi sesudahnya.
+    async function bacaAktifitasViaFetch(idproduk, idgudang, idoutlet) {
+        const aktHtml = await $.ajax({
+            url: '/produk_gudangs/aktifitas_stok/new',
+            dataType: 'text',
+            data: {
+                idproduk: idproduk,
+                idgudang: idgudang,
+                idoutlet: idoutlet,
+                hide_stok_awal_stok_akhir: $('#hide_stok_awal_stok_akhir').val() || 'false'
+            }
+        });
+        const $temp = $('<div>').css({
+            position: 'fixed', left: '-9999px', top: '0', zIndex: -1,
+            width: '600px', height: '400px', overflowY: 'auto', overflowX: 'hidden'
+        }).html(aktHtml).appendTo(document.body);
+        try {
+            await scrollSampaiPenuh($temp);
+            return parseAktifitasRows($temp);
+        } finally {
+            $temp.remove();
+        }
+    }
+
     function parseAktifitasRows($scope) {
         const rows = $scope.find('table tbody tr').filter(function () {
             return $(this).find('td').length >= 7 && $(this).find('.dataTables_empty').length === 0;
@@ -922,17 +952,7 @@
 
                 for (const g of gudangs) {
                     try {
-                        const aktHtml = await $.ajax({
-                            url: '/produk_gudangs/aktifitas_stok/new',
-                            dataType: 'text',
-                            data: {
-                                idproduk: idproduk,
-                                idgudang: g.id,
-                                idoutlet: idoutlet,
-                                hide_stok_awal_stok_akhir: $('#hide_stok_awal_stok_akhir').val() || 'false'
-                            }
-                        });
-                        const a = parseAktifitasRows($('<div>').html(aktHtml));
+                        const a = await bacaAktifitasViaFetch(idproduk, g.id, idoutlet);
                         if (a) {
                             sections.push(analisaSectionHtml(a, (g.outlet ? g.outlet + ' › ' : '') + (g.nama || g.id), barcode, nama));
                         }
