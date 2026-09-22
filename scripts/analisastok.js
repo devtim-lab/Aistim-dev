@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.20.1
-// @description  v1.20.0 - pilih outlet dulu (diisi dari sidebar sejak awal), baru scan barcode; analisa aktifitas gudang langsung jalan untuk outlet terpilih
+// @version      1.20.2
+// @description  v1.20.2 - fix: nama outlet diambil dari span sibling checkbox (bukan label/parent) supaya dropdown outlet terisi benar
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -282,7 +282,10 @@
     const selOutlet = $('#az_outlet');
 
     // Outlet diisi SEJAK AWAL dari checkbox sidebar halaman (.checkbox_list_outlets / #outlet_list_<id>),
-    // supaya user bisa pilih outlet dulu sebelum scan. Nama diambil dari label yang terkait checkbox.
+    // supaya user bisa pilih outlet dulu sebelum scan. Nama outlet ada di <span> tepat setelah
+    // checkbox (nextElementSibling) — pola yang sama dipakai rekapstokmin.js, TERBUKTI jalan di
+    // halaman ini. Bukan di <label for>, dan .parent().text() salah karena semua checkbox+span
+    // ada rata sebagai sibling dalam satu wadah yang sama (bisa kebawa nama outlet lain).
     function isiOutletDariSidebar() {
         $('.checkbox_list_outlets').each(function () {
             const $cb = $(this);
@@ -290,10 +293,9 @@
             const id = idm ? idm[1] : ($cb.val() || '');
             if (!id) return;
             let nama = '';
-            if ($cb.attr('id')) nama = $('label[for="' + $cb.attr('id') + '"]').text().trim();
-            if (!nama) nama = $cb.closest('label').text().trim();
-            if (!nama) nama = $cb.parent().text().trim();
-            if (!nama) nama = $cb.next('label,span').text().trim();
+            const sib = this.nextElementSibling;
+            if (sib && sib.tagName === 'SPAN') nama = sib.innerText.trim();
+            if (!nama && $cb.attr('id')) nama = $('label[for="' + $cb.attr('id') + '"]').text().trim();
             nama = nama.replace(/\s+/g, ' ').trim();
             if (!nama || OUTLET_NAMA[id] !== undefined) return;
             OUTLETS.push([id, nama]);
@@ -301,7 +303,7 @@
             OUTLET_ID[nama] = id;
             selOutlet.append($('<option>').val(id).text(nama));
         });
-        console.log('[AnalisaStok] outlet dari sidebar:', OUTLETS.length);
+        console.log('[AnalisaStok] outlet dari sidebar:', OUTLETS.length, OUTLETS);
     }
     isiOutletDariSidebar();
     if (OUTLETS.length === 0) setTimeout(isiOutletDariSidebar, 1500); // sidebar kadang dirender belakangan
