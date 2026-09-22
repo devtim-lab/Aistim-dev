@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Produk OLZAP
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
-// @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / OLZAP (cek barcode di partdistro.com)
+// @version      1.3.0
+// @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / Edit Nama / OLZAP (cek barcode di partdistro.com)
 // @author       You
 // @match        https://*.erzap.com/produks*
 // @connect      partdistro.com
@@ -260,6 +260,10 @@
     #${ID_MODAL} .tm-tab-alat a{color:var(--tm-merah);}
     #${ID_MODAL} .tm-tab-alat a{white-space:nowrap;}
     #${ID_MODAL} .tm-olzap-isi{padding:12px;min-height:120px;}
+    #${ID_MODAL} .tm-nama-isi{padding:12px;min-height:120px;}
+    #${ID_MODAL} .tm-nama-saran{font-size:12px;background:var(--tm-merah-pucat);border:1px solid var(--tm-garis);border-radius:4px;padding:8px;margin-bottom:10px;word-break:break-word;}
+    #${ID_MODAL} .tm-nama-saran button{margin-left:6px;padding:4px 10px;border:1px solid var(--tm-merah);background:#fff;color:var(--tm-merah);border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;}
+    #${ID_MODAL} .tm-nama-label{font-size:12px;color:#666;margin-bottom:6px;}
     #${ID_MODAL} .tm-olzap-info{font-size:12px;color:#666;margin-bottom:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
     #${ID_MODAL} .tm-olzap-info a{color:var(--tm-merah);}
     #${ID_MODAL} .tm-olzap-kartu{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--tm-garis);border-radius:6px;padding:10px;margin-bottom:10px;background:#fff;}
@@ -706,9 +710,11 @@
     const IKON_LIHAT = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
     const IKON_EDIT = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
     const IKON_OLZAP = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+    const IKON_NAMA = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>';
     const daftar = {
       lihat: { ikon: IKON_LIHAT, label: 'Lihat', url: urlLihat(id) },
       edit: { ikon: IKON_EDIT, label: 'Edit', url: urlEdit(id) },
+      nama: { ikon: IKON_NAMA, label: 'Edit Nama', url: urlEdit(id), namaEdit: true },
       olzap: { ikon: IKON_OLZAP, label: 'OLZAP', url: urlOlzapCari(barcode), olzap: true },
     };
     const el = {};
@@ -734,6 +740,19 @@
         panel.append(isi, frO);
         panelWadah.appendChild(panel);
         el[k] = { b, panel, fr: frO, isi, url: daftar[k].url, olzap: true, dimuat: false };
+        continue;
+      }
+      if (daftar[k].namaEdit) {
+        // tab Edit Nama: memuat halaman edit produk di iframe TERSEMBUNYI (bukan ditampilkan),
+        // lalu field "Nama Produk" (#produk_nama_web) disalin ke input sederhana di panel ini.
+        const isi = document.createElement('div');
+        isi.className = 'tm-nama-isi';
+        isi.textContent = 'Klik tab untuk memuat...';
+        const frN = document.createElement('iframe');
+        frN.style.display = 'none';
+        panel.append(isi, frN);
+        panelWadah.appendChild(panel);
+        el[k] = { b, panel, fr: frN, isi, url: daftar[k].url, namaEdit: true, dimuat: false };
         continue;
       }
       const muat = document.createElement('div');
@@ -764,6 +783,7 @@
       const url = urlKhusus || t.url;
       linkBaru.href = url;
       if (t.olzap) { muatOlzap(t); }
+      else if (t.namaEdit) { muatNama(t); }
       else if (t.fr.getAttribute('src') !== url) {     // lazy load: iframe dimuat saat tab pertama dibuka
         t.muat.style.display = '';
         t.fr.src = url;
@@ -779,6 +799,7 @@
       try {
         const hasil = await fetchOlzap(barcode);
         log('OLZAP', barcode, hasil.produk);
+        t.hasilOlzap = hasil;   // dipakai tab "Edit Nama" untuk menawarkan sinkron nama dari partdistro
         renderOlzap(t.isi, barcode, hasil);
       } catch (e) {
         // partdistro memblokir CORS dan iframe (X-Frame-Options: SAMEORIGIN) -> tanpa jembatan ekstensi tidak bisa ditampilkan di sini
@@ -790,10 +811,103 @@
         t.dimuat = false;
       }
     }
+    // Tab Edit Nama: muat halaman edit di iframe tersembunyi, tunggu field #produk_nama_web siap, lalu render form sederhana.
+    async function muatNama(t, paksa) {
+      if (t.dimuat && !paksa) return;
+      t.dimuat = true;
+      t.isi.innerHTML = '<div class="tm-status">Memuat data produk...</div>';
+      if (t.fr.getAttribute('src') !== t.url || paksa) t.fr.src = t.url;
+
+      const cekSiap = () => {
+        try {
+          const d = t.fr.contentDocument, w = t.fr.contentWindow;
+          const field = d && d.getElementById('produk_nama_web');
+          return field ? { d, w, field } : null;
+        } catch (e) { return null; }
+      };
+      const t0 = Date.now();
+      let siap = null;
+      while (Date.now() - t0 < 15000) {
+        siap = cekSiap();
+        if (siap) break;
+        await tunggu(200);
+      }
+      if (!siap) {
+        t.isi.innerHTML = '<div class="tm-olzap-kosong">Field "Nama Produk" (#produk_nama_web) tidak ditemukan di halaman edit.</div>';
+        t.dimuat = false;
+        return;
+      }
+      renderFormNama(t, siap.d, siap.w, siap.field);
+    }
+    function renderFormNama(t, d, w, field) {
+      t.isi.innerHTML = '';
+
+      const srcOlzap = el.olzap && el.olzap.hasilOlzap && el.olzap.hasilOlzap.produk && el.olzap.hasilOlzap.produk[0];
+      if (srcOlzap && srcOlzap.nama && rapikan(srcOlzap.nama) !== rapikan(field.value)) {
+        const saran = document.createElement('div');
+        saran.className = 'tm-nama-saran';
+        saran.innerHTML = 'Nama di partdistro (OLZAP): <b>' + esc(srcOlzap.nama) + '</b>';
+        const btnPakai = document.createElement('button');
+        btnPakai.type = 'button';
+        btnPakai.textContent = 'Pakai nama ini';
+        btnPakai.onclick = () => { inp.value = srcOlzap.nama; inp.focus(); };
+        saran.appendChild(btnPakai);
+        t.isi.appendChild(saran);
+      }
+
+      const label = document.createElement('div');
+      label.className = 'tm-nama-label';
+      label.textContent = 'Nama Produk (produk_nama_web)';
+
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'tm-input';
+      inp.style.marginBottom = '8px';
+      inp.value = field.value || '';
+      inp.maxLength = field.maxLength > 0 ? field.maxLength : 255;
+      inp.autocomplete = 'off';
+
+      const baris = document.createElement('div');
+      baris.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
+      const btnSimpan = document.createElement('button');
+      btnSimpan.type = 'button';
+      btnSimpan.className = 'tm-cari';
+      btnSimpan.textContent = 'Simpan Nama';
+      baris.appendChild(btnSimpan);
+
+      const status = document.createElement('div');
+      status.className = 'tm-status';
+      status.style.marginTop = '8px';
+
+      t.isi.append(label, inp, baris, status);
+
+      btnSimpan.onclick = () => {
+        const nilai = rapikan(inp.value);
+        if (!nilai) { inp.focus(); status.style.color = '#c00000'; status.textContent = 'Nama tidak boleh kosong.'; return; }
+        btnSimpan.disabled = true;
+        status.style.color = '#666';
+        status.textContent = 'Menyimpan...';
+        try {
+          field.value = nilai;
+          for (const tipe of ['input', 'change']) field.dispatchEvent(new w.Event(tipe, { bubbles: true }));
+          if (w.jQuery) w.jQuery(field).trigger('input').trigger('change');
+          const err = simpanDiFrame(d, w);
+          if (err) { status.style.color = '#c00000'; status.textContent = err; btnSimpan.disabled = false; return; }
+          status.style.color = '#1a7f37';
+          status.textContent = 'Tersimpan.';
+        } catch (e) {
+          status.style.color = '#c00000';
+          status.textContent = 'Gagal: ' + e.message;
+        } finally {
+          setTimeout(() => { btnSimpan.disabled = false; }, 1500);
+        }
+      };
+    }
     btnMuatUlang.onclick = e => {
       e.preventDefault();
       if (!aktif) return;
       if (el[aktif].olzap) { muatOlzap(el[aktif], true); return; }
+      if (el[aktif].namaEdit) { muatNama(el[aktif], true); return; }
       el[aktif].muat.style.display = '';
       el[aktif].fr.src = el[aktif].fr.src;
     };
