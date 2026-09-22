@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Rekap Beban
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapbeban.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapbeban.js
-// @description  [v1.1.2] Fix: Grand Total salah hitung untuk nominal >= Rp 1.000 (titik ribuan ikut ke-parse, bukan cuma dibuang)
+// @description  [v1.1.3] Fix: tombol Rekap Beban macet (error) sejak ERZAP mengganti elemen outlet dari <select> ke widget lain
 // @author       You
 // @match        https://*.erzap.com/jurnals/index_transaksi_beban/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -656,7 +656,9 @@
             const tmSelectOutlet = document.getElementById('tmSelectOutlet');
 
             tmSelectOutlet.innerHTML = '';
-            if (oriOutlet) {
+            // ERZAP sempat mengganti #pencarian_idoutlet_own dari <select> ke widget lain (popup "Daftar Data Outlet"),
+            // sehingga .options bisa undefined -> Array.from melempar error dan tombol Rekap Beban macet total.
+            if (oriOutlet && oriOutlet.tagName === 'SELECT' && oriOutlet.options) {
                 Array.from(oriOutlet.options).forEach(opt => {
                     const newOpt = document.createElement('option');
                     newOpt.value = opt.value;
@@ -664,6 +666,8 @@
                     tmSelectOutlet.appendChild(newOpt);
                 });
                 tmSelectOutlet.value = oriOutlet.value;
+            } else if (oriOutlet) {
+                console.warn('[RekapBeban] elemen #pencarian_idoutlet_own bukan <select> lagi, filter outlet di modal dilewati');
             }
 
             if (oriDateStart) document.getElementById('tmDateStart').value = parseToInputDate(oriDateStart.value);

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Rekap Pesanan Baru per Outlet (Tema Merah)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.5
-// @description  [v1.2.5] Modal & tombol responsif untuk mobile (full-screen di layar sempit). Rekap otomatis antar halaman, urutkan dari yang tertinggi (Tema Merah).
+// @version      1.2.6
+// @description  [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
 // @author       You
 // @match        https://*.erzap.com/pesanan_penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -150,8 +150,10 @@
     // 3. Fungsi Utama: Pilih Outlet -> Set Status -> Cari -> Baca Pagination -> Simpan
     async function mulaiRekapPesananBaru() {
         const outletSelect = document.querySelector('#pencarian_idoutlet_own');
-        if (!outletSelect) {
-            alert("Pilihan Outlet tidak ditemukan di halaman ini!");
+        // ERZAP sempat mengganti #pencarian_idoutlet_own dari <select> ke widget lain (popup "Daftar Data Outlet"),
+        // sehingga .options bisa undefined -> Array.from melempar error tanpa pesan yang jelas. Cek dulu supaya tidak macet diam-diam.
+        if (!outletSelect || outletSelect.tagName !== 'SELECT' || !outletSelect.options) {
+            alert("Pilihan Outlet (select) tidak ditemukan di halaman ini! (ERZAP mungkin mengganti tampilan filter outlet, rekap per-outlet perlu disesuaikan lagi)");
             return;
         }
 
