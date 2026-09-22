@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.20.0
+// @version      1.20.1
 // @description  v1.20.0 - pilih outlet dulu (diisi dari sidebar sejak awal), baru scan barcode; analisa aktifitas gudang langsung jalan untuk outlet terpilih
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
@@ -201,20 +201,8 @@
         <div id="az_head"><span>📊 Analisa Stok</span><button id="az_close">✕</button></div>
         <div id="az_body">
           <div class="az_row" style="display:flex;gap:10px">
-            <div style="flex:1;min-width:0">
-              <label>1. Outlet (pilih dulu)</label>
-              <div style="display:flex;gap:6px;align-items:center">
-                <select id="az_outlet" class="az_belum" style="flex:1;min-width:0"><option value="">-- Pilih outlet --</option><option value="all">Semua outlet</option></select>
-                <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:0 0 auto">
-                  <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
-                    <div class="az_knob"></div>
-                  </div>
-                  <span style="font-size:9px;color:#888;white-space:nowrap">Stok &lt; 0</span>
-                </div>
-              </div>
-            </div>
             <div style="flex:1.4;min-width:0">
-              <label>2. Barcode</label>
+              <label>Barcode</label>
               <div id="az_barcode_wrap">
                 <input type="text" id="az_barcode" placeholder="Pilih outlet dulu" autocomplete="off" inputmode="numeric" disabled>
                 <button type="button" id="az_btn_barcode" title="Scan barcode dengan kamera" disabled>
@@ -226,8 +214,20 @@
                 </button>
               </div>
             </div>
+            <div style="flex:1;min-width:0">
+              <label>Outlet (pilih dulu)</label>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="az_outlet" class="az_belum" style="flex:1;min-width:0"><option value="">-- Pilih outlet --</option><option value="all">Semua outlet</option></select>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:0 0 auto">
+                  <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
+                    <div class="az_knob"></div>
+                  </div>
+                  <span style="font-size:9px;color:#888;white-space:nowrap">Stok &lt; 0</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div id="az_langkah">Langkah 1: pilih outlet. Barcode & tombol CARI aktif setelah outlet dipilih.</div>
+          <div id="az_langkah">Pilih outlet dulu. Barcode & tombol CARI aktif setelah outlet dipilih.</div>
           <!-- Tombol cari full width -->
           <div class="az_row" style="margin-bottom:0">
             <button type="button" id="az_scan" disabled>🔍 CARI</button>
@@ -316,7 +316,7 @@
         $('#az_outlet').toggleClass('az_belum', !siap);
         const val = $('#az_outlet').val();
         $('#az_langkah').text(!siap
-            ? 'Langkah 1: pilih outlet. Barcode & tombol CARI aktif setelah outlet dipilih.'
+            ? 'Pilih outlet dulu. Barcode & tombol CARI aktif setelah outlet dipilih.'
             : 'Outlet: ' + (val === 'all' ? 'Semua outlet' : (OUTLET_NAMA[val] || val)) + ' \u2192 Langkah 2: scan / ketik barcode lalu Enter.');
     }
     perbaruiLangkah();
