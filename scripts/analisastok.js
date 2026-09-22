@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Analisa Stok
 // @namespace    http://tampermonkey.net/
-// @version      1.20.5
-// @description  v1.20.5 - fix: scrollSampaiPenuh lebih sabar nunggu (interval & batas stabil dinaikkan) karena tiap gudang di mode Semua Gudang di-fetch satu-satu lewat request terpisah pas discroll, bukan sekali fetch langsung lengkap; tambah parameter idproduk_harga yang kurang di fetch autoAnalisa
+// @version      1.20.6
+// @description  v1.20.6 - default outlet = "Semua outlet" (tidak perlu pilih manual) dan toggle "Stok < 0" default OFF (tampil semua stok)
 // @author       aistim
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @world        main
@@ -217,9 +217,9 @@
             <div style="flex:1;min-width:0">
               <label>Outlet (pilih dulu)</label>
               <div style="display:flex;gap:6px;align-items:center">
-                <select id="az_outlet" class="az_belum" style="flex:1;min-width:0"><option value="">-- Pilih outlet --</option><option value="all">Semua outlet</option></select>
+                <select id="az_outlet" style="flex:1;min-width:0"><option value="">-- Pilih outlet --</option><option value="all" selected>Semua outlet</option></select>
                 <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:0 0 auto">
-                  <div id="az_toggle_minus" class="az_switch on" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
+                  <div id="az_toggle_minus" class="az_switch" title="Aktif = hanya stok < 0, Nonaktif = semua stok">
                     <div class="az_knob"></div>
                   </div>
                   <span style="font-size:9px;color:#888;white-space:nowrap">Stok &lt; 0</span>
@@ -233,8 +233,8 @@
             <button type="button" id="az_scan" disabled>🔍 CARI</button>
           </div>
           <!-- Nilai internal perkiraan jumlah (hidden) -->
-          <input type="hidden" id="az_cmp" value="<">
-          <input type="hidden" id="az_jml" value="0">
+          <input type="hidden" id="az_cmp" value="">
+          <input type="hidden" id="az_jml" value="">
           <div id="az_hasil"></div>
           <div id="az_analisa"></div>
         </div>
