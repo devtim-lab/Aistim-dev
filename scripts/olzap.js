@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Produk OLZAP
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
+// @version      1.0.4
 // @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit
 // @author       You
 // @match        https://*.erzap.com/produks*
@@ -25,7 +25,18 @@
     #header, #menu_action, #wrapper_menu_mobile, #wrapper_sidebar_mobile,
     #garis_penutup_atas, #garis_penutup_bawah, #version_update, .noprint.alert:empty { display: none !important; }
     #wrapper, #container, #content_full_page { margin: 0 !important; padding: 8px !important; width: auto !important; min-width: 0 !important; }
-    body { padding-top: 0 !important; margin: 0 !important; overflow-x: auto !important; padding-bottom: 90px !important; }   /* ruang untuk FAB induk */
+    body { padding-top: 0 !important; margin: 0 !important; overflow-x: auto !important; padding-bottom: 110px !important; }
+    #tm_olzap_fab_save { position: fixed; right: 18px; bottom: 44px; z-index: 2147483000; width: 60px; height: 60px; border-radius: 50%;
+      border: 0; background: #dc3545; color: #fff; font-size: 26px; line-height: 1; cursor: pointer; padding: 0;
+      box-shadow: 0 6px 18px rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+    #tm_olzap_fab_save i.fa { font-size: 26px; line-height: 1; }
+    #tm_olzap_fab_save:hover { background: #c82333; }
+    #tm_olzap_fab_save:disabled { background: #999; cursor: progress; }
+    #tm_olzap_fab_save .tm-fab-label { position: absolute; right: 70px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.75);
+      color: #fff; font-size: 12px; padding: 4px 8px; border-radius: 4px; white-space: nowrap; display: none; }
+    #tm_olzap_fab_save:hover .tm-fab-label { display: block; }
+    .tm-olzap-sembunyi { display: none !important; }
+    @media (max-width: 640px) { #tm_olzap_fab_save { width: 56px; height: 56px; right: 14px; bottom: 40px; } }
   `;
   const PARAM_IFRAME = 'tm_olzap_frame';   // penanda di URL: halaman ini dibuka di dalam iframe modal
 
@@ -249,15 +260,6 @@
     #${ID_MODAL} .tm-panel.aktif{display:block;}
     #${ID_MODAL} .tm-panel iframe{width:100%;height:65vh;border:0;background:#fff;display:block;}
     #${ID_MODAL} .tm-panel .tm-muat{position:absolute;left:0;right:0;top:8px;text-align:center;color:#666;font-size:13px;pointer-events:none;}
-    #${ID_MODAL} .tm-fab-induk{position:absolute;right:18px;bottom:18px;z-index:5;width:60px;height:60px;border-radius:50%;border:0;padding:0;
-      background:var(--tm-merah);color:#fff;font-size:26px;line-height:1;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.35);
-      display:flex;align-items:center;justify-content:center;}
-    #${ID_MODAL} .tm-fab-induk:hover{background:var(--tm-merah-tua);}
-    #${ID_MODAL} .tm-fab-induk:disabled{background:#999;cursor:progress;}
-    #${ID_MODAL} .tm-fab-induk i.fa{font-size:26px;line-height:1;}
-    #${ID_MODAL} .tm-fab-induk .tm-fab-label{position:absolute;right:70px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.75);color:#fff;font-size:12px;padding:4px 8px;border-radius:4px;white-space:nowrap;display:none;}
-    #${ID_MODAL} .tm-fab-induk:hover .tm-fab-label{display:block;}
-    @media (max-width:640px){ #${ID_MODAL} .tm-fab-induk{width:56px;height:56px;right:14px;bottom:14px;} }
     @media (max-width:640px){
       #${ID_MODAL} .tm-panel iframe{height:70vh;}
     }
@@ -477,17 +479,82 @@
     } catch (e) { return 'Gagal simpan: ' + e.message; }
   }
 
+  // Widget "Erzap AI Assist" (melayang di kanan bawah) bertumpuk dengan FAB -> sembunyikan di dalam iframe
+  function sembunyikanWidgetAI(doc, win) {
+    try {
+      for (const el of doc.querySelectorAll('body *')) {
+        if (el.children.length > 6) continue;
+        if (!/Erzap\s*AI\s*Assist/i.test(el.textContent || '')) continue;
+        // naik ke leluhur yang position:fixed (kontainer widget), lalu sembunyikan
+        let n = el;
+        while (n && n !== doc.body) {
+          if (win.getComputedStyle(n).position === 'fixed') { n.classList.add('tm-olzap-sembunyi'); return true; }
+          n = n.parentElement;
+        }
+        el.classList.add('tm-olzap-sembunyi');
+        return true;
+      }
+    } catch (e) { /* abaikan */ }
+    return false;
+  }
+
+  // FAB Simpan di dalam iframe edit (satu-satunya tombol simpan tambahan). Dipasang dari halaman induk
+  // lewat contentDocument, jadi tidak bergantung script berjalan di dalam frame.
+  function pasangFabSimpan(doc, win) {
+    try {
+      if (!doc || !doc.body || !win) return false;
+      if (!/\/edit\b/.test(win.location.pathname)) return false;
+      sembunyikanWidgetAI(doc, win);
+      if (doc.getElementById('tm_olzap_fab_save')) return true;
+
+      const fab = doc.createElement('button');
+      fab.id = 'tm_olzap_fab_save';
+      fab.type = 'button';
+      fab.title = 'Simpan (F2 / Ctrl+S)';
+      fab.innerHTML = '<i class="fa fa-check" aria-hidden="true"></i><span class="tm-fab-label">Simpan</span>';
+      win.setTimeout(() => {
+        const i = fab.querySelector('i.fa');
+        if (i && !/FontAwesome|Font Awesome/i.test(win.getComputedStyle(i).fontFamily)) i.replaceWith(doc.createTextNode('\u2713'));
+      }, 800);
+      fab.onclick = () => {
+        fab.disabled = true;
+        win.setTimeout(() => { fab.disabled = false; }, 3000);
+        const err = simpanDiFrame(doc, win);
+        log('Simpan dari FAB:', err || 'dipicu');
+        if (err) { fab.disabled = false; if (!/sedang memproses/.test(err)) win.alert(err); }
+      };
+      doc.body.appendChild(fab);
+      // widget AI kadang muncul belakangan -> cek ulang beberapa kali
+      let n = 0;
+      const ulang = () => { if (!sembunyikanWidgetAI(doc, win) && ++n < 10) win.setTimeout(ulang, 500); };
+      win.setTimeout(ulang, 500);
+      log('FAB Simpan dipasang di', win.location.pathname);
+      return true;
+    } catch (e) { log('FAB gagal dipasang:', e.message); return false; }
+  }
+  // Dari induk: coba beberapa kali karena body iframe bisa belum siap saat event load pertama
+  function pasangFabFrame(fr, percobaan = 0) {
+    let ok = false;
+    try { ok = pasangFabSimpan(fr.contentDocument, fr.contentWindow); } catch (e) { ok = false; }
+    if (!ok && percobaan < 10) {
+      try { if (!/\/edit\b/.test(fr.contentWindow.location.pathname)) return; } catch (e) { return; }
+      setTimeout(() => pasangFabFrame(fr, percobaan + 1), 300);
+    }
+  }
+
   // Cadangan: suntik CSS ke dokumen iframe (satu domain) setelah selesai dimuat
   function sembunyikanHeaderFrame(fr) {
     try {
       const d = fr.contentDocument;
       if (!d || !d.head) return;
-      if (d.getElementById('tm_olzap_css_frame')) return;
-      const st = d.createElement('style');
-      st.id = 'tm_olzap_css_frame';
-      st.textContent = CSS_IFRAME;
-      d.head.appendChild(st);
+      if (!d.getElementById('tm_olzap_css_frame')) {
+        const st = d.createElement('style');
+        st.id = 'tm_olzap_css_frame';
+        st.textContent = CSS_IFRAME;
+        d.head.appendChild(st);
+      }
     } catch (e) { /* beda origin -> abaikan */ }
+    pasangFabFrame(fr);
   }
 
   const namaProduk = tr => { const t = tr.querySelector('td.nama_produk'); return rapikan(t && (t.getAttribute('title') || t.textContent)); };
@@ -568,29 +635,6 @@
         if (fr.src && fr.src !== 'about:blank') muat.style.display = 'none';
       });
       panel.append(muat, fr);
-      if (k === 'edit') {
-        // FAB Simpan dirender di halaman induk (tidak bergantung script/CSS di dalam iframe)
-        const fab = document.createElement('button');
-        fab.type = 'button';
-        fab.className = 'tm-fab-induk';
-        fab.title = 'Simpan';
-        fab.innerHTML = '<i class="fa fa-check" aria-hidden="true"></i><span class="tm-fab-label">Simpan</span>';
-        setTimeout(() => {
-          const i = fab.querySelector('i.fa');
-          if (i && !/FontAwesome|Font Awesome/i.test(getComputedStyle(i).fontFamily)) i.replaceWith(document.createTextNode('\u2713'));
-        }, 800);
-        fab.onclick = () => {
-          let doc = null, win = null;
-          try { doc = fr.contentDocument; win = fr.contentWindow; } catch (e) { /* beda origin */ }
-          fab.disabled = true;
-          setTimeout(() => { fab.disabled = false; }, 3000);
-          const err = simpanDiFrame(doc, win);
-          log('Simpan dari FAB induk:', err || 'dipicu');
-          if (err) { fab.disabled = false; if (!/sedang memproses/.test(err)) alert(err); }
-        };
-        panel.appendChild(fab);
-        el.__fabEdit = fab;
-      }
       panelWadah.appendChild(panel);
       el[k] = { b, panel, fr, muat, url: daftar[k].url };
     }
@@ -611,10 +655,6 @@
       }
       wadah.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
-    // Ctrl+S / Cmd+S saat fokus di halaman induk dan tab Edit aktif -> simpan
-    wadah.addEventListener('keydown', e => {
-      if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 's' && aktif === 'edit' && el.__fabEdit) { e.preventDefault(); el.__fabEdit.click(); }
-    });
     btnMuatUlang.onclick = e => {
       e.preventDefault();
       if (!aktif) return;
