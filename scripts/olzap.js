@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Produk OLZAP
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
+// @version      1.3.2
 // @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / Edit Nama (buka halaman edit lalu langsung scroll+fokus ke field Nama Produk) / OLZAP (cek barcode di partdistro.com)
 // @author       You
 // @match        https://*.erzap.com/produks*
@@ -38,6 +38,8 @@
     #tm_olzap_fab_save:hover .tm-fab-label { display: block; }
     .tm-olzap-sembunyi { display: none !important; }
     .tm-olzap-sorot { outline: 3px solid #dc3545 !important; outline-offset: 2px !important; }
+    .tm-olzap-lebar { width: 100% !important; max-width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; }
+    .tm-olzap-lebar-kolom { width: 100% !important; max-width: 100% !important; flex: 0 0 100% !important; }
     @media (max-width: 640px) { #tm_olzap_fab_save { width: 56px; height: 56px; right: 14px; bottom: 40px; } }
   `;
   const PARAM_IFRAME = 'tm_olzap_frame';   // penanda di URL: halaman ini dibuka di dalam iframe modal
@@ -565,6 +567,10 @@
       const d = fr.contentDocument;
       const el = d && d.getElementById(idField);
       if (el) {
+        // input dibuat selebar mungkin supaya nama produk yang panjang tampil semua, tidak terpotong
+        el.classList.add('tm-olzap-lebar');
+        const kolom = el.closest('[class*="col-"]');
+        if (kolom) kolom.classList.add('tm-olzap-lebar-kolom');
         el.scrollIntoView({ block: 'center', behavior: 'smooth' });
         el.focus();
         el.classList.add('tm-olzap-sorot');
