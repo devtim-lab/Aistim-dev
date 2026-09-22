@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Produk OLZAP
 // @namespace    http://tampermonkey.net/
-// @version      1.3.3
+// @version      1.3.4
 // @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / Edit Nama / OLZAP (cek barcode di partdistro.com)
 // @author       You
 // @match        https://*.erzap.com/produks*
@@ -816,7 +816,16 @@
       if (t.dimuat && !paksa) return;
       t.dimuat = true;
       t.isi.innerHTML = '<div class="tm-status">Memuat data produk...</div>';
-      if (t.fr.getAttribute('src') !== t.url || paksa) t.fr.src = t.url;
+
+      // Assign src memicu navigasi baru walau URL sama persis (dipakai juga untuk "Muat ulang").
+      // Tunggu event load dulu sebelum baca field: kalau langsung dicek, contentDocument sesaat
+      // masih dokumen LAMA (field lama masih ada) -> data yang tampil basi, terasa seperti tidak reload.
+      const muatSelesai = new Promise(resolve => {
+        const onLoad = () => { t.fr.removeEventListener('load', onLoad); resolve(); };
+        t.fr.addEventListener('load', onLoad);
+        t.fr.src = t.url;
+      });
+      await Promise.race([muatSelesai, tunggu(15000)]);
 
       const cekSiap = () => {
         try {
@@ -827,7 +836,7 @@
       };
       const t0 = Date.now();
       let siap = null;
-      while (Date.now() - t0 < 15000) {
+      while (Date.now() - t0 < 5000) {
         siap = cekSiap();
         if (siap) break;
         await tunggu(200);
