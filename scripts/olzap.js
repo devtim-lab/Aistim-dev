@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Produk OLZAP
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / Edit Nama / OLZAP (cek barcode di partdistro.com)
+// @version      1.3.1
+// @description  Responsif mobile/desktop. Tombol di halaman daftar produk Erzap; klik -> modal, masukkan barcode -> dimasukkan ke filter tabel, dicari, hasilnya ditampilkan di modal; di bawah nama barang ada tab Lihat / Edit / Edit Nama (buka halaman edit lalu langsung scroll+fokus ke field Nama Produk) / OLZAP (cek barcode di partdistro.com)
 // @author       You
 // @match        https://*.erzap.com/produks*
 // @connect      partdistro.com
@@ -37,6 +37,7 @@
       color: #fff; font-size: 12px; padding: 4px 8px; border-radius: 4px; white-space: nowrap; display: none; }
     #tm_olzap_fab_save:hover .tm-fab-label { display: block; }
     .tm-olzap-sembunyi { display: none !important; }
+    .tm-olzap-sorot { outline: 3px solid #dc3545 !important; outline-offset: 2px !important; }
     @media (max-width: 640px) { #tm_olzap_fab_save { width: 56px; height: 56px; right: 14px; bottom: 40px; } }
   `;
   const PARAM_IFRAME = 'tm_olzap_frame';   // penanda di URL: halaman ini dibuka di dalam iframe modal
@@ -260,10 +261,6 @@
     #${ID_MODAL} .tm-tab-alat a{color:var(--tm-merah);}
     #${ID_MODAL} .tm-tab-alat a{white-space:nowrap;}
     #${ID_MODAL} .tm-olzap-isi{padding:12px;min-height:120px;}
-    #${ID_MODAL} .tm-nama-isi{padding:12px;min-height:120px;}
-    #${ID_MODAL} .tm-nama-saran{font-size:12px;background:var(--tm-merah-pucat);border:1px solid var(--tm-garis);border-radius:4px;padding:8px;margin-bottom:10px;word-break:break-word;}
-    #${ID_MODAL} .tm-nama-saran button{margin-left:6px;padding:4px 10px;border:1px solid var(--tm-merah);background:#fff;color:var(--tm-merah);border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;}
-    #${ID_MODAL} .tm-nama-label{font-size:12px;color:#666;margin-bottom:6px;}
     #${ID_MODAL} .tm-olzap-info{font-size:12px;color:#666;margin-bottom:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
     #${ID_MODAL} .tm-olzap-info a{color:var(--tm-merah);}
     #${ID_MODAL} .tm-olzap-kartu{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--tm-garis);border-radius:6px;padding:10px;margin-bottom:10px;background:#fff;}
@@ -560,6 +557,24 @@
     }
   }
 
+  // Tab "Edit Nama": setelah halaman edit termuat di iframe, cari field-nya (mis. #produk_nama_web),
+  // scroll ke situ, fokus, dan sorot sebentar. Field kadang muncul belakangan -> dicoba beberapa kali.
+  function fokusFieldFrame(fr, idField, percobaan = 0) {
+    let ok = false;
+    try {
+      const d = fr.contentDocument;
+      const el = d && d.getElementById(idField);
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        el.focus();
+        el.classList.add('tm-olzap-sorot');
+        setTimeout(() => el.classList.remove('tm-olzap-sorot'), 3000);
+        ok = true;
+      }
+    } catch (e) { ok = false; }
+    if (!ok && percobaan < 10) setTimeout(() => fokusFieldFrame(fr, idField, percobaan + 1), 300);
+  }
+
   // Cadangan: suntik CSS ke dokumen iframe (satu domain) setelah selesai dimuat
   function sembunyikanHeaderFrame(fr) {
     try {
@@ -714,7 +729,7 @@
     const daftar = {
       lihat: { ikon: IKON_LIHAT, label: 'Lihat', url: urlLihat(id) },
       edit: { ikon: IKON_EDIT, label: 'Edit', url: urlEdit(id) },
-      nama: { ikon: IKON_NAMA, label: 'Edit Nama', url: urlEdit(id), namaEdit: true },
+      nama: { ikon: IKON_NAMA, label: 'Edit Nama', url: urlEdit(id), fokusField: 'produk_nama_web' },
       olzap: { ikon: IKON_OLZAP, label: 'OLZAP', url: urlOlzapCari(barcode), olzap: true },
     };
     const el = {};
@@ -742,19 +757,6 @@
         el[k] = { b, panel, fr: frO, isi, url: daftar[k].url, olzap: true, dimuat: false };
         continue;
       }
-      if (daftar[k].namaEdit) {
-        // tab Edit Nama: memuat halaman edit produk di iframe TERSEMBUNYI (bukan ditampilkan),
-        // lalu field "Nama Produk" (#produk_nama_web) disalin ke input sederhana di panel ini.
-        const isi = document.createElement('div');
-        isi.className = 'tm-nama-isi';
-        isi.textContent = 'Klik tab untuk memuat...';
-        const frN = document.createElement('iframe');
-        frN.style.display = 'none';
-        panel.append(isi, frN);
-        panelWadah.appendChild(panel);
-        el[k] = { b, panel, fr: frN, isi, url: daftar[k].url, namaEdit: true, dimuat: false };
-        continue;
-      }
       const muat = document.createElement('div');
       muat.className = 'tm-muat';
       muat.textContent = 'Memuat...';
@@ -765,6 +767,7 @@
           log('iframe', k, 'load:', fr.contentWindow.location.href, '| doc:', d ? 'ok' : 'TIDAK BISA DIAKSES', '| body:', d && d.body ? 'ada' : 'tidak ada');
         } catch (e) { log('iframe', k, 'load: contentDocument error ->', e.message); }
         sembunyikanHeaderFrame(fr);
+        if (daftar[k].fokusField) fokusFieldFrame(fr, daftar[k].fokusField);
         if (fr.src && fr.src !== 'about:blank') muat.style.display = 'none';
       });
       panel.append(muat, fr);
@@ -783,7 +786,6 @@
       const url = urlKhusus || t.url;
       linkBaru.href = url;
       if (t.olzap) { muatOlzap(t); }
-      else if (t.namaEdit) { muatNama(t); }
       else if (t.fr.getAttribute('src') !== url) {     // lazy load: iframe dimuat saat tab pertama dibuka
         t.muat.style.display = '';
         t.fr.src = url;
@@ -799,7 +801,6 @@
       try {
         const hasil = await fetchOlzap(barcode);
         log('OLZAP', barcode, hasil.produk);
-        t.hasilOlzap = hasil;   // dipakai tab "Edit Nama" untuk menawarkan sinkron nama dari partdistro
         renderOlzap(t.isi, barcode, hasil);
       } catch (e) {
         // partdistro memblokir CORS dan iframe (X-Frame-Options: SAMEORIGIN) -> tanpa jembatan ekstensi tidak bisa ditampilkan di sini
@@ -811,103 +812,10 @@
         t.dimuat = false;
       }
     }
-    // Tab Edit Nama: muat halaman edit di iframe tersembunyi, tunggu field #produk_nama_web siap, lalu render form sederhana.
-    async function muatNama(t, paksa) {
-      if (t.dimuat && !paksa) return;
-      t.dimuat = true;
-      t.isi.innerHTML = '<div class="tm-status">Memuat data produk...</div>';
-      if (t.fr.getAttribute('src') !== t.url || paksa) t.fr.src = t.url;
-
-      const cekSiap = () => {
-        try {
-          const d = t.fr.contentDocument, w = t.fr.contentWindow;
-          const field = d && d.getElementById('produk_nama_web');
-          return field ? { d, w, field } : null;
-        } catch (e) { return null; }
-      };
-      const t0 = Date.now();
-      let siap = null;
-      while (Date.now() - t0 < 15000) {
-        siap = cekSiap();
-        if (siap) break;
-        await tunggu(200);
-      }
-      if (!siap) {
-        t.isi.innerHTML = '<div class="tm-olzap-kosong">Field "Nama Produk" (#produk_nama_web) tidak ditemukan di halaman edit.</div>';
-        t.dimuat = false;
-        return;
-      }
-      renderFormNama(t, siap.d, siap.w, siap.field);
-    }
-    function renderFormNama(t, d, w, field) {
-      t.isi.innerHTML = '';
-
-      const srcOlzap = el.olzap && el.olzap.hasilOlzap && el.olzap.hasilOlzap.produk && el.olzap.hasilOlzap.produk[0];
-      if (srcOlzap && srcOlzap.nama && rapikan(srcOlzap.nama) !== rapikan(field.value)) {
-        const saran = document.createElement('div');
-        saran.className = 'tm-nama-saran';
-        saran.innerHTML = 'Nama di partdistro (OLZAP): <b>' + esc(srcOlzap.nama) + '</b>';
-        const btnPakai = document.createElement('button');
-        btnPakai.type = 'button';
-        btnPakai.textContent = 'Pakai nama ini';
-        btnPakai.onclick = () => { inp.value = srcOlzap.nama; inp.focus(); };
-        saran.appendChild(btnPakai);
-        t.isi.appendChild(saran);
-      }
-
-      const label = document.createElement('div');
-      label.className = 'tm-nama-label';
-      label.textContent = 'Nama Produk (produk_nama_web)';
-
-      const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.className = 'tm-input';
-      inp.style.marginBottom = '8px';
-      inp.value = field.value || '';
-      inp.maxLength = field.maxLength > 0 ? field.maxLength : 255;
-      inp.autocomplete = 'off';
-
-      const baris = document.createElement('div');
-      baris.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
-      const btnSimpan = document.createElement('button');
-      btnSimpan.type = 'button';
-      btnSimpan.className = 'tm-cari';
-      btnSimpan.textContent = 'Simpan Nama';
-      baris.appendChild(btnSimpan);
-
-      const status = document.createElement('div');
-      status.className = 'tm-status';
-      status.style.marginTop = '8px';
-
-      t.isi.append(label, inp, baris, status);
-
-      btnSimpan.onclick = () => {
-        const nilai = rapikan(inp.value);
-        if (!nilai) { inp.focus(); status.style.color = '#c00000'; status.textContent = 'Nama tidak boleh kosong.'; return; }
-        btnSimpan.disabled = true;
-        status.style.color = '#666';
-        status.textContent = 'Menyimpan...';
-        try {
-          field.value = nilai;
-          for (const tipe of ['input', 'change']) field.dispatchEvent(new w.Event(tipe, { bubbles: true }));
-          if (w.jQuery) w.jQuery(field).trigger('input').trigger('change');
-          const err = simpanDiFrame(d, w);
-          if (err) { status.style.color = '#c00000'; status.textContent = err; btnSimpan.disabled = false; return; }
-          status.style.color = '#1a7f37';
-          status.textContent = 'Tersimpan.';
-        } catch (e) {
-          status.style.color = '#c00000';
-          status.textContent = 'Gagal: ' + e.message;
-        } finally {
-          setTimeout(() => { btnSimpan.disabled = false; }, 1500);
-        }
-      };
-    }
     btnMuatUlang.onclick = e => {
       e.preventDefault();
       if (!aktif) return;
       if (el[aktif].olzap) { muatOlzap(el[aktif], true); return; }
-      if (el[aktif].namaEdit) { muatNama(el[aktif], true); return; }
       el[aktif].muat.style.display = '';
       el[aktif].fr.src = el[aktif].fr.src;
     };
