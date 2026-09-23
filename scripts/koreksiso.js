@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.3.6
+// @version      1.3.8
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.3.6] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter di input terakhir) -> RELOAD
+// @description  [v1.3.8] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter di input terakhir) -> RELOAD
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -544,7 +544,7 @@
 
                     if (nextLink) {
                         nextLink.click();
-                        setTimeout(() => runAutoProcess(btnElement), 2500);
+                        setTimeout(() => runAutoProcess(btnElement), 700);
                     } else {
                         let finalLogs = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}');
 
@@ -557,11 +557,11 @@
 
                         showPaginatedSummaryPopup('Rangkuman Hasil Koreksi & Save:', finalLogs);
                     }
-                }, 2000);
+                }, 700); // jeda paling kritis: kasih waktu request simpan (AJAX) beres dulu sebelum pindah halaman
 
-            }, 1500);
+            }, 300);
 
-        }, 1200);
+        }, 300);
     }
 
     window.addEventListener('load', function() {
