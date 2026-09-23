@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.3.8
+// @version      1.3.9
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.3.8] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter di input terakhir) -> RELOAD
+// @description  [v1.3.9] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (klik tombol Simpan) -> RELOAD
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -426,7 +426,6 @@
             //    - Input ke-2, ke-3, dst dalam grup yang sama = 0
             const koreksiSelector = 'input[type="text"][name*="jumlah_koreksi"]';
             const processedInputs = new Set();
-            let lastKoreksiInput = null;
 
             function setInputValue(inp, val) {
                 if (processedInputs.has(inp)) return;
@@ -434,7 +433,6 @@
                 inp.value = val;
                 inp.dispatchEvent(new Event('input', { bubbles: true }));
                 inp.dispatchEvent(new Event('change', { bubbles: true }));
-                lastKoreksiInput = inp;
             }
 
             const soCells = document.querySelectorAll('td[id^="so"]');
@@ -490,25 +488,24 @@
                 }
             });
 
-            // --- TAHAP 2: SIMPAN (via tombol Enter di input koreksi terakhir, bukan klik tombol Simpan) ---
+            // --- TAHAP 2: SIMPAN (klik tombol Simpan asli) ---
             setTimeout(function() {
                 if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
 
+                const divSimpan = document.getElementById('simpan');
                 let currentLogs = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}');
 
-                if (lastKoreksiInput) {
+                if (divSimpan) {
                     if (btnElement) {
                         btnElement.textContent = 'SIMPAN...';
                         btnElement.style.backgroundColor = '#007bff';
                         btnElement.style.borderColor = '#007bff';
                     }
 
-                    lastKoreksiInput.focus();
-                    const enterOpts = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
-                    lastKoreksiInput.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
-                    lastKoreksiInput.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
-                    lastKoreksiInput.dispatchEvent(new KeyboardEvent('keyup', enterOpts));
-
+                    divSimpan.click();
+                    if (typeof submit_form_koreksi_so === 'function') {
+                        submit_form_koreksi_so();
+                    }
                     currentLogs[currentP] = 'Berhasil';
                 } else {
                     currentLogs[currentP] = 'Gagal Save';
