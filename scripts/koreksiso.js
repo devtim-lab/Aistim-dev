@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.3.2
+// @version      1.3.6
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.3.1] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN -> RELOAD
+// @description  [v1.3.6] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter di input terakhir) -> RELOAD
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -206,29 +206,92 @@
                     position: fixed !important;
                     left: 8px !important;
                     right: 8px !important;
-                    bottom: 8px !important;
+                    bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
                     top: auto !important;
                     z-index: 99998 !important;
                     display: flex !important;
+                    flex-wrap: wrap !important;
                     gap: 8px !important;
                     margin: 0 !important;
                     padding: 8px !important;
                     background: rgba(255, 255, 255, 0.97) !important;
                     border-radius: 10px !important;
                     box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.25) !important;
+                    box-sizing: border-box !important;
                 }
                 #autoKoreksiGroup button {
                     flex: 1 1 0 !important;
-                    min-width: 0 !important;
+                    min-width: 90px !important;   /* jangan sampai teks status kepotong */
+                    max-width: 100% !important;
                     min-height: 44px !important;   /* standar sentuh mobile */
                     font-size: 14px !important;
                     font-weight: bold !important;
                     margin: 0 !important;
+                    padding: 0 8px !important;
                     border-radius: 6px !important;
+                    overflow: hidden !important;
+                    text-overflow: ellipsis !important;
+                    box-sizing: border-box !important;
+                }
+            }
+
+            /* Layar sangat sempit: kecilkan lagi biar teks status ("KOREKSI...", "RELOAD...") tetap muat */
+            @media (max-width: 380px) {
+                #autoKoreksiGroup button {
+                    font-size: 12px !important;
+                    padding: 0 4px !important;
                 }
             }
         `;
         document.head.appendChild(style);
+    }
+
+    function findFifoBtn() {
+        const allElements = document.querySelectorAll('a, button');
+        for (let el of allElements) {
+            if (el.textContent.trim() === 'FIFO') return el;
+        }
+        return null;
+    }
+
+    // Samakan ukuran tombol START/STOP dengan tombol FIFO di sebelahnya.
+    // Dipanggil berulang (bukan cuma sekali saat dibuat) karena ukuran FIFO
+    // sendiri bisa berubah setelah render awal (mis. CSS/class-nya baru
+    // lengkap belakangan), dan supaya ikut ke-update kalau layar di-resize.
+    function syncSizeWithFifo() {
+        const startBtn = document.getElementById('startAutoBtn');
+        const stopBtn = document.getElementById('stopAutoBtn');
+        const targetBtn = findFifoBtn();
+        if (!startBtn || !stopBtn || !targetBtn) return;
+
+        const rect = targetBtn.getBoundingClientRect();
+        if (!rect.height) return; // FIFO belum sempat ke-render, coba lagi di tick berikutnya
+
+        const cs = window.getComputedStyle(targetBtn);
+
+        [startBtn, stopBtn].forEach(btn => {
+            btn.style.boxSizing = 'border-box';
+            btn.style.paddingTop = cs.paddingTop;
+            btn.style.paddingBottom = cs.paddingBottom;
+            btn.style.paddingLeft = cs.paddingLeft;
+            btn.style.paddingRight = cs.paddingRight;
+            btn.style.fontSize = cs.fontSize;
+            btn.style.lineHeight = cs.lineHeight;
+            btn.style.fontWeight = cs.fontWeight;
+            // Pakai satu nilai radius simetris (bukan cs.borderRadius apa adanya),
+            // karena FIFO ada di dalam btn-group jadi radiusnya "6px 0 0 6px" (nempel ke DETAIL).
+            // Kalau dicopy mentah, START/STOP jadi kelihatan kepotong sebelah karena
+            // keduanya berdiri sendiri (ada gap), bukan nempel ke tombol lain.
+            btn.style.borderRadius = cs.borderTopLeftRadius;
+            btn.style.borderWidth = cs.borderWidth;
+            // Pakai tinggi hasil render nyata (getBoundingClientRect), bukan
+            // computed style 'height' yang bisa saja masih 'auto'/belum akurat.
+            btn.style.height = rect.height + 'px';
+            btn.style.verticalAlign = 'middle';
+            btn.style.display = 'inline-flex';
+            btn.style.alignItems = 'center';
+            btn.style.justifyContent = 'center';
+        });
     }
 
     function initControls() {
@@ -236,44 +299,17 @@
 
         injectResponsiveStyle();
 
-        let targetBtn = null;
-        const allElements = document.querySelectorAll('a, button');
-        for (let el of allElements) {
-            if (el.textContent.trim() === 'FIFO') {
-                targetBtn = el;
-                break;
-            }
-        }
+        const targetBtn = findFifoBtn();
 
         if (targetBtn) {
             const groupDiv = document.createElement('div');
             groupDiv.id = 'autoKoreksiGroup';
-
-            // Samakan ukuran & gaya dengan tombol FIFO supaya rata/sejajar di desktop
-            const cs = window.getComputedStyle(targetBtn);
-            function matchBtnStyle(btn) {
-                btn.style.paddingTop = cs.paddingTop;
-                btn.style.paddingBottom = cs.paddingBottom;
-                btn.style.paddingLeft = cs.paddingLeft;
-                btn.style.paddingRight = cs.paddingRight;
-                btn.style.fontSize = cs.fontSize;
-                btn.style.lineHeight = cs.lineHeight;
-                btn.style.fontWeight = cs.fontWeight;
-                btn.style.borderRadius = cs.borderRadius;
-                btn.style.borderWidth = cs.borderWidth;
-                btn.style.height = cs.height;
-                btn.style.verticalAlign = 'middle';
-                btn.style.display = 'inline-flex';
-                btn.style.alignItems = 'center';
-                btn.style.justifyContent = 'center';
-            }
 
             const startBtn = document.createElement('button');
             startBtn.id = 'startAutoBtn';
             startBtn.type = 'button';
             startBtn.className = targetBtn.className ? targetBtn.className : 'btn btn-default';
             startBtn.textContent = isRunning ? 'KOREKSI...' : 'START AUTO';
-            matchBtnStyle(startBtn);
             startBtn.style.backgroundColor = '#28a745';
             startBtn.style.color = '#fff';
             startBtn.style.borderColor = '#28a745';
@@ -285,7 +321,6 @@
             stopBtn.type = 'button';
             stopBtn.className = targetBtn.className ? targetBtn.className : 'btn btn-default';
             stopBtn.textContent = 'STOP';
-            matchBtnStyle(stopBtn);
             stopBtn.style.backgroundColor = '#dc3545';
             stopBtn.style.color = '#fff';
             stopBtn.style.borderColor = '#dc3545';
@@ -313,6 +348,14 @@
             groupDiv.appendChild(startBtn);
             groupDiv.appendChild(stopBtn);
             targetBtn.parentNode.insertBefore(groupDiv, targetBtn);
+
+            syncSizeWithFifo();
+            // FIFO kadang baru "settle" ke ukuran finalnya sesaat setelah insert
+            // (font/CSS eksternal, dsb) -> sinkronkan ulang beberapa kali.
+            setTimeout(syncSizeWithFifo, 300);
+            setTimeout(syncSizeWithFifo, 1000);
+            setTimeout(syncSizeWithFifo, 2500);
+            window.addEventListener('resize', syncSizeWithFifo);
 
             if (isRunning) {
                 setTimeout(() => runAutoProcess(startBtn), 1500);
@@ -383,6 +426,7 @@
             //    - Input ke-2, ke-3, dst dalam grup yang sama = 0
             const koreksiSelector = 'input[type="text"][name*="jumlah_koreksi"]';
             const processedInputs = new Set();
+            let lastKoreksiInput = null;
 
             function setInputValue(inp, val) {
                 if (processedInputs.has(inp)) return;
@@ -390,6 +434,7 @@
                 inp.value = val;
                 inp.dispatchEvent(new Event('input', { bubbles: true }));
                 inp.dispatchEvent(new Event('change', { bubbles: true }));
+                lastKoreksiInput = inp;
             }
 
             const soCells = document.querySelectorAll('td[id^="so"]');
@@ -445,24 +490,25 @@
                 }
             });
 
-            // --- TAHAP 2: SIMPAN ---
+            // --- TAHAP 2: SIMPAN (via tombol Enter di input koreksi terakhir, bukan klik tombol Simpan) ---
             setTimeout(function() {
                 if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
 
-                const divSimpan = document.getElementById('simpan');
                 let currentLogs = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}');
 
-                if (divSimpan) {
+                if (lastKoreksiInput) {
                     if (btnElement) {
                         btnElement.textContent = 'SIMPAN...';
                         btnElement.style.backgroundColor = '#007bff';
                         btnElement.style.borderColor = '#007bff';
                     }
 
-                    divSimpan.click();
-                    if (typeof submit_form_koreksi_so === 'function') {
-                        submit_form_koreksi_so();
-                    }
+                    lastKoreksiInput.focus();
+                    const enterOpts = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
+                    lastKoreksiInput.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
+                    lastKoreksiInput.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
+                    lastKoreksiInput.dispatchEvent(new KeyboardEvent('keyup', enterOpts));
+
                     currentLogs[currentP] = 'Berhasil';
                 } else {
                     currentLogs[currentP] = 'Gagal Save';
@@ -522,9 +568,17 @@
         setTimeout(initControls, 1200);
     });
 
+    let syncScheduled = false;
     const observer = new MutationObserver(function() {
         if (!document.getElementById('autoKoreksiGroup')) {
             initControls();
+        } else if (!syncScheduled) {
+            // Throttle: cukup 1x per animation frame meski banyak mutation beruntun
+            syncScheduled = true;
+            requestAnimationFrame(function() {
+                syncScheduled = false;
+                syncSizeWithFifo();
+            });
         }
     });
 
