@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.5.4
+// @version      1.7.1
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.5.4] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD
+// @description  [v1.7.1] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -374,6 +374,7 @@
     function syncSizeWithFifo() {
         const startBtn = document.getElementById('startAutoBtn');
         const stopBtn = document.getElementById('stopAutoBtn');
+        const cekBtn = document.getElementById('cekSimpanBtn');
         const targetBtn = findFifoBtn();
         if (!startBtn || !stopBtn || !targetBtn) return;
 
@@ -382,7 +383,7 @@
 
         const cs = window.getComputedStyle(targetBtn);
 
-        [startBtn, stopBtn].forEach(btn => {
+        [startBtn, cekBtn, stopBtn].filter(Boolean).forEach(btn => {
             btn.style.boxSizing = 'border-box';
             btn.style.paddingTop = cs.paddingTop;
             btn.style.paddingBottom = cs.paddingBottom;
@@ -405,6 +406,218 @@
             btn.style.alignItems = 'center';
             btn.style.justifyContent = 'center';
         });
+    }
+
+    // ===== CEK SIMPAN: cari halaman berikutnya yang masih ada tombol Simpan =====
+    // Halaman yang sudah dikoreksi & disimpan tidak punya tombol Simpan lagi. Mulai dari
+    // halaman ini: kalau tombol Simpan tidak ada, lanjut ke halaman berikutnya (dibaca
+    // lewat fetch di belakang layar, mengikuti link pagination asli Erzap), sampai
+    // ketemu halaman yang masih ada tombol Simpan -> langsung pindah ke halaman itu.
+    let cekJalan = false;
+
+    function bersihkanUrl(href, base) {
+        if (!href || href === '#' || /^javascript:/i.test(href)) return null;
+        try {
+            const u = new URL(href, base);
+            u.hash = '';
+            return u.origin === location.origin ? u.href : null;
+        } catch (e) { return null; }
+    }
+
+    // Nomor halaman yang sedang tampil di dokumen: dari item pagination yang aktif,
+    // atau parameter ?page= di URL. null kalau tidak ketahuan.
+    function nomorHalaman(doc, url) {
+        const aktif = doc.querySelector(
+            '.pagination .active, .pagination .current, .pagination [aria-current="page"], ' +
+            '[class*="paginat"] .active, [class*="paginat"] .current, [class*="paginat"] [aria-current="page"]');
+        const n = aktif ? parseInt(aktif.textContent.trim(), 10) : NaN;
+        if (!isNaN(n)) return n;
+        try {
+            const q = parseInt(new URL(url).searchParams.get('page'), 10);
+            if (!isNaN(q)) return q;
+        } catch (e) {}
+        return null;
+    }
+
+    // Tombol Simpan = #simpan (elemen yang sama yang diklik proses auto).
+    // Halaman ini: cek benar-benar tampil. Dokumen hasil fetch tidak dirender, jadi
+    // cukup ada & tidak disembunyikan lewat style="display:none" / hidden.
+    function tombolSimpanTampil() {
+        const el = document.getElementById('simpan');
+        return !!(el && el.getClientRects().length);
+    }
+
+    function adaTombolSimpan(doc) {
+        const el = doc.getElementById('simpan');
+        if (!el) return false;
+        for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+            if (n.hidden || /display\s*:\s*none/i.test(n.getAttribute('style') || '')) return false;
+        }
+        return true;
+    }
+
+    // Baca satu halaman: { nomor, simpan, next, url, cara }.
+    // Cepat dulu lewat fetch (HTML mentah). Tapi kalau isi tabel tidak ada di HTML
+    // mentah (tabel dimuat JavaScript setelah halaman terbuka), tidak adanya tombol
+    // Simpan di situ TIDAK berarti sudah tersimpan -> buka di iframe tersembunyi
+    // supaya JavaScript Erzap sempat merender tabel & tombolnya, baru dicek.
+    async function bacaHalaman(url) {
+        const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' saat membuka halaman berikutnya');
+        const urlAsli = res.url || url;
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+
+        const adaIsi = !!(doc.getElementById('simpan') || doc.querySelector('td[id^="so"], ' + KOREKSI_SELECTOR));
+        if (adaIsi) {
+            const next = cariLinkBerikutnya(doc, false);
+            return {
+                nomor: nomorHalaman(doc, urlAsli),
+                simpan: adaTombolSimpan(doc),
+                next: next ? bersihkanUrl(next.getAttribute('href'), urlAsli) : null,
+                url: urlAsli,
+                cara: 'fetch'
+            };
+        }
+        return bacaLewatIframe(url);
+    }
+
+    function bacaLewatIframe(url) {
+        return new Promise((resolve, reject) => {
+            const f = document.createElement('iframe');
+            f.style.cssText = 'position:fixed;left:-10000px;top:0;width:1280px;height:900px;visibility:hidden;border:0;';
+            let selesai = false;
+            const beres = (err, hasil) => {
+                if (selesai) return;
+                selesai = true;
+                clearTimeout(batas);
+                f.remove();
+                if (err) reject(err); else resolve(hasil);
+            };
+            const batas = setTimeout(() => beres(new Error('Tabel tidak muncul dalam 15 detik saat membuka ' + url)), 15000);
+
+            f.addEventListener('load', () => {
+                let nunggu = 0;
+                (function cek() {
+                    if (selesai) return;
+                    let d;
+                    try { d = f.contentDocument; } catch (e) { beres(new Error('Halaman tidak bisa dibaca (' + e.message + ')')); return; }
+                    const adaIsi = d && (d.getElementById('simpan') || d.querySelector('td[id^="so"], ' + KOREKSI_SELECTOR));
+                    // Setelah isi tabel muncul, beri 0,5 detik supaya tombol Simpan ikut dirender
+                    if (adaIsi && nunggu >= 500) {
+                        const el = d.getElementById('simpan');
+                        const next = cariLinkBerikutnya(d, false);
+                        const urlAsli = f.contentWindow.location.href;
+                        beres(null, {
+                            nomor: nomorHalaman(d, urlAsli),
+                            simpan: !!(el && el.getClientRects().length),
+                            next: next ? bersihkanUrl(next.getAttribute('href'), urlAsli) : null,
+                            url: urlAsli,
+                            cara: 'iframe'
+                        });
+                        return;
+                    }
+                    if (adaIsi) nunggu += 100;
+                    setTimeout(cek, 100);
+                })();
+            });
+            f.src = url;
+            document.body.appendChild(f);
+        });
+    }
+
+    async function cariHalamanBelumSimpan(btn) {
+        const nomorIni = getCurrentPageNumber();
+        if (tombolSimpanTampil()) {
+            tampilkanPesanCek('Halaman ini masih ada tombol Simpan', 'Hal ' + nomorIni + ' belum disimpan.');
+            return;
+        }
+
+        cekJalan = true;
+        const teksAsli = btn.textContent;
+        btn.disabled = true;
+
+        let dicek = 1;
+        let nomorTerakhir = nomorIni;
+        let pesanError = '';
+        const dikunjungi = new Set([bersihkanUrl(location.href, location.href)]);
+        const nomorDibaca = new Set([nomorIni]);
+
+        try {
+            const link = cariLinkBerikutnya(document, true);
+            let url = link ? bersihkanUrl(link.getAttribute('href'), location.href) : null;
+
+            while (url && !dikunjungi.has(url) && dikunjungi.size < 500) {
+                dikunjungi.add(url);
+                btn.textContent = 'CEK HAL ' + (nomorTerakhir + 1) + '...';
+
+                const hal = await bacaHalaman(url);
+                const nomor = hal.nomor;
+                if (nomor !== null) {
+                    if (nomorDibaca.has(nomor)) break; // balik ke halaman yang sudah dicek = sudah habis
+                    nomorDibaca.add(nomor);
+                    nomorTerakhir = nomor;
+                } else {
+                    nomorTerakhir++;
+                }
+                dicek++;
+
+                if (hal.simpan) {
+                    btn.textContent = 'KE HAL ' + nomorTerakhir + '...';
+                    console.log('[Aistim] Cek simpan: tombol Simpan ada di', hal.url, '(' + hal.cara + ')');
+                    location.href = url;
+                    return; // cekJalan dibiarkan true: halaman akan berganti
+                }
+
+                url = hal.next;
+            }
+        } catch (e) {
+            pesanError = String(e && e.message || e);
+            console.error('[Aistim] Cek simpan gagal:', e);
+        }
+
+        btn.textContent = teksAsli;
+        btn.disabled = false;
+        cekJalan = false;
+        if (pesanError) {
+            tampilkanPesanCek('Cek berhenti', 'Dicek ' + dicek + ' halaman (sampai Hal ' + nomorTerakhir + '). ' + pesanError, true);
+        } else {
+            tampilkanPesanCek('Semua halaman sudah tersimpan ✓',
+                'Dari Hal ' + nomorIni + ' sampai Hal ' + nomorTerakhir + ' (' + dicek + ' halaman) tidak ada tombol Simpan lagi.');
+        }
+    }
+
+    function tampilkanPesanCek(judulTeks, infoTeks, error) {
+        const lama = document.getElementById('cekSimpanModal');
+        if (lama) lama.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'cekSimpanModal';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;justify-content:center;align-items:center;padding:16px;box-sizing:border-box;';
+
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 4px 15px rgba(0,0,0,.3);width:min(420px,100%);display:flex;flex-direction:column;padding:20px;box-sizing:border-box;text-align:center;';
+
+        const judul = document.createElement('p');
+        judul.style.cssText = 'font-size:16px;font-weight:bold;color:#333;margin:0 0 8px;';
+        judul.textContent = judulTeks;
+
+        const info = document.createElement('p');
+        info.style.cssText = 'font-size:13px;margin:0 0 16px;color:' + (error ? '#dc3545' : '#666') + ';';
+        info.textContent = infoTeks;
+
+        const ok = document.createElement('button');
+        ok.type = 'button';
+        ok.textContent = 'OK';
+        ok.className = 'btn btn-success';
+        ok.style.cssText = 'align-self:center;padding:8px 25px;font-size:14px;background:#28a745;color:#fff;border:none;border-radius:4px;cursor:pointer;';
+        ok.addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+        box.appendChild(judul);
+        box.appendChild(info);
+        box.appendChild(ok);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
     }
 
     function initControls() {
@@ -440,7 +653,7 @@
             stopBtn.style.minWidth = '70px';
 
             startBtn.addEventListener('click', function() {
-                if (!isRunning) {
+                if (!isRunning && !cekJalan) {
                     sessionStorage.setItem('erzap_auto_running', 'true');
                     sessionStorage.setItem('erzap_max_page', '1');
                     sessionStorage.removeItem('erzap_page_logs');
@@ -459,7 +672,23 @@
                 showPaginatedSummaryPopup('Proses Auto Koreksi dihentikan.', finalLogs);
             });
 
+            const cekBtn = document.createElement('button');
+            cekBtn.id = 'cekSimpanBtn';
+            cekBtn.type = 'button';
+            cekBtn.className = targetBtn.className ? targetBtn.className : 'btn btn-default';
+            cekBtn.textContent = 'CEK SIMPAN';
+            cekBtn.title = 'Lewati halaman yang sudah tidak ada tombol Simpan, pindah ke halaman berikutnya yang masih ada';
+            cekBtn.style.backgroundColor = '#fd7e14';
+            cekBtn.style.color = '#fff';
+            cekBtn.style.borderColor = '#fd7e14';
+            cekBtn.style.minWidth = '110px';
+            cekBtn.addEventListener('click', function() {
+                if (isRunning || cekJalan) return;
+                cariHalamanBelumSimpan(cekBtn);
+            });
+
             groupDiv.appendChild(startBtn);
+            groupDiv.appendChild(cekBtn);
             groupDiv.appendChild(stopBtn);
             targetBtn.parentNode.insertBefore(groupDiv, targetBtn);
 
@@ -741,9 +970,14 @@
     // Cari link "halaman berikutnya". Dicari di area pagination dulu; kalau tidak
     // ketemu, baru ke seluruh halaman KECUALI menu/header/breadcrumb/sidebar --
     // supaya link menu yang kebetulan pakai '›' atau '»' tidak ikut terklik.
-    function cariLinkBerikutnya() {
+    //
+    // root = dokumen yang dicari (default halaman ini). cekTampil=false untuk dokumen
+    // hasil fetch, yang tidak dirender sehingga offsetParent selalu null.
+    function cariLinkBerikutnya(root, cekTampil) {
+        root = root || document;
+        if (cekTampil === undefined) cekTampil = true;
         function bisaDiklik(a) {
-            if (a.offsetParent === null) return false;
+            if (cekTampil && a.offsetParent === null) return false;
             if (a.classList.contains('disabled') || a.getAttribute('aria-disabled') === 'true') return false;
             const p = a.parentElement;
             return !(p && p.classList.contains('disabled'));
@@ -765,9 +999,9 @@
             });
             return terbaik;
         }
-        const bukanMenu = Array.from(document.querySelectorAll('a')).filter(a =>
+        const bukanMenu = Array.from(root.querySelectorAll('a')).filter(a =>
             !a.closest('nav, header, .navbar, .breadcrumb, .sidebar, .main-sidebar, .dropdown-menu, .treeview-menu'));
-        return pilih(document.querySelectorAll('.pagination a, [class*="paginat"] a'), 1)
+        return pilih(root.querySelectorAll('.pagination a, [class*="paginat"] a'), 1)
             || pilih(bukanMenu, 1);
     }
 
