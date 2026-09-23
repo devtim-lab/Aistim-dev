@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.5.4
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.4.0] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (klik tombol Simpan) -> RELOAD
+// @description  [v1.5.4] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
+// @world        main
 // @grant        none
 // ==/UserScript==
 
@@ -15,6 +16,117 @@
     'use strict';
 
     let isRunning = sessionStorage.getItem('erzap_auto_running') === 'true';
+
+    // Script ini jalan di @world main, jadi jQuery milik halaman bisa diakses.
+    function jq() {
+        return window.jQuery || window.$ || null;
+    }
+
+    // Erzap nampilkan #ok_disable selama request simpan masih jalan (pola yang sama
+    // dipakai olzap.js). Dipakai buat tau kapan simpan beres, jadi gak perlu nebak
+    // pakai jeda tetap yang kepanjangan.
+    function sedangMenyimpan() {
+        const ok = document.getElementById('ok_disable');
+        return !!(ok && window.getComputedStyle(ok).display !== 'none');
+    }
+
+    // Detektor simpan. #ok_disable saja tidak cukup: kalau elemen itu ternyata tidak
+    // ada di halaman koreksi, fallback ke tombol akan selalu jalan walau Enter-nya
+    // sudah berhasil -> kesimpan dua kali. Jadi dipantau juga semua request dan
+    // event submit form.
+    //
+    // Request dipantau langsung di XMLHttpRequest & fetch (bukan event $.ajax):
+    // simpan Erzap yang tidak lewat jQuery dulu tidak kedeteksi, sehingga halaman
+    // yang sukses tersimpan malah tercatat "Tidak Pasti" di rangkuman.
+    //
+    // Sengaja bias ke arah "anggap simpan sudah jalan": kalau salah tebak, akibatnya
+    // satu halaman tidak tersimpan (kelihatan di data), jauh lebih aman daripada
+    // koreksi ganda yang diam-diam masuk dua kali.
+    let simpanTerdeteksi = false;
+    let simpanError = false;
+    let requestAktif = 0;
+    let detektorTerpasang = false;
+
+    const KOREKSI_SELECTOR = 'input[type="text"][name*="jumlah_koreksi"]';
+
+    // Kunci satu alur per dokumen: mencegah dua rantai proses jalan barengan
+    // (mis. tombol dibuat ulang oleh MutationObserver lalu resume lagi).
+    let alurAktif = false;
+    function mulaiAlur(btn) {
+        if (alurAktif) return;
+        alurAktif = true;
+        runAutoProcess(btn);
+    }
+
+    function catatStatus(page, status) {
+        const logs = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}');
+        logs[page] = status;
+        sessionStorage.setItem('erzap_page_logs', JSON.stringify(logs));
+    }
+
+    function requestMulai() {
+        simpanTerdeteksi = true;
+        requestAktif++;
+    }
+
+    // status 0 = gagal jaringan / dibatalkan; 2xx & 3xx dianggap sukses
+    function requestSelesai(status) {
+        if (requestAktif > 0) requestAktif--;
+        if (!(status >= 200 && status < 400)) simpanError = true;
+    }
+
+    function pasangDetektorSimpan() {
+        if (detektorTerpasang) return;
+        detektorTerpasang = true;
+
+        const XHR = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
+        if (XHR) {
+            const sendAsli = XHR.send;
+            XHR.send = function () {
+                requestMulai();
+                this.addEventListener('loadend', () => requestSelesai(this.status));
+                return sendAsli.apply(this, arguments);
+            };
+        }
+
+        if (typeof window.fetch === 'function') {
+            const fetchAsli = window.fetch;
+            window.fetch = function () {
+                requestMulai();
+                return fetchAsli.apply(this, arguments).then(
+                    res => { requestSelesai(res.status); return res; },
+                    err => { requestSelesai(0); throw err; }
+                );
+            };
+        }
+
+        document.addEventListener('submit', function () { simpanTerdeteksi = true; }, true);
+    }
+
+    function simpanSedangJalan() {
+        return sedangMenyimpan() || requestAktif > 0;
+    }
+
+    // Tekan Enter di sebuah input, versi yang beneran sampai ke handler halaman.
+    //
+    // Catatan penting: konstruktor KeyboardEvent MENGABAIKAN keyCode/which — dua properti
+    // itu read-only dan tetap bernilai 0 walau diisi di init dict. Handler jQuery Erzap
+    // ngecek e.which === 13, jadi event native saja tidak pernah nyangkut (ini sebab
+    // percobaan Enter di v1.3.3-1.3.8 gagal). Karena itu dipicu lewat $.Event juga.
+    function tekanEnter(inp) {
+        if (!inp) return false;
+        inp.focus();
+        const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+        inp.dispatchEvent(new KeyboardEvent('keydown', ev));
+        inp.dispatchEvent(new KeyboardEvent('keypress', ev));
+        inp.dispatchEvent(new KeyboardEvent('keyup', ev));
+        const $ = jq();
+        if ($) {
+            $(inp).trigger($.Event('keydown', { which: 13, keyCode: 13 }));
+            $(inp).trigger($.Event('keypress', { which: 13, keyCode: 13 }));
+        }
+        return true;
+    }
 
     function getCurrentPageNumber() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -122,7 +234,8 @@
             } else {
                 slicedKeys.forEach(pageNum => {
                     let status = logs[pageNum];
-                    let statusColor = status === 'Berhasil' ? '#28a745' : '#dc3545';
+                    let statusColor = status === 'Berhasil' ? '#28a745'
+                        : status === 'Tidak Pasti' ? '#fd7e14' : '#dc3545';
 
                     const row = document.createElement('tr');
                     row.innerHTML = `<td style="padding: 8px; border: 1px solid #dee2e6; text-align: center;">Page ${pageNum}</td>
@@ -332,13 +445,14 @@
                     sessionStorage.setItem('erzap_max_page', '1');
                     sessionStorage.removeItem('erzap_page_logs');
                     isRunning = true;
-                    runAutoProcess(startBtn);
+                    mulaiAlur(startBtn);
                 }
             });
 
             stopBtn.addEventListener('click', function() {
                 sessionStorage.setItem('erzap_auto_running', 'false');
                 isRunning = false;
+                alurAktif = false;
                 startBtn.textContent = 'START AUTO';
                 startBtn.style.backgroundColor = '#28a745';
                 let finalLogs = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}');
@@ -358,12 +472,25 @@
             window.addEventListener('resize', syncSizeWithFifo);
 
             if (isRunning) {
-                setTimeout(() => runAutoProcess(startBtn), 1500);
+                saatHalamanSiap(() => mulaiAlur(startBtn));
             }
         }
     }
 
-    function runAutoProcess(btnElement) {
+    // Resume secepatnya: begitu halaman selesai load (handler datepicker dll sudah
+    // terpasang), bukan jeda tetap. Tapi jangan sampai tertahan menunggu 'load' kalau
+    // ada resource lambat (gambar/widget) -- maks 1,5 detik, sama seperti versi lama.
+    // Tabel yang belum siap tetap ditunggu di runAutoProcess.
+    function saatHalamanSiap(fn) {
+        let sudah = false;
+        const jalan = () => { if (!sudah) { sudah = true; fn(); } };
+        if (document.readyState === 'complete') { setTimeout(jalan, 200); return; }
+        window.addEventListener('load', () => setTimeout(jalan, 200));
+        setTimeout(jalan, 1500);
+    }
+
+    function runAutoProcess(btnElement, coba) {
+        coba = coba || 0;
         if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
 
         let currentP = getCurrentPageNumber();
@@ -381,6 +508,22 @@
 
         setTimeout(function() {
             if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
+
+            // Tabel siap = ada input koreksi dan belum ada yang bertanda data-aistim-done.
+            // Tanda itu dipasang setelah tabel diisi, jadi tabel yang sudah diproses
+            // tidak akan pernah diisi & disimpan ulang. Kalau belum siap (tabel belum
+            // ke-render / halaman belum berganti), tunggu dulu maks ~5 detik (cek tiap ~0,2 dtk).
+            const adaInput = document.querySelectorAll(KOREKSI_SELECTOR).length > 0;
+            const sudahDiproses = !!document.querySelector(KOREKSI_SELECTOR + '[data-aistim-done]');
+            if ((!adaInput || sudahDiproses) && coba < 25) {
+                setTimeout(() => runAutoProcess(btnElement, coba + 1), 100);
+                return;
+            }
+            if (sudahDiproses) {
+                console.warn('[Aistim] Koreksi: tabel masih bertanda data-aistim-done setelah ~5 detik');
+                berhentiDenganRangkuman(btnElement, 'Halaman tidak berganti (tabel masih yang lama). Proses dihentikan agar tidak tersimpan dua kali.');
+                return;
+            }
 
             // 1. Isi Pengkoreksi dengan 'AISTIM'
             const pengkoreksiInput = document.getElementById('stok_opnam_pengkoreksi');
@@ -424,8 +567,9 @@
             // 3. Isi input jumlah koreksi per produk:
             //    - Input PALING ATAS dalam grup produk = nilai Hasil SO
             //    - Input ke-2, ke-3, dst dalam grup yang sama = 0
-            const koreksiSelector = 'input[type="text"][name*="jumlah_koreksi"]';
+            const koreksiSelector = KOREKSI_SELECTOR;
             const processedInputs = new Set();
+            let lastKoreksiInput = null;
 
             function setInputValue(inp, val) {
                 if (processedInputs.has(inp)) return;
@@ -433,6 +577,7 @@
                 inp.value = val;
                 inp.dispatchEvent(new Event('input', { bubbles: true }));
                 inp.dispatchEvent(new Event('change', { bubbles: true }));
+                lastKoreksiInput = inp;
             }
 
             const soCells = document.querySelectorAll('td[id^="so"]');
@@ -488,79 +633,193 @@
                 }
             });
 
-            // --- TAHAP 2: SIMPAN (klik tombol Simpan asli) ---
+            // Tandai tabel ini sudah diproses (lihat cek "tabel siap" di atas)
+            document.querySelectorAll(koreksiSelector).forEach(inp => inp.setAttribute('data-aistim-done', '1'));
+
+            // --- TAHAP 2: SIMPAN (Enter di input koreksi terakhir) ---
             setTimeout(function() {
                 if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
 
                 const divSimpan = document.getElementById('simpan');
-                let currentLogs = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}');
 
-                if (divSimpan) {
-                    if (btnElement) {
-                        btnElement.textContent = 'SIMPAN...';
-                        btnElement.style.backgroundColor = '#007bff';
-                        btnElement.style.borderColor = '#007bff';
-                    }
-
-                    divSimpan.click();
-                    if (typeof submit_form_koreksi_so === 'function') {
-                        submit_form_koreksi_so();
-                    }
-                    currentLogs[currentP] = 'Berhasil';
-                } else {
-                    currentLogs[currentP] = 'Gagal Save';
+                // Tanpa input koreksi jangan pernah tekan Simpan (form kosong) -> lewati halaman
+                if (!lastKoreksiInput) {
+                    catatStatus(currentP, 'Dilewati (tabel kosong)');
                     if (btnElement) {
                         btnElement.textContent = 'SKIP...';
                         btnElement.style.backgroundColor = '#6c757d';
                         btnElement.style.borderColor = '#6c757d';
                     }
+                    lanjutHalamanBerikutnya();
+                    return;
                 }
-                sessionStorage.setItem('erzap_page_logs', JSON.stringify(currentLogs));
 
-                // --- TAHAP 3: RELOAD / PINDAH HALAMAN BERIKUTNYA ---
-                setTimeout(function() {
+                if (btnElement) {
+                    btnElement.textContent = 'SIMPAN...';
+                    btnElement.style.backgroundColor = '#007bff';
+                    btnElement.style.borderColor = '#007bff';
+                }
+                // Dicatat "Tidak Pasti" dulu; baru jadi "Berhasil" setelah simpan
+                // benar-benar terpantau selesai (lihat tungguSimpanSelesai).
+                catatStatus(currentP, 'Tidak Pasti');
+
+                function selesai(status) {
+                    catatStatus(currentP, status);
+                    lanjutHalamanBerikutnya();
+                }
+
+                pasangDetektorSimpan();
+                simpanTerdeteksi = false;
+                simpanError = false;
+                requestAktif = 0;
+                tekanEnter(lastKoreksiInput);
+
+                // Enter belum tentu nyangkut di semua halaman. Kalau dalam 400ms gak ada
+                // tanda simpan jalan, baru pakai cara tombol. Dicek tiap 50ms supaya simpan
+                // yang selesai cepat pun tetap kedeteksi dan gak jadi kesimpan dua kali.
+                let nunggu = 0;
+                (function cekSimpanMulai() {
                     if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
+                    if (simpanTerdeteksi || sedangMenyimpan()) { tungguSimpanSelesai(selesai); return; }
 
-                    if (btnElement) {
-                        btnElement.textContent = 'RELOAD...';
-                        btnElement.style.backgroundColor = '#ffc107';
-                        btnElement.style.borderColor = '#ffc107';
-                    }
+                    nunggu += 50;
+                    if (nunggu < 400) { setTimeout(cekSimpanMulai, 50); return; }
 
-                    let nextLink = null;
-                    const allLinks = document.querySelectorAll('a');
-                    for (let link of allLinks) {
-                        let text = link.textContent.trim();
-                        if (text.includes('Selanjutnya') || text.includes('›') || text.includes('»') || link.getAttribute('rel') === 'next') {
-                            if (!link.parentElement.classList.contains('disabled') && link.offsetParent !== null) {
-                                nextLink = link;
-                                break;
-                            }
-                        }
-                    }
+                    // @world main -> fungsi simpan milik halaman bisa dipanggil langsung
+                    if (typeof submit_form_koreksi_so === 'function') submit_form_koreksi_so();
+                    else if (divSimpan) divSimpan.click();
+                    tungguSimpanSelesai(selesai);
+                })();
 
-                    if (nextLink) {
-                        nextLink.click();
-                        setTimeout(() => runAutoProcess(btnElement), 1500);
-                    } else {
-                        let finalLogs = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}');
+            }, 150);
 
-                        sessionStorage.setItem('erzap_auto_running', 'false');
-                        if (btnElement) {
-                            btnElement.textContent = 'SELESAI';
-                            btnElement.style.backgroundColor = '#17a2b8';
-                            btnElement.style.borderColor = '#17a2b8';
-                        }
-
-                        showPaginatedSummaryPopup('Rangkuman Hasil Koreksi & Save:', finalLogs);
-                    }
-                }, 2000); // jeda paling kritis: kasih waktu request simpan (AJAX) beres + tombol Simpan "siap" dulu sebelum pindah halaman
-
-            }, 700);
-
-        }, 600);
+        }, 100);
     }
 
+    // Tunggu sampai Erzap selesai memproses simpan, bukan nebak pakai jeda tetap.
+    // Ini yang bikin siklusnya cepat tapi tetap aman: lanjut begitu simpan beres,
+    // dan gak pernah pindah halaman selagi request simpan masih jalan.
+    // Status yang dikirim ke cb:
+    // - 'Berhasil'    : simpan terpantau jalan lalu selesai tanpa error AJAX
+    // - 'Gagal Save'  : request simpan balik dengan error
+    // - 'Tidak Pasti' : simpan tidak terpantau sama sekali, atau lewat 8 detik belum selesai
+    // Kalau simpan belum terlihat mulai, ditunggu dulu sampai 1,5 detik (klik tombol
+    // Simpan bisa baru memicu request sesaat kemudian) supaya tidak pindah halaman
+    // di tengah simpan.
+    function tungguSimpanSelesai(cb) {
+        let nunggu = 0;
+        let terlihat = false;
+        (function cek() {
+            if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
+            const jalan = simpanSedangJalan();
+            if (jalan || simpanTerdeteksi) terlihat = true;
+
+            let status = null;
+            if (jalan) { if (nunggu >= 8000) status = 'Tidak Pasti'; }
+            else if (terlihat) status = simpanError ? 'Gagal Save' : 'Berhasil';
+            else if (nunggu >= 1500) status = 'Tidak Pasti';
+
+            if (status) { setTimeout(() => cb(status), 50); return; }
+            nunggu += 100;
+            setTimeout(cek, 100);
+        })();
+    }
+
+    function berhentiDenganRangkuman(btnElement, pesan) {
+        sessionStorage.setItem('erzap_auto_running', 'false');
+        isRunning = false;
+        alurAktif = false;
+        if (btnElement) {
+            btnElement.textContent = 'SELESAI';
+            btnElement.style.backgroundColor = '#17a2b8';
+            btnElement.style.borderColor = '#17a2b8';
+        }
+        const finalLogs = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}');
+        showPaginatedSummaryPopup(pesan, finalLogs);
+    }
+
+    // Cari link "halaman berikutnya". Dicari di area pagination dulu; kalau tidak
+    // ketemu, baru ke seluruh halaman KECUALI menu/header/breadcrumb/sidebar --
+    // supaya link menu yang kebetulan pakai '›' atau '»' tidak ikut terklik.
+    function cariLinkBerikutnya() {
+        function bisaDiklik(a) {
+            if (a.offsetParent === null) return false;
+            if (a.classList.contains('disabled') || a.getAttribute('aria-disabled') === 'true') return false;
+            const p = a.parentElement;
+            return !(p && p.classList.contains('disabled'));
+        }
+        // Prioritas: rel="next" > teks Selanjutnya/Next > '›' > '»'
+        function skor(a) {
+            if ((a.getAttribute('rel') || '').split(/\s+/).indexOf('next') !== -1) return 4;
+            const t = a.textContent.trim();
+            if (/^(selanjutnya|next)\b/i.test(t)) return 3;
+            if (t.includes('›')) return 2;
+            if (t.includes('»')) return 1;
+            return 0;
+        }
+        function pilih(links, skorMin) {
+            let terbaik = null, nilai = 0;
+            links.forEach(a => {
+                const s = skor(a);
+                if (s >= skorMin && s > nilai && bisaDiklik(a)) { terbaik = a; nilai = s; }
+            });
+            return terbaik;
+        }
+        const bukanMenu = Array.from(document.querySelectorAll('a')).filter(a =>
+            !a.closest('nav, header, .navbar, .breadcrumb, .sidebar, .main-sidebar, .dropdown-menu, .treeview-menu'));
+        return pilih(document.querySelectorAll('.pagination a, [class*="paginat"] a'), 1)
+            || pilih(bukanMenu, 1);
+    }
+
+    // Setelah klik "berikutnya": kalau halaman reload penuh, dokumen ini akan hilang
+    // dan script di halaman baru yang melanjutkan (lihat initControls). Selama halaman
+    // lama masih tampil, JANGAN proses apa-apa -- dulu di sini ada timer tetap 1,2 detik
+    // yang memproses ulang halaman lama kalau server lambat -> tersimpan dua kali.
+    // Kalau ternyata pagination-nya AJAX (dokumen tetap), lanjut begitu halaman berganti.
+    function tungguHalamanBaru(linkLama) {
+        let nunggu = 0;
+        (function cek() {
+            if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
+            const tabelBaru = document.querySelectorAll(KOREKSI_SELECTOR).length > 0 &&
+                !document.querySelector(KOREKSI_SELECTOR + '[data-aistim-done]');
+            if (!linkLama.isConnected || tabelBaru) {
+                setTimeout(() => runAutoProcess(document.getElementById('startAutoBtn')), 300);
+                return;
+            }
+            nunggu += 150;
+            if (nunggu >= 60000) {
+                berhentiDenganRangkuman(document.getElementById('startAutoBtn'),
+                    'Halaman berikutnya tidak termuat dalam 60 detik. Proses dihentikan.');
+                return;
+            }
+            setTimeout(cek, 150);
+        })();
+    }
+
+    // --- TAHAP 3: RELOAD / PINDAH HALAMAN BERIKUTNYA ---
+    function lanjutHalamanBerikutnya() {
+        if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
+
+        const btnElement = document.getElementById('startAutoBtn');
+        if (btnElement) {
+            btnElement.textContent = 'RELOAD...';
+            btnElement.style.backgroundColor = '#ffc107';
+            btnElement.style.borderColor = '#ffc107';
+        }
+
+        const nextLink = cariLinkBerikutnya();
+        console.log('[Aistim] Koreksi: link berikutnya =', nextLink ? nextLink.outerHTML : '(tidak ketemu -> selesai)');
+        if (nextLink) {
+            nextLink.click();
+            tungguHalamanBaru(nextLink);
+        } else {
+            berhentiDenganRangkuman(btnElement, 'Rangkuman Hasil Koreksi & Save:');
+        }
+    }
+
+    // Pasang tombol langsung (DOM sudah siap saat script diinject); panggilan ulang
+    // setelah load tetap ada untuk halaman yang merender tombol FIFO belakangan.
+    initControls();
     window.addEventListener('load', function() {
         setTimeout(initControls, 1200);
     });
