@@ -91,13 +91,26 @@ async function checkUpdate(manual) {
   const btn = document.getElementById('btn-update');
   if (manual) btn.textContent = '⏳ Mengecek...';
   try {
-    const res = await fetch(RELEASES_API_URL, {
-      cache: 'no-store',
-      headers: { 'Accept': 'application/vnd.github+json' }
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const rel = await res.json();
-    const tag = String(rel.tag_name || '');
+    // Cek otomatis (saat popup dibuka) pakai cache 1 jam. GitHub API cuma ngasih
+    // 60 request/jam per IP tanpa token, dan kuota itu dipakai bareng background
+    // sync — kalau habis, sync script ikut gagal. Klik manual tetap cek langsung.
+    let tag = null;
+    if (!manual) {
+      const c = (await chrome.storage.local.get(['releaseCheckCache'])).releaseCheckCache;
+      if (c && Date.now() - c.time < 60 * 60 * 1000) tag = c.tag;
+    }
+
+    if (tag === null) {
+      const res = await fetch(RELEASES_API_URL, {
+        cache: 'no-store',
+        headers: { 'Accept': 'application/vnd.github+json' }
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const rel = await res.json();
+      tag = String(rel.tag_name || '');
+      await chrome.storage.local.set({ releaseCheckCache: { time: Date.now(), tag: tag } });
+    }
+
     const latest = tag.replace(/^v/, '');
     if (!latest) throw new Error('Tag kosong');
 

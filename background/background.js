@@ -1,4 +1,4 @@
-const VERSION = '2.9.0';
+const VERSION = '2.9.1';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
@@ -90,31 +90,63 @@ async function loadBundledScripts() {
 }
 
 // ===== REMOTE: auto-sync dari folder scripts/ di GitHub =====
+function rawUrl(name) {
+  return 'https://raw.githubusercontent.com/' + REPO.owner + '/' + REPO.repo +
+         '/' + REPO.branch + '/' + REPO.dir + '/' + name;
+}
+
+// raw.githubusercontent.com disajikan lewat CDN yang punya cache sendiri dan TIDAK
+// ditembus oleh cache:'no-store' (itu cuma cache browser). Query param unik bikin
+// versi baru langsung kebaca, bukan nunggu edge cache expired.
+// Dipakai hanya saat fetch — URL yang disimpan ke storage tetap versi bersihnya.
+function bust(url) {
+  return url + (url.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now();
+}
+
+// Daftar file diambil dari scripts/index.json lewat raw CDN (tanpa batas kuota).
+// GitHub API sengaja TIDAK dipakai sebagai jalur utama: limitnya cuma 60 request/jam
+// per IP untuk request tanpa token, dan kalau habis, remote sync gagal diam-diam
+// lalu ekstensi balik ke versi bundled yang lama.
 async function discoverRemoteFiles() {
   const cached = (await chrome.storage.local.get(['repoListCache'])).repoListCache;
   if (cached && Date.now() - cached.time < LIST_CACHE_MS) return cached.files;
 
-  const api = 'https://api.github.com/repos/' + REPO.owner + '/' + REPO.repo +
-              '/contents/' + REPO.dir + '?ref=' + REPO.branch;
-  const res = await fetch(api, {
-    cache: 'no-store',
-    headers: { 'Accept': 'application/vnd.github+json' }
-  });
-  if (!res.ok) {
-    if (cached) {
-      console.warn('[Aistim] GitHub API ' + res.status + ' — pakai cache daftar file lama');
-      return cached.files;
-    }
-    throw new Error('GitHub API ' + res.status);
+  let files = null;
+
+  try {
+    const res = await fetch(bust(rawUrl('index.json')), { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const idx = await res.json();
+    files = (idx.scripts || [])
+      .filter(n => typeof n === 'string' && /\.js$/i.test(n))
+      .map(n => ({ name: n, url: rawUrl(n) }));
+    if (!files.length) throw new Error('index.json kosong');
+  } catch (e) {
+    console.warn('[Aistim] index.json remote gagal (' + e.message + ') — coba GitHub API');
+    files = null;
   }
-  const items = await res.json();
-  const files = items
-    .filter(f => f.type === 'file' && /\.js$/i.test(f.name))
-    .map(f => ({
-      name: f.name,
-      url: 'https://raw.githubusercontent.com/' + REPO.owner + '/' + REPO.repo +
-           '/' + REPO.branch + '/' + REPO.dir + '/' + f.name
-    }));
+
+  // Cadangan: GitHub API (berguna kalau ada file .js baru yang belum terdaftar di index.json)
+  if (!files) {
+    const api = 'https://api.github.com/repos/' + REPO.owner + '/' + REPO.repo +
+                '/contents/' + REPO.dir + '?ref=' + REPO.branch;
+    const res = await fetch(api, {
+      cache: 'no-store',
+      headers: { 'Accept': 'application/vnd.github+json' }
+    });
+    if (!res.ok) {
+      if (cached) {
+        console.warn('[Aistim] GitHub API ' + res.status + ' — pakai cache daftar file lama');
+        return cached.files;
+      }
+      throw new Error('GitHub API ' + res.status);
+    }
+    const items = await res.json();
+    files = items
+      .filter(f => f.type === 'file' && /\.js$/i.test(f.name))
+      .map(f => ({ name: f.name, url: rawUrl(f.name) }));
+  }
+
   await chrome.storage.local.set({ repoListCache: { time: Date.now(), files: files } });
   return files;
 }
@@ -125,7 +157,7 @@ async function loadRemoteScripts() {
     const out = [];
     for (const f of files) {
       try {
-        const res = await fetch(f.url, { cache: 'no-store' });
+        const res = await fetch(bust(f.url), { cache: 'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const code = await res.text();
         out.push({ file: f.name, code: code, meta: parseMetadata(code), url: f.url, source: 'remote' });
