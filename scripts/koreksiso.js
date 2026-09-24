@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.11.0
+// @version      1.11.1
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.11.0] Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
+// @description  [v1.11.1] Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -14,6 +14,24 @@
 
 (function() {
     'use strict';
+
+    // ID SO dari URL: /stok_opnams/proses_koreksi_so/<ID>
+    function idSO() {
+        const m = location.pathname.match(/proses_koreksi_so\/([^\/?#]+)/);
+        return m ? m[1] : '';
+    }
+
+    // Semua status (auto jalan, isian pengkoreksi & tanggal, log, rangkuman) disimpan
+    // per tab, bukan per SO. Kalau ID SO berubah (buka SO lain di tab yang sama),
+    // buang semuanya: SO baru harus mulai dari awal -- isi pengkoreksi & tanggal lagi,
+    // dan TIDAK boleh auto jalan meneruskan proses SO sebelumnya.
+    (function resetKalauSOBerubah() {
+        const idLama = sessionStorage.getItem('erzap_so_id');
+        if (!idLama || idLama === idSO()) return;
+        ['erzap_auto_running', 'erzap_isian_manual', 'erzap_page_logs', 'erzap_max_page',
+         'erzap_rangkuman_tertunda', 'erzap_so_id'].forEach(k => sessionStorage.removeItem(k));
+        console.log('[Aistim] Koreksi: ID SO berubah (' + idLama + ' -> ' + idSO() + '), status proses direset');
+    })();
 
     let isRunning = sessionStorage.getItem('erzap_auto_running') === 'true';
 
@@ -82,6 +100,7 @@
     }
 
     function tandaiAutoMulai() {
+        sessionStorage.setItem('erzap_so_id', idSO());
         sessionStorage.setItem('erzap_auto_running', 'true');
         sessionStorage.setItem('erzap_max_page', '1');
         sessionStorage.removeItem('erzap_page_logs');
