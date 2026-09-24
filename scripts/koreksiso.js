@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.10.1
+// @version      1.11.0
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.10.1] Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI & stop. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
+// @description  [v1.11.0] Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -159,12 +159,8 @@
     }
 
     function getCurrentPageNumber() {
-        const urlParams = new URLSearchParams(window.location.search);
-        let page = urlParams.get('page');
-        if (page) {
-            return parseInt(page);
-        }
-        return 1;
+        const n = nomorHalaman(document, location.href);
+        return n !== null ? n : 1;
     }
 
     let maxVisitedPage = parseInt(sessionStorage.getItem('erzap_max_page') || '1');
@@ -192,6 +188,8 @@
         modalOverlay.style.display = 'flex';
         modalOverlay.style.justifyContent = 'center';
         modalOverlay.style.alignItems = 'center';
+        modalOverlay.style.padding = '16px';
+        modalOverlay.style.boxSizing = 'border-box';
 
         const modalBox = document.createElement('div');
         modalBox.style.backgroundColor = '#fff';
@@ -199,8 +197,10 @@
         modalBox.style.borderRadius = '8px';
         modalBox.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
         modalBox.style.textAlign = 'center';
-        modalBox.style.minWidth = '380px';
-        modalBox.style.maxWidth = '450px';
+        modalBox.style.width = 'min(450px, calc(100vw - 32px))';
+        modalBox.style.boxSizing = 'border-box';
+        modalBox.style.maxHeight = '90vh';
+        modalBox.style.overflowY = 'auto';
 
         const modalText = document.createElement('p');
         modalText.textContent = message;
@@ -445,6 +445,7 @@
     // lewat fetch di belakang layar, mengikuti link pagination asli Erzap), sampai
     // ketemu halaman yang masih ada tombol Simpan -> langsung pindah ke halaman itu.
     let cekJalan = false;
+    let cekDibatalkan = false;
 
     function bersihkanUrl(href, base) {
         if (!href || href === '#' || /^javascript:/i.test(href)) return null;
@@ -460,7 +461,8 @@
     function nomorHalaman(doc, url) {
         const aktif = doc.querySelector(
             '.pagination .active, .pagination .current, .pagination [aria-current="page"], ' +
-            '[class*="paginat"] .active, [class*="paginat"] .current, [class*="paginat"] [aria-current="page"]');
+            '[class*="paginat"] .active, [class*="paginat"] .current, [class*="paginat"] [aria-current="page"], ' +
+            '[class*="paginat"] .page_num');
         const n = aktif ? parseInt(aktif.textContent.trim(), 10) : NaN;
         if (!isNaN(n)) return n;
         try {
@@ -530,13 +532,18 @@
 
             f.addEventListener('load', () => {
                 let nunggu = 0;
+                let sejakLoad = 0;
                 (function cek() {
                     if (selesai) return;
                     let d;
                     try { d = f.contentDocument; } catch (e) { beres(new Error('Halaman tidak bisa dibaca (' + e.message + ')')); return; }
                     const adaIsi = d && (d.getElementById('simpan') || d.querySelector('td[id^="so"], ' + KOREKSI_SELECTOR));
+                    // Tetap kosong 4 detik setelah load, tapi halamannya jelas halaman daftar
+                    // (ada tabel / pagination) -> halaman sudah tersimpan, tidak ada isian lagi.
+                    const halamanKosong = !adaIsi && sejakLoad >= 4000 && d &&
+                        d.querySelector('table, .pagination, [class*="paginat"]');
                     // Setelah isi tabel muncul, beri 0,5 detik supaya tombol Simpan ikut dirender
-                    if (adaIsi && nunggu >= 500) {
+                    if ((adaIsi && nunggu >= 500) || halamanKosong) {
                         const el = d.getElementById('simpan');
                         const next = cariLinkBerikutnya(d, false);
                         const prev = cariLinkBerikutnya(d, false, 'prev');
@@ -552,6 +559,7 @@
                         return;
                     }
                     if (adaIsi) nunggu += 100;
+                    sejakLoad += 100;
                     setTimeout(cek, 100);
                 })();
             });
@@ -571,6 +579,7 @@
         }
 
         cekJalan = true;
+        cekDibatalkan = false;
         const teksAsli = btn.textContent;
         btn.disabled = true;
 
@@ -585,10 +594,12 @@
             let url = link ? bersihkanUrl(link.getAttribute('href'), location.href) : null;
 
             while (url && !dikunjungi.has(url) && dikunjungi.size < 500) {
+                if (cekDibatalkan) break;
                 dikunjungi.add(url);
                 btn.textContent = 'CEK HAL ' + (nomorTerakhir + 1) + '...';
 
                 const hal = await bacaHalaman(url);
+                if (cekDibatalkan) break;
                 const nomor = hal.nomor;
                 if (nomor !== null) {
                     if (nomorDibaca.has(nomor)) break; // balik ke halaman yang sudah dicek = sudah habis
@@ -625,6 +636,7 @@
         btn.textContent = teksAsli;
         btn.disabled = false;
         cekJalan = false;
+        if (cekDibatalkan) return; // STOP sudah menampilkan pesannya sendiri
         if (pesanError) {
             tampilkanPesanCek('Cek berhenti', 'Dicek ' + dicek + ' halaman (sampai Hal ' + nomorTerakhir + '). ' + pesanError, true);
         } else {
@@ -711,6 +723,7 @@
                 sessionStorage.setItem('erzap_auto_running', 'false');
                 isRunning = false;
                 alurAktif = false;
+                cekDibatalkan = true;
                 startBtn.textContent = 'START AUTO';
                 startBtn.style.backgroundColor = '#28a745';
                 let finalLogs = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}');
@@ -800,7 +813,10 @@
                 // Tandai input-nya juga, supaya tungguHalamanBaru tidak mengira halaman
                 // ini "tabel baru" lalu memprosesnya lagi.
                 document.querySelectorAll(KOREKSI_SELECTOR).forEach(inp => inp.setAttribute('data-aistim-done', '1'));
-                catatStatus(currentP, 'Sudah tersimpan');
+                // Kalau halaman ini tadi kita simpan lalu Erzap memuat ulang halamannya,
+                // hilangnya tombol Simpan = bukti simpannya berhasil.
+                const statusLama = JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}')[currentP];
+                catatStatus(currentP, (statusLama === 'Tidak Pasti' || statusLama === 'Berhasil') ? 'Berhasil' : 'Sudah tersimpan');
                 if (btnElement) {
                     btnElement.textContent = 'SKIP...';
                     btnElement.style.backgroundColor = '#6c757d';
@@ -1146,7 +1162,29 @@
                 hasil.belum.join(', ') + '). Klik CEK SIMPAN untuk melanjutkan.';
         }
         console.log('[Aistim] Koreksi selesai:', pesan);
-        berhentiDenganRangkuman(btnElement, pesan);
+
+        // SO selesai -> refresh halaman supaya tampilan Erzap menunjukkan data terbaru.
+        // Rangkuman dititipkan ke sessionStorage lalu ditampilkan setelah refresh
+        // (lihat tampilkanRangkumanTertunda), supaya tidak ikut hilang.
+        sessionStorage.setItem('erzap_auto_running', 'false');
+        isRunning = false;
+        alurAktif = false;
+        sessionStorage.setItem('erzap_rangkuman_tertunda', JSON.stringify({
+            pesan: pesan,
+            logs: JSON.parse(sessionStorage.getItem('erzap_page_logs') || '{}')
+        }));
+        if (btnElement) btnElement.textContent = 'REFRESH...';
+        location.reload();
+    }
+
+    function tampilkanRangkumanTertunda() {
+        const raw = sessionStorage.getItem('erzap_rangkuman_tertunda');
+        if (!raw) return;
+        sessionStorage.removeItem('erzap_rangkuman_tertunda');
+        try {
+            const r = JSON.parse(raw);
+            showPaginatedSummaryPopup(r.pesan, r.logs || {});
+        } catch (e) {}
     }
 
     // --- TAHAP 3: RELOAD / PINDAH HALAMAN BERIKUTNYA ---
@@ -1173,6 +1211,7 @@
     // Pasang tombol langsung (DOM sudah siap saat script diinject); panggilan ulang
     // setelah load tetap ada untuk halaman yang merender tombol FIFO belakangan.
     initControls();
+    tampilkanRangkumanTertunda();
     window.addEventListener('load', function() {
         setTimeout(initControls, 1200);
     });
