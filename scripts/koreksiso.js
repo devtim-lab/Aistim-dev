@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.10.0
+// @version      1.10.1
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.10.0] Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI & stop. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
+// @description  [v1.10.1] Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI & stop. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -825,21 +825,25 @@
             //        START / CEK SIMPAN, lihat simpanIsianManual) supaya tiap halaman sama.
             //        Tanggal dipakai persis seperti yang diketik/dipilih user, jadi formatnya
             //        otomatis cocok dengan field-nya.
+            //
+            //        Field yang isinya sudah sama TIDAK disentuh (halaman tempat user mengisi).
+            //        Sengaja tanpa event focus/blur/keyup: datepicker Erzap membaca ulang
+            //        field saat event itu dan bisa mereset tanggal ke hari ini.
             function isiField(inp, val) {
+                if (inp.value.trim() === val) return;
                 inp.value = val;
-                // Trigger event lengkap agar datepicker (jQuery/bootstrap-datepicker/dll) ikut membaca
-                inp.dispatchEvent(new Event('focus', { bubbles: true }));
                 inp.dispatchEvent(new Event('input', { bubbles: true }));
                 inp.dispatchEvent(new Event('change', { bubbles: true }));
-                inp.dispatchEvent(new Event('blur', { bubbles: true }));
-                inp.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Tab' }));
             }
             let isian = {};
             try { isian = JSON.parse(sessionStorage.getItem('erzap_isian_manual') || '{}'); } catch (e) {}
             const pengkoreksiInput = document.getElementById('stok_opnam_pengkoreksi');
-            if (pengkoreksiInput && isian.pengkoreksi) isiField(pengkoreksiInput, isian.pengkoreksi);
             const tanggalKoreksiInput = document.getElementById('stok_opnam_tanggal_koreksi');
-            if (tanggalKoreksiInput && isian.tanggal) isiField(tanggalKoreksiInput, isian.tanggal);
+            function pastikanIsianManual() {
+                if (pengkoreksiInput && isian.pengkoreksi) isiField(pengkoreksiInput, isian.pengkoreksi);
+                if (tanggalKoreksiInput && isian.tanggal) isiField(tanggalKoreksiInput, isian.tanggal);
+            }
+            pastikanIsianManual();
 
             // 3. Isi input jumlah koreksi per produk:
             //    - Input PALING ATAS dalam grup produk = nilai Hasil SO
@@ -939,6 +943,9 @@
                 // Dicatat "Tidak Pasti" dulu; baru jadi "Berhasil" setelah simpan
                 // benar-benar terpantau selesai (lihat tungguSimpanSelesai).
                 catatStatus(currentP, 'Tidak Pasti');
+
+                // Kalau datepicker sempat mengubah tanggal setelah diisi, kembalikan ke isian user
+                pastikanIsianManual();
 
                 function selesai(status) {
                     catatStatus(currentP, status);
