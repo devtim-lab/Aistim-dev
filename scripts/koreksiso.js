@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.7.1
+// @version      1.10.0
 // @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
 // @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.7.1] Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan
+// @description  [v1.10.0] Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI & stop. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -56,6 +56,36 @@
         if (alurAktif) return;
         alurAktif = true;
         runAutoProcess(btn);
+    }
+
+    // Status "auto jalan" disimpan di sessionStorage supaya proses berlanjut sendiri
+    // setelah pindah halaman (lihat resume di initControls).
+    // Nama Pengkoreksi & Tanggal Koreksi diisi MANUAL oleh user di halaman sebelum
+    // START / CEK SIMPAN. Nilainya disimpan supaya halaman-halaman berikutnya (yang
+    // terbuka kosong lagi setelah pindah halaman) diisi dengan nilai yang sama.
+    // Return false (dan tampilkan pesan) kalau masih ada yang kosong.
+    function simpanIsianManual() {
+        const p = document.getElementById('stok_opnam_pengkoreksi');
+        const t = document.getElementById('stok_opnam_tanggal_koreksi');
+        const isian = { pengkoreksi: p ? p.value.trim() : '', tanggal: t ? t.value.trim() : '' };
+        const kurang = [];
+        if (p && !isian.pengkoreksi) kurang.push('Nama Pengkoreksi');
+        if (t && !isian.tanggal) kurang.push('Tanggal Koreksi');
+        if (kurang.length) {
+            tampilkanPesanCek('Isi dulu ' + kurang.join(' & '),
+                'Isi ' + kurang.join(' dan ') + ' secara manual di halaman ini, lalu klik lagi. Nilainya dipakai untuk semua halaman.', true);
+            try { (p && !isian.pengkoreksi ? p : t).focus(); } catch (e) {}
+            return false;
+        }
+        sessionStorage.setItem('erzap_isian_manual', JSON.stringify(isian));
+        return true;
+    }
+
+    function tandaiAutoMulai() {
+        sessionStorage.setItem('erzap_auto_running', 'true');
+        sessionStorage.setItem('erzap_max_page', '1');
+        sessionStorage.removeItem('erzap_page_logs');
+        isRunning = true;
     }
 
     function catatStatus(page, status) {
@@ -235,7 +265,8 @@
                 slicedKeys.forEach(pageNum => {
                     let status = logs[pageNum];
                     let statusColor = status === 'Berhasil' ? '#28a745'
-                        : status === 'Tidak Pasti' ? '#fd7e14' : '#dc3545';
+                        : status === 'Tidak Pasti' ? '#fd7e14'
+                        : status === 'Sudah tersimpan' ? '#6c757d' : '#dc3545';
 
                     const row = document.createElement('tr');
                     row.innerHTML = `<td style="padding: 8px; border: 1px solid #dee2e6; text-align: center;">Page ${pageNum}</td>
@@ -470,10 +501,12 @@
         const adaIsi = !!(doc.getElementById('simpan') || doc.querySelector('td[id^="so"], ' + KOREKSI_SELECTOR));
         if (adaIsi) {
             const next = cariLinkBerikutnya(doc, false);
+            const prev = cariLinkBerikutnya(doc, false, 'prev');
             return {
                 nomor: nomorHalaman(doc, urlAsli),
                 simpan: adaTombolSimpan(doc),
                 next: next ? bersihkanUrl(next.getAttribute('href'), urlAsli) : null,
+                prev: prev ? bersihkanUrl(prev.getAttribute('href'), urlAsli) : null,
                 url: urlAsli,
                 cara: 'fetch'
             };
@@ -506,11 +539,13 @@
                     if (adaIsi && nunggu >= 500) {
                         const el = d.getElementById('simpan');
                         const next = cariLinkBerikutnya(d, false);
+                        const prev = cariLinkBerikutnya(d, false, 'prev');
                         const urlAsli = f.contentWindow.location.href;
                         beres(null, {
                             nomor: nomorHalaman(d, urlAsli),
                             simpan: !!(el && el.getClientRects().length),
                             next: next ? bersihkanUrl(next.getAttribute('href'), urlAsli) : null,
+                            prev: prev ? bersihkanUrl(prev.getAttribute('href'), urlAsli) : null,
                             url: urlAsli,
                             cara: 'iframe'
                         });
@@ -527,8 +562,11 @@
 
     async function cariHalamanBelumSimpan(btn) {
         const nomorIni = getCurrentPageNumber();
+        // Halaman ini sendiri belum disimpan -> langsung isi di sini
         if (tombolSimpanTampil()) {
-            tampilkanPesanCek('Halaman ini masih ada tombol Simpan', 'Hal ' + nomorIni + ' belum disimpan.');
+            if (!simpanIsianManual()) return;
+            tandaiAutoMulai();
+            mulaiAlur(document.getElementById('startAutoBtn'));
             return;
         }
 
@@ -561,9 +599,18 @@
                 }
                 dicek++;
 
+                // Ketemu -> tandai auto jalan lalu pindah; di halaman itu proses isi & simpan
+                // (sama dengan START AUTO) langsung mulai sendiri lewat resume di initControls.
                 if (hal.simpan) {
+                    if (!simpanIsianManual()) {
+                        btn.textContent = teksAsli;
+                        btn.disabled = false;
+                        cekJalan = false;
+                        return;
+                    }
                     btn.textContent = 'KE HAL ' + nomorTerakhir + '...';
-                    console.log('[Aistim] Cek simpan: tombol Simpan ada di', hal.url, '(' + hal.cara + ')');
+                    console.log('[Aistim] Cek simpan: tombol Simpan ada di', hal.url, '(' + hal.cara + ') -> pindah & isi');
+                    tandaiAutoMulai();
                     location.href = url;
                     return; // cekJalan dibiarkan true: halaman akan berganti
                 }
@@ -654,10 +701,8 @@
 
             startBtn.addEventListener('click', function() {
                 if (!isRunning && !cekJalan) {
-                    sessionStorage.setItem('erzap_auto_running', 'true');
-                    sessionStorage.setItem('erzap_max_page', '1');
-                    sessionStorage.removeItem('erzap_page_logs');
-                    isRunning = true;
+                    if (!simpanIsianManual()) return;
+                    tandaiAutoMulai();
                     mulaiAlur(startBtn);
                 }
             });
@@ -677,7 +722,7 @@
             cekBtn.type = 'button';
             cekBtn.className = targetBtn.className ? targetBtn.className : 'btn btn-default';
             cekBtn.textContent = 'CEK SIMPAN';
-            cekBtn.title = 'Lewati halaman yang sudah tidak ada tombol Simpan, pindah ke halaman berikutnya yang masih ada';
+            cekBtn.title = 'Lewati halaman yang sudah tidak ada tombol Simpan, pindah ke halaman berikutnya yang masih ada, lalu langsung isi & simpan';
             cekBtn.style.backgroundColor = '#fd7e14';
             cekBtn.style.color = '#fff';
             cekBtn.style.borderColor = '#fd7e14';
@@ -744,6 +789,28 @@
             // ke-render / halaman belum berganti), tunggu dulu maks ~5 detik (cek tiap ~0,2 dtk).
             const adaInput = document.querySelectorAll(KOREKSI_SELECTOR).length > 0;
             const sudahDiproses = !!document.querySelector(KOREKSI_SELECTOR + '[data-aistim-done]');
+
+            // Halaman tanpa tombol Simpan = sudah tersimpan -> lewati, JANGAN simpan ulang.
+            // Ditunggu ~1 detik dulu, siapa tahu tombolnya baru dirender.
+            if (!sudahDiproses && !tombolSimpanTampil()) {
+                if (coba < 5) {
+                    setTimeout(() => runAutoProcess(btnElement, coba + 1), 100);
+                    return;
+                }
+                // Tandai input-nya juga, supaya tungguHalamanBaru tidak mengira halaman
+                // ini "tabel baru" lalu memprosesnya lagi.
+                document.querySelectorAll(KOREKSI_SELECTOR).forEach(inp => inp.setAttribute('data-aistim-done', '1'));
+                catatStatus(currentP, 'Sudah tersimpan');
+                if (btnElement) {
+                    btnElement.textContent = 'SKIP...';
+                    btnElement.style.backgroundColor = '#6c757d';
+                    btnElement.style.borderColor = '#6c757d';
+                }
+                console.log('[Aistim] Koreksi: Hal ' + currentP + ' tidak ada tombol Simpan -> sudah tersimpan, dilewati');
+                lanjutHalamanBerikutnya();
+                return;
+            }
+
             if ((!adaInput || sudahDiproses) && coba < 25) {
                 setTimeout(() => runAutoProcess(btnElement, coba + 1), 100);
                 return;
@@ -754,44 +821,25 @@
                 return;
             }
 
-            // 1. Isi Pengkoreksi dengan 'AISTIM'
-            const pengkoreksiInput = document.getElementById('stok_opnam_pengkoreksi');
-            if (pengkoreksiInput) {
-                pengkoreksiInput.value = 'AISTIM';
-                pengkoreksiInput.dispatchEvent(new Event('input', { bubbles: true }));
-                pengkoreksiInput.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-
-            // 2. Isi Tanggal Koreksi dengan hari ini.
-            //    Deteksi otomatis format:
-            //    - <input type="date">  -> wajib YYYY-MM-DD (umumnya desktop)
-            //    - input teks + datepicker -> DD-MM-YYYY (umumnya HP)
-            //      (separator mengikuti placeholder bila ada: dd-mm-yyyy / dd/mm/yyyy)
-            const tanggalKoreksiInput = document.getElementById('stok_opnam_tanggal_koreksi');
-            if (tanggalKoreksiInput) {
-                const today = new Date();
-                const yyyy = today.getFullYear();
-                const mm = String(today.getMonth() + 1).padStart(2, '0');
-                const dd = String(today.getDate()).padStart(2, '0');
-
-                const isDateType = (tanggalKoreksiInput.type || '').toLowerCase() === 'date';
-                let dateVal;
-                if (isDateType) {
-                    dateVal = `${yyyy}-${mm}-${dd}`;
-                } else {
-                    const ph = (tanggalKoreksiInput.placeholder || '').toLowerCase();
-                    const sep = ph.indexOf('/') !== -1 ? '/' : '-';
-                    dateVal = `${dd}${sep}${mm}${sep}${yyyy}`;
-                }
-                tanggalKoreksiInput.value = dateVal;
-
+            // 1 & 2. Pengkoreksi & Tanggal Koreksi: pakai isian MANUAL user (disimpan saat
+            //        START / CEK SIMPAN, lihat simpanIsianManual) supaya tiap halaman sama.
+            //        Tanggal dipakai persis seperti yang diketik/dipilih user, jadi formatnya
+            //        otomatis cocok dengan field-nya.
+            function isiField(inp, val) {
+                inp.value = val;
                 // Trigger event lengkap agar datepicker (jQuery/bootstrap-datepicker/dll) ikut membaca
-                tanggalKoreksiInput.dispatchEvent(new Event('focus', { bubbles: true }));
-                tanggalKoreksiInput.dispatchEvent(new Event('input', { bubbles: true }));
-                tanggalKoreksiInput.dispatchEvent(new Event('change', { bubbles: true }));
-                tanggalKoreksiInput.dispatchEvent(new Event('blur', { bubbles: true }));
-                tanggalKoreksiInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Tab' }));
+                inp.dispatchEvent(new Event('focus', { bubbles: true }));
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.dispatchEvent(new Event('change', { bubbles: true }));
+                inp.dispatchEvent(new Event('blur', { bubbles: true }));
+                inp.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Tab' }));
             }
+            let isian = {};
+            try { isian = JSON.parse(sessionStorage.getItem('erzap_isian_manual') || '{}'); } catch (e) {}
+            const pengkoreksiInput = document.getElementById('stok_opnam_pengkoreksi');
+            if (pengkoreksiInput && isian.pengkoreksi) isiField(pengkoreksiInput, isian.pengkoreksi);
+            const tanggalKoreksiInput = document.getElementById('stok_opnam_tanggal_koreksi');
+            if (tanggalKoreksiInput && isian.tanggal) isiField(tanggalKoreksiInput, isian.tanggal);
 
             // 3. Isi input jumlah koreksi per produk:
             //    - Input PALING ATAS dalam grup produk = nilai Hasil SO
@@ -973,22 +1021,31 @@
     //
     // root = dokumen yang dicari (default halaman ini). cekTampil=false untuk dokumen
     // hasil fetch, yang tidak dirender sehingga offsetParent selalu null.
-    function cariLinkBerikutnya(root, cekTampil) {
+    // arah = 'next' (default) atau 'prev' (halaman sebelumnya).
+    function cariLinkBerikutnya(root, cekTampil, arah) {
         root = root || document;
         if (cekTampil === undefined) cekTampil = true;
+        const mundur = arah === 'prev';
         function bisaDiklik(a) {
             if (cekTampil && a.offsetParent === null) return false;
+            // Link ke halaman yang sedang dibuka (mis. "Akhir »" di halaman terakhir)
+            // bukan halaman berikutnya -- kalau diklik, prosesnya muter di halaman yang sama.
+            if (root === document && bersihkanUrl(a.getAttribute('href'), location.href) === bersihkanUrl(location.href, location.href)) return false;
             if (a.classList.contains('disabled') || a.getAttribute('aria-disabled') === 'true') return false;
             const p = a.parentElement;
             return !(p && p.classList.contains('disabled'));
         }
-        // Prioritas: rel="next" > teks Selanjutnya/Next > '›' > '»'
+        // Prioritas: rel="next" > teks Selanjutnya/Berikutnya/Next > '›' > '»'
+        // (mundur: rel="prev" > Sebelumnya/Prev > '‹' > '«')
         function skor(a) {
-            if ((a.getAttribute('rel') || '').split(/\s+/).indexOf('next') !== -1) return 4;
+            if ((a.getAttribute('rel') || '').split(/\s+/).indexOf(mundur ? 'prev' : 'next') !== -1) return 4;
             const t = a.textContent.trim();
-            if (/^(selanjutnya|next)\b/i.test(t)) return 3;
-            if (t.includes('›')) return 2;
-            if (t.includes('»')) return 1;
+            // "« Awal" / "Akhir »" / "First" / "Last" = lompat ke ujung, bukan satu halaman
+            if (/\b(awal|akhir|pertama|terakhir|first|last)\b/i.test(t)) return 0;
+            const kata = t.replace(/^[«‹\s]+/, '');
+            if (mundur ? /^(sebelumnya|prev|previous)\b/i.test(kata) : /^(selanjutnya|berikutnya|next)\b/i.test(t)) return 3;
+            if (t.includes(mundur ? '‹' : '›')) return 2;
+            if (t.includes(mundur ? '«' : '»')) return 1;
             return 0;
         }
         function pilih(links, skorMin) {
@@ -1030,6 +1087,61 @@
         })();
     }
 
+    // Cek akhir: baca ulang semua halaman dari halaman ini mundur sampai halaman 1
+    // (lewat link "sebelumnya"), catat halaman yang masih ada tombol Simpan.
+    // Halaman ini ikut dibaca ulang dari server, karena tombol Simpan-nya baru hilang
+    // setelah halaman dimuat ulang.
+    async function cekAkhirSO(btnElement) {
+        let url = bersihkanUrl(location.href, location.href);
+        const dikunjungi = new Set();
+        const nomorDibaca = new Set();
+        const belum = [];
+        let dicek = 0;
+        let error = '';
+        try {
+            while (url && !dikunjungi.has(url) && dikunjungi.size < 500) {
+                if (sessionStorage.getItem('erzap_auto_running') !== 'true') { error = 'Dihentikan'; break; }
+                dikunjungi.add(url);
+                if (btnElement) btnElement.textContent = 'CEK AKHIR ' + (dicek + 1) + '...';
+                const hal = await bacaHalaman(url);
+                if (hal.nomor !== null) {
+                    if (nomorDibaca.has(hal.nomor)) break;
+                    nomorDibaca.add(hal.nomor);
+                }
+                dicek++;
+                if (hal.simpan) belum.push(hal.nomor !== null ? hal.nomor : '?');
+                url = hal.prev;
+            }
+        } catch (e) {
+            error = String(e && e.message || e);
+            console.error('[Aistim] Cek akhir SO gagal:', e);
+        }
+        belum.sort((a, b) => (a === '?' ? 1e9 : a) - (b === '?' ? 1e9 : b));
+        return { belum, dicek, error };
+    }
+
+    async function selesaiSO(btnElement) {
+        if (btnElement) {
+            btnElement.textContent = 'CEK AKHIR...';
+            btnElement.style.backgroundColor = '#17a2b8';
+            btnElement.style.borderColor = '#17a2b8';
+        }
+        const hasil = await cekAkhirSO(btnElement);
+        if (sessionStorage.getItem('erzap_auto_running') !== 'true') return; // STOP ditekan saat cek akhir
+
+        let pesan;
+        if (hasil.error) {
+            pesan = 'Proses selesai, tapi cek akhir gagal (' + hasil.error + '). Klik CEK SIMPAN dari halaman 1 untuk memastikan.';
+        } else if (!hasil.belum.length) {
+            pesan = '✅ SO SELESAI — semua ' + hasil.dicek + ' halaman sudah tersimpan.';
+        } else {
+            pesan = '⚠️ Belum selesai: ' + hasil.belum.length + ' halaman masih ada tombol Simpan (Hal ' +
+                hasil.belum.join(', ') + '). Klik CEK SIMPAN untuk melanjutkan.';
+        }
+        console.log('[Aistim] Koreksi selesai:', pesan);
+        berhentiDenganRangkuman(btnElement, pesan);
+    }
+
     // --- TAHAP 3: RELOAD / PINDAH HALAMAN BERIKUTNYA ---
     function lanjutHalamanBerikutnya() {
         if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
@@ -1047,7 +1159,7 @@
             nextLink.click();
             tungguHalamanBaru(nextLink);
         } else {
-            berhentiDenganRangkuman(btnElement, 'Rangkuman Hasil Koreksi & Save:');
+            selesaiSO(btnElement);
         }
     }
 
