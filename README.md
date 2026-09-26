@@ -1,4 +1,4 @@
-# Aistim Tool v2.7.0
+# Aistim Tool v2.9.1
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -127,11 +127,20 @@ Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus s
 
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] ===== Content script v2.7.0 loaded =====` — content script aktif
+- `[Aistim] ===== Content script v2.9.1 loaded =====` — content script aktif
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol Erzap berhasil
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.9.1
+- **Fix auto-sync**: daftar file di `scripts/` sekarang dibaca lewat `raw.githubusercontent.com` (index.json), bukan GitHub API sebagai jalur utama — API tanpa token cuma jatah 60 request/jam per IP, kalau habis auto-sync gagal diam-diam & ekstensi balik ke bundel lama tanpa pesan error
+- Tambah cache-buster di fetch raw (CDN GitHub tidak tembus `cache:'no-store'` biasa) supaya versi baru langsung kebaca
+- Cek update di popup di-cache otomatis 1 jam; klik manual (tombol 🔄) tetap langsung cek tanpa cache
+
+## Changelog v2.9.0
+- **Jembatan Fetch Lintas Domain**: `content.js` relay `window.postMessage({aistimFetch})` ke background lewat handler `'x-fetch'` (`credentials: include`), hanya aktif dari halaman `*.erzap.com` dan hanya ke host yang ada di `X_FETCH_ALLOW` (lihat bagian "🌉 Jembatan Fetch Lintas Domain" di atas)
+- `olzap.js` 1.1.1: tab baru **"OLZAP"** — cari barcode di partdistro.com (ikut alur `cek_partdistro.py`), hasil dirender sebagai kartu (gambar, nama, harga, stok, link); partdistro memblokir CORS & iframe jadi butuh jembatan ekstensi, tanpa itu tampil pesan + link buka tab baru
 
 ## Changelog v2.8.0
 - Rilis untuk **test upgrade** extension (install ZIP baru di atas versi lama)
