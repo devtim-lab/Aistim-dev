@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.3
-// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari link/ID Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel.
+// @version      1.4.0
+// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel.
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -13,7 +13,7 @@
 (function () {
     'use strict';
 
-    var VERSI_SCRIPT = '1.3.3'; // samakan dengan @version
+    var VERSI_SCRIPT = '1.4.0'; // samakan dengan @version
 
     // ---------- Debug: log semua request XHR/fetch ke console (buat lacak endpoint pencarian) ----------
     // Cukup buka console, ketik kode pencarian di halaman, lihat baris [XHR]/[FETCH] yang muncul.
@@ -563,9 +563,9 @@
                 '<span class="mib_close" id="llb_btn_close_x">&times;</span>' +
             '</div>' +
             '<div class="mib_body">' +
-                '<p>Kosongkan untuk memakai halaman ini, atau masukkan link/ID Pemindahan Barang lain ' +
-                '(mis. <code>394571</code> atau URL lengkapnya), lalu klik Tampilkan.</p>' +
-                '<input type="text" id="llb_input_link" placeholder="mis. 394571 atau https://trial.erzap.com/pemindahan_barangs/394571">' +
+                '<p>Kosongkan untuk memakai halaman ini, atau masukkan <b>Kode</b> Pemindahan Barang lain ' +
+                '(mis. <code>PG0926-21559</code>), ID-nya (mis. <code>404128</code>) atau link lengkapnya, lalu klik Tampilkan.</p>' +
+                '<input type="text" id="llb_input_link" placeholder="mis. PG0926-21559 / 404128 / link">' +
                 '<div id="llb_status"></div>' +
                 '<div id="llb_header"></div>' +
                 '<button type="button" id="llb_btn_simpan_header">Simpan</button>' +
@@ -1020,7 +1020,7 @@
             return window.location.href;
         }
         if (/^\d+$/.test(input)) {
-            return 'https://trial.erzap.com/pemindahan_barangs/' + input;
+            return location.origin + '/pemindahan_barangs/' + input;
         }
         return input;
     }
@@ -1106,8 +1106,169 @@
         muat_data_dari_link(window.location.href);
     }
 
+    // ---------- Cari transfer lewat KODE No Pemindahan (mis. PG0926-21559) ----------
+    // Meniru form Pencarian di daftar Pemindahan (dipastikan lewat TES CARI):
+    // POST /pemindahan_barangs/index/new dengan pencarian[kode] + rentang tanggal (wajib).
+    // Responsnya halaman daftar (HTML); ID diambil dari link /pemindahan_barangs/<ID> di
+    // baris yang sel Kode-nya PERSIS sama (pencarian Erzap bisa cocok sebagian).
+    var URL_CARI_PEMINDAHAN = '/pemindahan_barangs/index/new';
+    var POLA_KODE_PEMINDAHAN = /^[A-Za-z]{1,6}\d{4}-\d+$/;
+
+    function dua_digit(n) {
+        return (n < 10 ? '0' : '') + n;
+    }
+
+    function format_tgl(d) {
+        return dua_digit(d.getDate()) + '-' + dua_digit(d.getMonth() + 1) + '-' + d.getFullYear();
+    }
+
+    // Rentang tanggal yang dicoba berurutan. Kode "PG0926-..." = dibuat bulan 09 tahun 2026,
+    // jadi coba bulan itu dulu, lalu +-1 bulan, terakhir 3 bulan terakhir s/d hari ini.
+    function rentang_tanggal_kode(kode) {
+        var hasil = [];
+        var m = /^[A-Za-z]+(\d{2})(\d{2})-/.exec(kode);
+        if (m) {
+            var bulan = parseInt(m[1], 10);
+            var tahun = 2000 + parseInt(m[2], 10);
+            if (bulan >= 1 && bulan <= 12) {
+                hasil.push([new Date(tahun, bulan - 1, 1), new Date(tahun, bulan, 0)]);
+                hasil.push([new Date(tahun, bulan - 2, 1), new Date(tahun, bulan + 1, 0)]);
+            }
+        }
+        var hari_ini = new Date();
+        hasil.push([new Date(hari_ini.getFullYear(), hari_ini.getMonth() - 3, 1), hari_ini]);
+        return hasil;
+    }
+
+    // Token keamanan Rails: dari <meta name="csrf-token"> halaman ini, atau (cadangan)
+    // dari form Pencarian di halaman daftar Pemindahan.
+    function ambil_token_csrf() {
+        var d = $.Deferred();
+        var meta = $('meta[name="csrf-token"]').attr('content');
+        if (meta) {
+            return d.resolve(meta).promise();
+        }
+        $.ajax({ url: '/pemindahan_barangs?id=new', type: 'GET', dataType: 'text' })
+            .done(function (html) {
+                var doc = new DOMParser().parseFromString(html, 'text/html');
+                var el = doc.querySelector('meta[name="csrf-token"]');
+                var token = el ? el.getAttribute('content') : '';
+                if (!token) {
+                    el = doc.querySelector('input[name="authenticity_token"]');
+                    token = el ? el.value : '';
+                }
+                if (token) {
+                    d.resolve(token);
+                } else {
+                    d.reject('token keamanan tidak ketemu');
+                }
+            })
+            .fail(function (xhr) {
+                d.reject('gagal membuka daftar Pemindahan (HTTP ' + xhr.status + ')');
+            });
+        return d.promise();
+    }
+
+    function id_dari_hasil_cari(html, kode) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var target = kode.toUpperCase();
+        var ids = [];
+        Array.prototype.forEach.call(doc.querySelectorAll('tr'), function (tr) {
+            var cocok = Array.prototype.some.call(tr.cells, function (td) {
+                return $.trim(td.textContent).toUpperCase() === target;
+            });
+            if (!cocok) {
+                return;
+            }
+            Array.prototype.forEach.call(tr.querySelectorAll('a[href]'), function (a) {
+                var m = /\/pemindahan_barangs\/(\d+)(?:[\/?#]|$)/.exec(a.getAttribute('href'));
+                if (m && ids.indexOf(m[1]) === -1) {
+                    ids.push(m[1]);
+                }
+            });
+        });
+        return ids;
+    }
+
+    // resolve(id) kalau ketemu tepat 1 transfer; reject(pesan) kalau tidak/ambigu/gagal
+    function cari_id_dari_kode(kode, tulis_status) {
+        var d = $.Deferred();
+        var rentang = rentang_tanggal_kode(kode);
+        tulis_status('Menyiapkan pencarian kode ' + kode + ' ...');
+        ambil_token_csrf()
+            .fail(function (e) {
+                d.reject('Gagal mencari kode ' + kode + ': ' + e + '.');
+            })
+            .done(function (token) {
+                var i = 0;
+                (function coba() {
+                    if (i >= rentang.length) {
+                        var akhir = rentang[rentang.length - 1];
+                        d.reject('Kode ' + kode + ' tidak ditemukan, baik di bulan kodenya maupun 3 bulan terakhir (' +
+                            format_tgl(akhir[0]) + ' s/d ' + format_tgl(akhir[1]) + '). Cek lagi kodenya, atau masukkan ID/link-nya.');
+                        return;
+                    }
+                    var r = rentang[i++];
+                    tulis_status('Mencari kode ' + kode + ' (' + format_tgl(r[0]) + ' s/d ' + format_tgl(r[1]) + ') ...');
+                    $.ajax({
+                        url: URL_CARI_PEMINDAHAN,
+                        type: 'POST',
+                        dataType: 'text',
+                        data: {
+                            'utf8': '\u2713',
+                            'authenticity_token': token,
+                            'pencarian[is_show_produk]': '0',
+                            'pencarian[kode]': kode,
+                            'pencarian[tanggal_dari]': format_tgl(r[0]),
+                            'pencarian[tanggal_sampai]': format_tgl(r[1]),
+                            'pencarian[idoutlet_own]': '',
+                            'pencarian[idgudang_asal]': '',
+                            'pencarian[idoutlet_tujuan]': '',
+                            'pencarian[idgudang_tujuan]': '',
+                            'pencarian[pemindah]': '',
+                            'pencarian[nama_produk]': '',
+                            'pencarian[serial_number]': '',
+                            'pencarian[tmp_no_batch]': ''
+                        }
+                    })
+                        .done(function (html) {
+                            var ids = id_dari_hasil_cari(html, kode);
+                            if (ids.length === 1) {
+                                d.resolve(ids[0]);
+                            } else if (ids.length > 1) {
+                                d.reject('Kode ' + kode + ' cocok dengan ' + ids.length + ' transfer (ID ' + ids.join(', ') +
+                                    '). Masukkan ID-nya langsung.');
+                            } else {
+                                coba();
+                            }
+                        })
+                        .fail(function (xhr) {
+                            d.reject('Pencarian kode ' + kode + ' gagal (HTTP ' + xhr.status + ').');
+                        });
+                })();
+            });
+        return d.promise();
+    }
+
     function tampilkan_dari_input_link() {
-        muat_data_dari_link(normalisasi_link($('#llb_input_link').val()));
+        var isi = $.trim($('#llb_input_link').val());
+        if (POLA_KODE_PEMINDAHAN.test(isi)) {
+            var kode = isi.toUpperCase();
+            $('#llb_hasil').empty();
+            $('#llb_btn_tampilkan').prop('disabled', true);
+            cari_id_dari_kode(kode, function (teks) { $('#llb_status').text(teks); })
+                .done(function (id) {
+                    // Pesan status berikutnya ("Memuat ...", lalu "Ditemukan N barang.") diurus muat_data_dari_link
+                    console.log('[lihat-barang] Kode ' + kode + ' = ID ' + id);
+                    muat_data_dari_link(location.origin + '/pemindahan_barangs/' + id);
+                })
+                .fail(function (pesan) {
+                    $('#llb_status').text(pesan);
+                    $('#llb_btn_tampilkan').prop('disabled', false);
+                });
+            return;
+        }
+        muat_data_dari_link(normalisasi_link(isi));
     }
 
     var TOMBOL_MODAL_LIHAT_BARANG = '#llb_btn_masukkan_v2, #llb_btn_tampilkan, #llb_btn_tutup';
