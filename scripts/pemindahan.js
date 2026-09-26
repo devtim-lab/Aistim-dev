@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.2
+// @version      1.3.3
 // @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari link/ID Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel.
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -13,7 +13,7 @@
 (function () {
     'use strict';
 
-    var VERSI_SCRIPT = '1.3.2'; // samakan dengan @version
+    var VERSI_SCRIPT = '1.3.3'; // samakan dengan @version
 
     // ---------- Debug: log semua request XHR/fetch ke console (buat lacak endpoint pencarian) ----------
     // Cukup buka console, ketik kode pencarian di halaman, lihat baris [XHR]/[FETCH] yang muncul.
@@ -59,9 +59,10 @@
     // "Lihat Data Barang" bisa ambil data lewat KODE (bukan cuma ID/link). Panel ini
     // menampilkan form pencarian, request yang tertangkap, link detail di hasil, dan bisa
     // mencoba mencari satu kode. Laporannya bisa disalin & dikirim ke developer.
-    // Hanya tampil di halaman DAFTAR: /pemindahan_barangs (mis. ?id=new, dibuka dari menu)
-    // atau /pemindahan_barangs/index/... Hapus bagian ini kalau sudah tidak perlu.
-    var HALAMAN_INDEX_PEMINDAHAN = /^\/pemindahan_barangs(\/?$|\/index(\/|$))/.test(location.pathname);
+    // Hanya tampil di halaman DAFTAR: /pemindahan_barangs (mis. ?id=new, dibuka dari menu),
+    // /pemindahan_barangs/index/... dan /pemindahan_barangs/index_pemindahan_sementara/...
+    // Hapus bagian ini kalau sudah tidak perlu.
+    var HALAMAN_INDEX_PEMINDAHAN = /^\/pemindahan_barangs(\/?$|\/index)/.test(location.pathname);
     var LOG_REQUEST = [];
     var hasil_tes_cari = '';
 
