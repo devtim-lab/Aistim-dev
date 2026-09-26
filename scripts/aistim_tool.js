@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AISTIM TOOL
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
-// @description  Header Cek Selisih + filter Ada Selisih + hasil jadi text (tidak bisa diubah)
+// @version      1.0.2
+// @description  Header Cek Selisih + filter Ada Selisih + hasil jadi text (tidak bisa diubah). Tidak aktif di halaman Koreksi SO & Pengisian Hasil SO
 // @author       arimonox
 // @match        https://*.erzap.com/stok_opnams*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -11,6 +11,18 @@
 
 (function() {
     'use strict';
+
+    // @match stok_opnams* juga kena halaman proses SO. Di sana Aistim Tool TIDAK boleh
+    // jalan: auto-refresh 60 detik bisa memotong simpan koreksiso.js / menghapus isian
+    // pengisian yang belum disimpan, dan filter "Ada Selisih" mencabut baris dari tabel
+    // (input di baris itu jadi tidak ikut tersimpan). Jadi menu, kolom, filter, dan
+    // auto-refresh semuanya dimatikan di halaman-halaman ini.
+    // Sama dengan @match koreksiso.js (proses_koreksi_so/*) & pengisianso.js (proses_pengisian_hasil_so*)
+    const HALAMAN_NONAKTIF = /^\/stok_opnams\/(proses_koreksi_so\/|proses_pengisian_hasil_so)/;
+    if (HALAMAN_NONAKTIF.test(location.pathname)) {
+        console.log('[AistimTool] Halaman proses SO (' + location.pathname + ') -> Aistim Tool tidak aktif di sini');
+        return;
+    }
 
     const CONFIG = {
         autoRefreshSeconds: 60,
