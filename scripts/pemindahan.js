@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari link/ID Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini.
+// @version      1.1.0
+// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari link/ID Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan).
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -283,9 +283,9 @@
         return $field;
     }
 
-    // Catatan: sejak header preview dipaksa pakai NILAI_DEFAULT_HEADER, fungsi ini
-    // sudah tidak dipanggil dari mana pun - disimpan saja kalau-kalau nanti mau
-    // balik ke perilaku "ambil header asli dari halaman/link yang di-fetch".
+    // Catatan: tidak dipanggil dari mana pun (Dari/Ke Outlet & Gudang sekarang dari
+    // pengaturan tersimpan user) - disimpan kalau-kalau nanti mau balik ke perilaku
+    // "ambil header asli dari halaman/link yang di-fetch".
     function ambil_header_dari_wrap($wrap) {
         var header = {};
         LABEL_HEADER.forEach(function (label) {
@@ -309,56 +309,118 @@
         return header;
     }
 
-    function render_header_lihat_barang(header) {
-        var html = '';
+    // ---------- Pengaturan Dari/Ke Outlet & Gudang (disimpan user, bukan hardcode) ----------
+    // Pertama kali: pilih Dari Outlet, Dari Gudang, Ke Outlet & Ke Gudang MANUAL di form
+    // halaman ini, lalu klik "Simpan dari Form" di modal. Nilai itu dipakai setiap kali
+    // "Masukkan ke Tabel". Mau ganti: pilih lagi di form, klik tombol yang sama.
+    // Disimpan di localStorage (per subdomain Erzap, per browser).
+    //
+    // Kunci baru: versi 1.0.0 mengisi kunci lama OTOMATIS dengan outlet Ngawi hardcode
+    // (bukan pilihan user), jadi nilai lama itu dibuang dan semua mulai dari setting manual.
+    var KUNCI_LOCALSTORAGE_HEADER = 'erzap_pemindahan_barang_header_v2';
+    var KUNCI_LOCALSTORAGE_HEADER_LAMA = 'erzap_pemindahan_barang_header_tersimpan';
+
+    function buang_header_lama() {
+        try { localStorage.removeItem(KUNCI_LOCALSTORAGE_HEADER_LAMA); } catch (e) {}
+    }
+
+    // null kalau belum pernah disimpan / isinya tidak lengkap
+    function baca_header_tersimpan() {
+        try {
+            var h = JSON.parse(localStorage.getItem(KUNCI_LOCALSTORAGE_HEADER) || 'null');
+            var lengkap = h && LABEL_HEADER.every(function (l) {
+                return typeof h[l] === 'string' && h[l] !== '';
+            });
+            if (lengkap) {
+                return h;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    // Pilihan yang sedang terpasang di form halaman ini (teks opsi yang dipilih).
+    // Opsi placeholder ("Please select" dsb, value="") dianggap belum dipilih.
+    function baca_header_dari_form() {
+        var header = {};
         LABEL_HEADER.forEach(function (label) {
-            html += '<div><strong>' + escape_html(label) + ':</strong> ' + escape_html(header[label] || '(belum dipilih)') + '</div>';
+            var $field = $('#' + ID_FIELD_HEADER[label]);
+            var teks = '';
+            if ($field.length > 0) {
+                if ($field.is('select')) {
+                    if ($field.val()) {
+                        teks = $.trim($field.find('option:selected').text());
+                    }
+                } else {
+                    teks = $.trim($field.val() || '');
+                }
+            }
+            header[label] = teks;
         });
+        return header;
+    }
+
+    function render_header_lihat_barang() {
+        var header = baca_header_tersimpan();
+        var html;
+        if (!header) {
+            html = '<div style="white-space:normal;color:#dc2626;">' +
+                '<strong>Dari/Ke Outlet &amp; Gudang belum disimpan.</strong><br>' +
+                'Tutup modal ini, pilih Dari Outlet, Dari Gudang, Ke Outlet &amp; Ke Gudang di form, ' +
+                'lalu buka lagi dan klik <em>Simpan dari Form</em>.</div>';
+        } else {
+            html = '<div style="color:#666;">Dipakai saat Masukkan ke Tabel:</div>';
+            LABEL_HEADER.forEach(function (label) {
+                html += '<div><strong>' + escape_html(label) + ':</strong> ' + escape_html(header[label]) + '</div>';
+            });
+        }
         $('#llb_header').html(html);
         perbarui_tombol_simpan_header();
     }
 
-    // Simpan Dari/Ke Outlet & Gudang yang sedang ditampilkan ke localStorage - cuma
-    // kalau belum ada yang tersimpan sebelumnya, supaya tidak tertimpa tanpa sadar.
-    var KUNCI_LOCALSTORAGE_HEADER = 'erzap_pemindahan_barang_header_tersimpan';
-
-    // Default awal (dipakai kalau localStorage masih kosong sama sekali) - kombinasi
-    // Outlet/Gudang yang paling sering dipakai, biar tombol Simpan langsung berstatus
-    // "Sudah Tersimpan" sejak script pertama kali jalan.
-    var NILAI_DEFAULT_HEADER = {
-        'Dari Outlet': 'P24 PARTDISTRO NGAWI',
-        'Dari Gudang': 'GUDANG NGAWI - P24 PARTDISTRO NGAWI',
-        'Ke Outlet': 'P24 PARTDISTRO NGAWI',
-        'Ke Gudang': 'TOKO NGAWI - P24 PARTDISTRO NGAWI'
-    };
-
-    function pastikan_default_header_tersimpan() {
-        try {
-            if (!localStorage.getItem(KUNCI_LOCALSTORAGE_HEADER)) {
-                localStorage.setItem(KUNCI_LOCALSTORAGE_HEADER, JSON.stringify(NILAI_DEFAULT_HEADER));
-            }
-        } catch (e) {}
-    }
-
     function perbarui_tombol_simpan_header() {
-        var sudah_ada = false;
-        try {
-            sudah_ada = !!localStorage.getItem(KUNCI_LOCALSTORAGE_HEADER);
-        } catch (e) {}
-        $('#llb_btn_simpan_header').prop('disabled', sudah_ada).text(sudah_ada ? 'Sudah Tersimpan' : 'Simpan');
+        var ada = !!baca_header_tersimpan();
+        $('#llb_btn_simpan_header').prop('disabled', false)
+            .text(ada ? 'Ganti dengan Pilihan di Form' : 'Simpan dari Form');
     }
 
     function simpan_header_ke_localstorage() {
-        try {
-            if (localStorage.getItem(KUNCI_LOCALSTORAGE_HEADER)) {
-                return; // seharusnya tombol sudah disabled, ini jaga-jaga saja
+        var header = baca_header_dari_form();
+        var kosong = LABEL_HEADER.filter(function (l) { return !header[l]; });
+        if (kosong.length > 0) {
+            alert('Belum dipilih di form halaman ini:\n- ' + kosong.join('\n- ') +
+                '\n\nTutup modal, pilih dulu di form, lalu buka lagi Lihat Data Barang dan klik Simpan.');
+            return;
+        }
+        var lama = baca_header_tersimpan();
+        if (lama) {
+            var sama = LABEL_HEADER.every(function (l) { return lama[l] === header[l]; });
+            if (sama) {
+                alert('Pilihan di form sama dengan yang sudah tersimpan.');
+                return;
             }
-            localStorage.setItem(KUNCI_LOCALSTORAGE_HEADER, JSON.stringify(data_header_terakhir));
+            var daftar = LABEL_HEADER.map(function (l) { return l + ': ' + header[l]; }).join('\n');
+            if (!confirm('Ganti pengaturan tersimpan dengan pilihan di form sekarang?\n\n' + daftar)) {
+                return;
+            }
+        }
+        try {
+            localStorage.setItem(KUNCI_LOCALSTORAGE_HEADER, JSON.stringify(header));
         } catch (e) {
             alert('Gagal menyimpan ke localStorage: ' + e.message);
             return;
         }
-        perbarui_tombol_simpan_header();
+        render_header_lihat_barang();
+    }
+
+    // Dipanggil sebelum "Masukkan ke Tabel". Tanpa pengaturan tersimpan proses ditolak:
+    // lebih aman daripada menebak outlet/gudang.
+    function header_untuk_masukkan() {
+        var header = baca_header_tersimpan();
+        if (!header) {
+            alert('Dari/Ke Outlet & Gudang belum disimpan.\n\nPilih dulu di form halaman ini, ' +
+                'lalu buka Lihat Data Barang dan klik "Simpan dari Form".');
+        }
+        return header;
     }
 
     // Terapkan header hasil fetch ke form yang sedang dibuka. Outlet diisi lebih dulu,
@@ -507,7 +569,6 @@
 
     var data_lihat_barang_terakhir = [];
     var data_tr_barang_terakhir = []; // elemen <tr> asli (detached) dari halaman sumber - dipakai oleh V2
-    var data_header_terakhir = {};
 
     function render_hasil_lihat_barang(rows) {
         data_lihat_barang_terakhir = rows;
@@ -546,12 +607,8 @@
                     }
                 });
                 data_tr_barang_terakhir = tr_list;
-                // Dari/Ke Outlet & Gudang SELALU pakai nilai hardcode default, bukan
-                // punya halaman/link yang di-fetch - cuma daftar barangnya yang ambil
-                // dari sana. $.extend supaya data_header_terakhir salinan sendiri,
-                // tidak nunjuk ke object NILAI_DEFAULT_HEADER yang sama persis.
-                data_header_terakhir = $.extend({}, NILAI_DEFAULT_HEADER);
-                render_header_lihat_barang(data_header_terakhir);
+                // Cuma daftar barang yang diambil dari halaman/link ini. Dari/Ke Outlet &
+                // Gudang selalu dari pengaturan tersimpan user (lihat render_header_lihat_barang).
                 $('#llb_status').text('Ditemukan ' + rows.length + ' barang.');
                 render_hasil_lihat_barang(rows);
                 log_nilai_dropdown_halaman('SESUDAH fetch selesai (' + link + ')');
@@ -581,9 +638,9 @@
         log_nilai_dropdown_halaman('SEBELUM buka modal');
         $('#llb_input_link').val('');
         $('#llb_status').text('');
-        $('#llb_header').empty();
         $('#llb_hasil').empty();
         $('#llb_progress').hide().text('');
+        render_header_lihat_barang();
         // "Masukkan ke Tabel" hanya masuk akal kalau tabel di halaman ini masih bisa diisi.
         var bisa_impor = $('#term_produk_quick').length > 0 && !$('#term_produk_quick').is(':disabled');
         $('#llb_btn_masukkan_v2').toggle(bisa_impor);
@@ -606,12 +663,16 @@
             alert('Tidak ada data untuk dimasukkan ke table.');
             return;
         }
+        var header = header_untuk_masukkan();
+        if (!header) {
+            return;
+        }
 
         $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', true);
         $('#llb_progress').show().text('Menerapkan Dari/Ke Outlet & Gudang ...');
         kunci_posisi_scroll();
 
-        terapkan_header_ke_form(data_header_terakhir, function (gagal) {
+        terapkan_header_ke_form(header, function (gagal) {
             if (gagal.length > 0) {
                 alert('Gagal menerapkan field berikut, proses dibatalkan:\n- ' + gagal.join('\n- ') + '\n\nCek Console (F12) untuk detail opsi yang tersedia.');
                 $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
@@ -737,12 +798,16 @@
             alert('Tidak ada data untuk dimasukkan ke table.');
             return;
         }
+        var header = header_untuk_masukkan();
+        if (!header) {
+            return;
+        }
 
         $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', true);
         $('#llb_progress').show().text('Menerapkan Dari/Ke Outlet & Gudang ...');
         kunci_posisi_scroll();
 
-        terapkan_header_ke_form(data_header_terakhir, function (gagal) {
+        terapkan_header_ke_form(header, function (gagal) {
             if (gagal.length > 0) {
                 alert('Gagal menerapkan field berikut, proses dibatalkan:\n- ' + gagal.join('\n- ') + '\n\nCek Console (F12) untuk detail opsi yang tersedia.');
                 $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
@@ -825,7 +890,7 @@
     }
 
     $(function () {
-        pastikan_default_header_tersimpan();
+        buang_header_lama();
         siapkan_modal_dan_handler();
         pastikan_tombol_ada();
 
