@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
+// @version      1.3.2
 // @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari link/ID Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel.
 // @author       You
-// @match        https://*.erzap.com/pemindahan_barangs/*
+// @match        https://*.erzap.com/pemindahan_barangs*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // @world        main
@@ -13,7 +13,7 @@
 (function () {
     'use strict';
 
-    var VERSI_SCRIPT = '1.3.1'; // samakan dengan @version
+    var VERSI_SCRIPT = '1.3.2'; // samakan dengan @version
 
     // ---------- Debug: log semua request XHR/fetch ke console (buat lacak endpoint pencarian) ----------
     // Cukup buka console, ketik kode pencarian di halaman, lihat baris [XHR]/[FETCH] yang muncul.
@@ -59,8 +59,9 @@
     // "Lihat Data Barang" bisa ambil data lewat KODE (bukan cuma ID/link). Panel ini
     // menampilkan form pencarian, request yang tertangkap, link detail di hasil, dan bisa
     // mencoba mencari satu kode. Laporannya bisa disalin & dikirim ke developer.
-    // Hanya tampil di /pemindahan_barangs/index... Hapus bagian ini kalau sudah tidak perlu.
-    var HALAMAN_INDEX_PEMINDAHAN = /\/pemindahan_barangs\/index/.test(location.pathname);
+    // Hanya tampil di halaman DAFTAR: /pemindahan_barangs (mis. ?id=new, dibuka dari menu)
+    // atau /pemindahan_barangs/index/... Hapus bagian ini kalau sudah tidak perlu.
+    var HALAMAN_INDEX_PEMINDAHAN = /^\/pemindahan_barangs(\/?$|\/index(\/|$))/.test(location.pathname);
     var LOG_REQUEST = [];
     var hasil_tes_cari = '';
 
