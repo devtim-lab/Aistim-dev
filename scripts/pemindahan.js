@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
-// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari link/ID Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan).
+// @version      1.2.0
+// @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari link/ID Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel.
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -413,12 +413,27 @@
     }
 
     // Dipanggil sebelum "Masukkan ke Tabel". Tanpa pengaturan tersimpan proses ditolak:
-    // lebih aman daripada menebak outlet/gudang.
-    function header_untuk_masukkan() {
+    // lebih aman daripada menebak outlet/gudang. Kalau ada, user WAJIB cek ulang dulu
+    // outlet & gudang yang akan dipakai (konfirmasi OK/Batal) sebelum form diubah.
+    function header_untuk_masukkan(jumlah_barang) {
         var header = baca_header_tersimpan();
         if (!header) {
             alert('Dari/Ke Outlet & Gudang belum disimpan.\n\nPilih dulu di form halaman ini, ' +
                 'lalu buka Lihat Data Barang dan klik "Simpan dari Form".');
+            return null;
+        }
+        var peringatan = '';
+        if (header['Dari Gudang'] === header['Ke Gudang']) {
+            peringatan = '\n⚠️ PERHATIAN: Dari Gudang dan Ke Gudang SAMA.\n';
+        }
+        var pesan = 'CEK ULANG OUTLET & GUDANG\n\n' +
+            LABEL_HEADER.map(function (l) { return l + ': ' + header[l]; }).join('\n') + '\n' +
+            peringatan +
+            '\nJumlah barang: ' + jumlah_barang + '\n\n' +
+            'Sudah benar?\nOK = lanjut masukkan ke tabel\n' +
+            'Batal = berhenti (ganti di form, lalu klik "Ganti dengan Pilihan di Form")';
+        if (!confirm(pesan)) {
+            return null;
         }
         return header;
     }
@@ -663,7 +678,7 @@
             alert('Tidak ada data untuk dimasukkan ke table.');
             return;
         }
-        var header = header_untuk_masukkan();
+        var header = header_untuk_masukkan(data_lihat_barang_terakhir.length);
         if (!header) {
             return;
         }
@@ -798,7 +813,7 @@
             alert('Tidak ada data untuk dimasukkan ke table.');
             return;
         }
-        var header = header_untuk_masukkan();
+        var header = header_untuk_masukkan(data_tr_barang_terakhir.length);
         if (!header) {
             return;
         }
