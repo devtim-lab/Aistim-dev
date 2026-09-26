@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari link/ID Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel.
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs/*
@@ -12,6 +12,8 @@
 
 (function () {
     'use strict';
+
+    var VERSI_SCRIPT = '1.3.0'; // samakan dengan @version
 
     // ---------- Debug: log semua request XHR/fetch ke console (buat lacak endpoint pencarian) ----------
     // Cukup buka console, ketik kode pencarian di halaman, lihat baris [XHR]/[FETCH] yang muncul.
@@ -30,6 +32,11 @@
             xhr.addEventListener('load', function () {
                 console.log('[XHR]', xhr._debug_method, xhr._debug_url, '| body:', body, '| response:', String(xhr.responseText).slice(0, 2000));
             });
+            xhr.addEventListener('loadend', function () {
+                var teks = '';
+                try { teks = String(xhr.responseText || ''); } catch (e) {}
+                catat_request({ jenis: 'XHR', method: xhr._debug_method, url: xhr._debug_url, body: body, status: xhr.status, respon: teks });
+            });
             return asli_xhr_send.apply(this, arguments);
         };
 
@@ -39,12 +46,376 @@
                 return asli_fetch.apply(this, arguments).then(function (res) {
                     res.clone().text().then(function (txt) {
                         console.log('[FETCH]', (init && init.method) || 'GET', input, '| body:', init && init.body, '| response:', txt.slice(0, 2000));
+                        catat_request({ jenis: 'FETCH', method: (init && init.method) || 'GET', url: (input && input.url) || String(input), body: init && init.body, status: res.status, respon: txt });
                     });
                     return res;
                 });
             };
         }
     })();
+
+    // ---------- 🧪 TES CARI (sementara): diagnostik pencarian di halaman daftar Pemindahan ----------
+    // Tujuan: cari tahu cara Erzap mencari transfer berdasarkan No Pemindahan, supaya nanti
+    // "Lihat Data Barang" bisa ambil data lewat KODE (bukan cuma ID/link). Panel ini
+    // menampilkan form pencarian, request yang tertangkap, link detail di hasil, dan bisa
+    // mencoba mencari satu kode. Laporannya bisa disalin & dikirim ke developer.
+    // Hanya tampil di /pemindahan_barangs/index... Hapus bagian ini kalau sudah tidak perlu.
+    var HALAMAN_INDEX_PEMINDAHAN = /\/pemindahan_barangs\/index/.test(location.pathname);
+    var LOG_REQUEST = [];
+    var hasil_tes_cari = '';
+
+    function catat_request(r) {
+        if (!HALAMAN_INDEX_PEMINDAHAN) {
+            return;
+        }
+        LOG_REQUEST.push({
+            waktu: new Date().toLocaleTimeString(),
+            jenis: r.jenis,
+            method: String(r.method || 'GET').toUpperCase(),
+            url: samarkan_token(String(r.url || '')),
+            body: samarkan_token(teks_body(r.body)),
+            status: r.status,
+            respon: String(r.respon || '')
+        });
+        if (LOG_REQUEST.length > 30) {
+            LOG_REQUEST.shift();
+        }
+        perbarui_panel_tes_kalau_terbuka();
+    }
+
+    function teks_body(body) {
+        if (body === null || body === undefined) {
+            return '';
+        }
+        if (typeof body === 'string') {
+            return body;
+        }
+        try {
+            if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+                return body.toString();
+            }
+            if (typeof FormData !== 'undefined' && body instanceof FormData) {
+                var bagian = [];
+                body.forEach(function (v, k) { bagian.push(k + '=' + (typeof v === 'string' ? v : '[file]')); });
+                return bagian.join('&');
+            }
+        } catch (e) {}
+        return '[' + Object.prototype.toString.call(body) + ']';
+    }
+
+    // Token keamanan (CSRF/authenticity) jangan ikut tersalin ke laporan
+    var POLA_NAMA_TOKEN = /token|csrf|password|passwd|secret/i;
+    function samarkan_token(teks) {
+        return String(teks || '').replace(/([^&=\s]*(?:token|csrf|password|passwd|secret)[^&=\s]*)=([^&\s]*)/gi, '$1=***');
+    }
+
+    function rapikan(teks, maks) {
+        teks = String(teks || '').replace(/\s+/g, ' ').trim();
+        return teks.length > maks ? teks.slice(0, maks) + '…' : teks;
+    }
+
+    function normal_label(teks) {
+        return String(teks || '').replace(/[*:]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+
+    function label_field(el) {
+        var lbl = null;
+        if (el.id) {
+            try { lbl = document.querySelector('label[for="' + el.id.replace(/"/g, '\\"') + '"]'); } catch (e) {}
+        }
+        if (!lbl && el.previousElementSibling && el.previousElementSibling.tagName === 'LABEL') {
+            lbl = el.previousElementSibling;
+        }
+        // Naik maks 3 tingkat: wadah yang berisi tepat 1 label (dan maks 2 input,
+        // mis. rentang tanggal "dari s/d sampai") dianggap label field ini.
+        var node = el.parentElement;
+        for (var i = 0; i < 3 && node && !lbl; i++, node = node.parentElement) {
+            var labels = node.querySelectorAll('label');
+            var inputs = node.querySelectorAll('input:not([type="hidden"]), select, textarea');
+            if (labels.length === 1 && inputs.length <= 2) {
+                lbl = labels[0];
+            }
+        }
+        if (lbl) {
+            return rapikan(lbl.textContent, 40);
+        }
+        return el.getAttribute('placeholder') ? '(placeholder) ' + el.getAttribute('placeholder') : '';
+    }
+
+    function nilai_field(el) {
+        if (POLA_NAMA_TOKEN.test(el.name || '') || el.type === 'password') {
+            return '***';
+        }
+        if (el.tagName === 'SELECT') {
+            var opt = el.options[el.selectedIndex];
+            return (el.value || '') + (opt ? ' [' + rapikan(opt.text, 40) + ']' : '');
+        }
+        if (el.type === 'checkbox' || el.type === 'radio') {
+            return (el.checked ? 'dicentang' : 'tidak') + ' (value=' + el.value + ')';
+        }
+        return rapikan(el.value, 60);
+    }
+
+    function field_no_pemindahan() {
+        var semua = Array.prototype.filter.call(document.querySelectorAll('input, select, textarea'), function (el) {
+            return el.type !== 'hidden' && !el.closest('#tes_cari_modal, #modal_lihat_barang');
+        });
+        for (var i = 0; i < semua.length; i++) {
+            if (normal_label(label_field(semua[i])) === 'no pemindahan') {
+                return semua[i];
+            }
+        }
+        // Cadangan: teks "No Pemindahan" di elemen biasa (bukan <label>) -> field pertama sesudahnya
+        var teks = document.querySelectorAll('label, span, div, td, th, p, b, strong');
+        for (var j = 0; j < teks.length; j++) {
+            var n = teks[j];
+            if (n.children.length > 0 || normal_label(n.textContent) !== 'no pemindahan' || n.closest('#tes_cari_modal, #modal_lihat_barang')) {
+                continue;
+            }
+            for (var k = 0; k < semua.length; k++) {
+                if (n.compareDocumentPosition(semua[k]) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                    return semua[k];
+                }
+            }
+        }
+        return null;
+    }
+
+    // ID transfer (angka) yang ditemukan di teks: link /pemindahan_barangs/<ID>,
+    // termasuk yang ter-escape di respons JS (\/pemindahan_barangs\/<ID>)
+    function cari_id_detail(teks) {
+        var hasil = [];
+        var re = /pemindahan_barangs\\?\/(\d+)(?![\d])/g;
+        var m;
+        while ((m = re.exec(String(teks || ''))) !== null) {
+            if (hasil.indexOf(m[1]) === -1) {
+                hasil.push(m[1]);
+            }
+        }
+        return hasil;
+    }
+
+    function buat_laporan_tes() {
+        var t = [];
+        t.push('== TES CARI PEMINDAHAN (pemindahan.js v' + VERSI_SCRIPT + ') ==');
+        t.push('URL: ' + location.href);
+        t.push('Waktu: ' + new Date().toLocaleString());
+
+        t.push('');
+        t.push('== FORM DI HALAMAN ==');
+        var forms = Array.prototype.filter.call(document.forms, function (f) {
+            return !f.closest('#tes_cari_modal, #modal_lihat_barang');
+        });
+        if (forms.length === 0) {
+            t.push('(tidak ada <form>)');
+        }
+        forms.forEach(function (f, i) {
+            t.push('#' + (i + 1) + ' id=' + (f.id || '-') + ' method=' + (f.getAttribute('method') || 'GET').toUpperCase() +
+                ' action=' + (f.getAttribute('action') || '(kosong)') + (f.getAttribute('data-remote') ? ' data-remote=' + f.getAttribute('data-remote') : ''));
+            var fields = f.querySelectorAll('input, select, textarea');
+            Array.prototype.slice.call(fields, 0, 40).forEach(function (el) {
+                if (el.type === 'submit' || el.type === 'button') {
+                    return;
+                }
+                t.push('  - name=' + (el.name || '-') + ' id=' + (el.id || '-') + ' (' + (el.type || el.tagName.toLowerCase()) + ')' +
+                    ' label="' + label_field(el) + '" nilai="' + nilai_field(el) + '"');
+            });
+            if (fields.length > 40) {
+                t.push('  … ' + (fields.length - 40) + ' field lain');
+            }
+        });
+
+        t.push('');
+        t.push('== FIELD "NO PEMINDAHAN" ==');
+        var fno = field_no_pemindahan();
+        if (fno) {
+            var form_fno = fno.form || fno.closest('form');
+            t.push('name=' + (fno.name || '-') + ' id=' + (fno.id || '-') + ' di dalam form: ' + (form_fno ? (form_fno.id || '(tanpa id)') : 'TIDAK'));
+            var wadah = fno.closest('.modal, .panel, .sidebar, form, [class*="cari"], [class*="search"]') || document.body;
+            var tombol = wadah.querySelectorAll('button, input[type="submit"], input[type="button"], a.btn');
+            Array.prototype.slice.call(tombol, 0, 6).forEach(function (b) {
+                t.push('  tombol: ' + rapikan(b.outerHTML, 250));
+            });
+        } else {
+            t.push('(tidak ketemu - buka panel Pencarian dulu, lalu klik Perbarui)');
+        }
+
+        t.push('');
+        t.push('== LINK DETAIL DI HALAMAN (maks 10) ==');
+        var ditemukan = 0;
+        var sudah = {};
+        document.querySelectorAll('a[href], [onclick], [data-url], [data-href]').forEach(function (el) {
+            if (ditemukan >= 10 || el.closest('#tes_cari_modal, #modal_lihat_barang')) {
+                return;
+            }
+            var sumber = (el.getAttribute('href') || '') + ' ' + (el.getAttribute('onclick') || '') + ' ' +
+                (el.getAttribute('data-url') || '') + ' ' + (el.getAttribute('data-href') || '');
+            var ids = cari_id_detail(sumber);
+            if (ids.length === 0 || sudah[ids[0]]) {
+                return;
+            }
+            sudah[ids[0]] = true;
+            ditemukan++;
+            var baris = el.closest('tr');
+            t.push('- ID ' + ids[0] + ' | ' + rapikan(samarkan_token(sumber), 120) + (baris ? ' | baris: ' + rapikan(baris.textContent, 120) : ''));
+        });
+        if (ditemukan === 0) {
+            t.push('(tidak ada link /pemindahan_barangs/<angka>)');
+        }
+
+        if (hasil_tes_cari) {
+            t.push('');
+            t.push('== HASIL COBA CARI KODE ==');
+            t.push(hasil_tes_cari);
+        }
+
+        t.push('');
+        t.push('== REQUEST TERTANGKAP (' + LOG_REQUEST.length + ', terbaru di atas) ==');
+        if (LOG_REQUEST.length === 0) {
+            t.push('(belum ada - isi No Pemindahan di Pencarian lalu klik Cari, kemudian klik Perbarui)');
+        }
+        LOG_REQUEST.slice().reverse().forEach(function (r) {
+            t.push('[' + r.waktu + '] ' + r.jenis + ' ' + r.method + ' ' + r.url + ' -> HTTP ' + r.status);
+            if (r.body) {
+                t.push('  body: ' + rapikan(r.body, 600));
+            }
+            var ids = cari_id_detail(r.respon);
+            t.push('  respon: ' + r.respon.length + ' karakter' + (ids.length ? ', ID detail: ' + ids.slice(0, 10).join(', ') : ''));
+            t.push('  awal respon: ' + rapikan(samarkan_token(r.respon), 300));
+        });
+        return t.join('\n');
+    }
+
+    function perbarui_panel_tes_kalau_terbuka() {
+        var modal = document.getElementById('tes_cari_modal');
+        if (modal && modal.style.display !== 'none' && modal.style.display !== '') {
+            $('#tes_cari_laporan').val(buat_laporan_tes());
+        }
+    }
+
+    function buka_panel_tes() {
+        buka_modal('#tes_cari_modal');
+        $('#tes_cari_status').text('');
+        $('#tes_cari_laporan').val(buat_laporan_tes());
+    }
+
+    // Coba cari satu kode memakai form pencarian yang ada di halaman ini (nilai field lain,
+    // termasuk rentang Tanggal, dipakai apa adanya), lalu cari ID transfer di responsnya.
+    function coba_cari_kode() {
+        var kode = $.trim($('#tes_cari_kode').val());
+        if (!kode) {
+            $('#tes_cari_status').text('Isi dulu kode No Pemindahan.');
+            return;
+        }
+        var fno = field_no_pemindahan();
+        var form = fno ? (fno.form || fno.closest('form')) : null;
+        if (!fno || !form) {
+            hasil_tes_cari = 'Kode "' + kode + '": GAGAL - ' + (!fno ? 'field No Pemindahan tidak ketemu' : 'field No Pemindahan tidak berada di dalam <form>');
+            $('#tes_cari_status').text(hasil_tes_cari);
+            $('#tes_cari_laporan').val(buat_laporan_tes());
+            return;
+        }
+        var data = $(form).serializeArray();
+        var ada = false;
+        data.forEach(function (d) {
+            if (d.name === fno.name) {
+                d.value = kode;
+                ada = true;
+            }
+        });
+        if (!ada && fno.name) {
+            data.push({ name: fno.name, value: kode });
+        }
+        var method = (form.getAttribute('method') || 'GET').toUpperCase();
+        var url = form.getAttribute('action') || location.href;
+        $('#tes_cari_status').text('Mencari "' + kode + '" ...');
+        $('#tes_cari_btn_coba').prop('disabled', true);
+        $.ajax({ url: url, type: method, data: $.param(data), dataType: 'text' })
+            .done(function (teks, _s, xhr) {
+                var ids = cari_id_detail(teks);
+                hasil_tes_cari = 'Kode "' + kode + '": ' + method + ' ' + url + ' -> HTTP ' + xhr.status + ', ' + teks.length + ' karakter\n' +
+                    '  parameter: ' + samarkan_token($.param(data)) + '\n' +
+                    (ids.length === 1 ? '  ✅ KETEMU 1 transfer: ID ' + ids[0] + ' (' + location.origin + '/pemindahan_barangs/' + ids[0] + ')'
+                        : ids.length > 1 ? '  ⚠️ Ketemu ' + ids.length + ' ID: ' + ids.slice(0, 10).join(', ') + ' (kode kurang spesifik / hasil tidak tersaring)'
+                            : '  ❌ Tidak ada ID transfer di respons (cek rentang Tanggal Pemindahan, atau hasil dimuat dengan cara lain)');
+            })
+            .fail(function (xhr) {
+                hasil_tes_cari = 'Kode "' + kode + '": ' + method + ' ' + url + ' -> GAGAL HTTP ' + xhr.status;
+            })
+            .always(function () {
+                $('#tes_cari_btn_coba').prop('disabled', false);
+                $('#tes_cari_status').text(hasil_tes_cari.split('\n').pop());
+                $('#tes_cari_laporan').val(buat_laporan_tes());
+            });
+    }
+
+    function salin_laporan_tes() {
+        var ta = document.getElementById('tes_cari_laporan');
+        var teks = ta.value;
+        var sukses = function () { $('#tes_cari_status').text('✅ Laporan tersalin - tempel (paste) ke chat.'); };
+        var cadangan = function () {
+            ta.focus();
+            ta.select();
+            try {
+                if (document.execCommand('copy')) {
+                    sukses();
+                    return;
+                }
+            } catch (e) {}
+            $('#tes_cari_status').text('Tidak bisa menyalin otomatis - tekan lama teks laporan, pilih semua, lalu salin.');
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(teks).then(sukses, cadangan);
+        } else {
+            cadangan();
+        }
+    }
+
+    var MODAL_TES_HTML =
+        '<div id="tes_cari_modal" class="mib_modal">' +
+            '<div class="mib_header"><span>🧪 Tes Cari Pemindahan</span>' +
+                '<span class="mib_close" id="tes_cari_close_x">&times;</span></div>' +
+            '<div class="mib_body">' +
+                '<p>1) Buka panel Pencarian Erzap, isi <b>No Pemindahan</b>, klik Cari, lalu klik <b>Perbarui</b> di sini. ' +
+                '2) Atau ketik kode di bawah lalu <b>Coba Cari Kode</b>. 3) Klik <b>Salin Laporan</b> dan tempel ke chat.</p>' +
+                '<input type="text" id="tes_cari_kode" placeholder="Kode No Pemindahan">' +
+                '<div id="tes_cari_status" style="margin-top:8px;font-size:12px;color:#0d6efd;min-height:14px;white-space:pre-wrap;"></div>' +
+                '<textarea id="tes_cari_laporan" readonly style="margin-top:8px;height:260px;font-size:11px;white-space:pre-wrap;"></textarea>' +
+            '</div>' +
+            '<div class="mib_footer">' +
+                '<button id="tes_cari_btn_tutup">Tutup</button>' +
+                '<button id="tes_cari_btn_perbarui">Perbarui</button>' +
+                '<button id="tes_cari_btn_salin">Salin Laporan</button>' +
+                '<button id="tes_cari_btn_coba" class="mib_primary">Coba Cari Kode</button>' +
+            '</div>' +
+        '</div>';
+
+    function pasang_tombol_tes() {
+        if (!HALAMAN_INDEX_PEMINDAHAN || document.getElementById('bt_tes_cari')) {
+            return;
+        }
+        $('body').append(MODAL_TES_HTML);
+        $('<button type="button" id="bt_tes_cari">🧪 TES CARI</button>').css({
+            position: 'fixed', left: '12px', bottom: '110px', zIndex: 99990,
+            background: '#dc2626', color: '#fff', border: 'none', borderRadius: '20px',
+            padding: '10px 16px', fontSize: '14px', fontWeight: 'bold',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.3)', cursor: 'pointer'
+        }).appendTo('body');
+        $(document).on('click', '#bt_tes_cari', buka_panel_tes);
+        $(document).on('click', '#tes_cari_btn_perbarui', function () {
+            $('#tes_cari_laporan').val(buat_laporan_tes());
+            $('#tes_cari_status').text('Diperbarui.');
+        });
+        $(document).on('click', '#tes_cari_btn_salin', salin_laporan_tes);
+        $(document).on('click', '#tes_cari_btn_coba', coba_cari_kode);
+        $(document).on('click', '#tes_cari_btn_tutup, #tes_cari_close_x', tutup_semua_modal);
+        $(document).on('keydown', '#tes_cari_kode', function (e) {
+            if (e.which === 13) {
+                coba_cari_kode();
+                return false;
+            }
+        });
+    }
 
     var STYLE = [
         '#bt_lihat_barang{cursor:pointer;}',
@@ -907,6 +1278,7 @@
     $(function () {
         buang_header_lama();
         siapkan_modal_dan_handler();
+        pasang_tombol_tes();
         pastikan_tombol_ada();
 
         var observer = new MutationObserver(function () {
