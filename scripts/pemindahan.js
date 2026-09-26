@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari link/ID Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel.
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs/*
@@ -13,7 +13,7 @@
 (function () {
     'use strict';
 
-    var VERSI_SCRIPT = '1.3.0'; // samakan dengan @version
+    var VERSI_SCRIPT = '1.3.1'; // samakan dengan @version
 
     // ---------- Debug: log semua request XHR/fetch ke console (buat lacak endpoint pencarian) ----------
     // Cukup buka console, ketik kode pencarian di halaman, lihat baris [XHR]/[FETCH] yang muncul.
@@ -390,31 +390,101 @@
             '</div>' +
         '</div>';
 
-    function pasang_tombol_tes() {
-        if (!HALAMAN_INDEX_PEMINDAHAN || document.getElementById('bt_tes_cari')) {
+    // Tabel daftar pemindahan (tempat tombol TES dipasang di atasnya). Prioritas:
+    // tabel yang berisi link /pemindahan_barangs/<ID> > tabel berjudul kolom "Tgl ..."
+    // > tabel pertama di halaman (di luar form Pencarian / modal).
+    function cari_tabel_daftar() {
+        var fno = field_no_pemindahan();
+        var form_cari = fno ? (fno.form || fno.closest('form')) : null;
+        var tabel = Array.prototype.filter.call(document.querySelectorAll('table'), function (t) {
+            return !t.closest('#tes_cari_modal, #modal_lihat_barang, .modal') &&
+                !(form_cari && form_cari.contains(t)) && t.rows.length > 0;
+        });
+        var pilih = null;
+        tabel.some(function (t) {
+            var ada_link = Array.prototype.some.call(t.querySelectorAll('a[href], [onclick], [data-url], [data-href]'), function (el) {
+                return cari_id_detail((el.getAttribute('href') || '') + ' ' + (el.getAttribute('onclick') || '') + ' ' +
+                    (el.getAttribute('data-url') || '') + ' ' + (el.getAttribute('data-href') || '')).length > 0;
+            });
+            if (ada_link) {
+                pilih = t;
+            }
+            return ada_link;
+        });
+        if (!pilih) {
+            tabel.some(function (t) {
+                var kepala = t.querySelector('thead') || t.rows[0];
+                if (kepala && /\btgl\b/i.test(kepala.textContent)) {
+                    pilih = t;
+                }
+                return !!pilih;
+            });
+        }
+        if (!pilih) {
+            pilih = tabel[0] || null;
+        }
+        // Pasang di luar pembungkus scroll/DataTables supaya tombol tidak ikut tergulir ke samping
+        return pilih ? (pilih.closest('.dataTables_wrapper, .table-responsive, .table-scrollable') || pilih) : null;
+    }
+
+    var CSS_TOMBOL_TES_MELAYANG = {
+        position: 'fixed', left: '12px', bottom: '110px', zIndex: 99990, margin: '0',
+        borderRadius: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.3)', display: 'inline-block'
+    };
+    var CSS_TOMBOL_TES_DI_ATAS_TABEL = {
+        position: 'static', left: '', bottom: '', zIndex: '', margin: '8px 0',
+        borderRadius: '6px', boxShadow: 'none', display: 'inline-block'
+    };
+
+    // Idempoten (aman dipanggil dari MutationObserver): kalau tabel belum ada tombol
+    // melayang di kiri bawah; begitu tabel ketemu, tombol dipindah tepat di atasnya.
+    function posisikan_tombol_tes() {
+        var btn = document.getElementById('bt_tes_cari');
+        if (!btn) {
             return;
         }
-        $('body').append(MODAL_TES_HTML);
-        $('<button type="button" id="bt_tes_cari">🧪 TES CARI</button>').css({
-            position: 'fixed', left: '12px', bottom: '110px', zIndex: 99990,
-            background: '#dc2626', color: '#fff', border: 'none', borderRadius: '20px',
-            padding: '10px 16px', fontSize: '14px', fontWeight: 'bold',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.3)', cursor: 'pointer'
-        }).appendTo('body');
-        $(document).on('click', '#bt_tes_cari', buka_panel_tes);
-        $(document).on('click', '#tes_cari_btn_perbarui', function () {
-            $('#tes_cari_laporan').val(buat_laporan_tes());
-            $('#tes_cari_status').text('Diperbarui.');
-        });
-        $(document).on('click', '#tes_cari_btn_salin', salin_laporan_tes);
-        $(document).on('click', '#tes_cari_btn_coba', coba_cari_kode);
-        $(document).on('click', '#tes_cari_btn_tutup, #tes_cari_close_x', tutup_semua_modal);
-        $(document).on('keydown', '#tes_cari_kode', function (e) {
-            if (e.which === 13) {
-                coba_cari_kode();
-                return false;
+        var target = cari_tabel_daftar();
+        if (target && target.parentNode) {
+            if (btn.nextElementSibling !== target) {
+                target.parentNode.insertBefore(btn, target);
+                $(btn).css(CSS_TOMBOL_TES_DI_ATAS_TABEL);
             }
-        });
+        } else if (btn.parentNode !== document.body) {
+            document.body.appendChild(btn);
+            $(btn).css(CSS_TOMBOL_TES_MELAYANG);
+        }
+    }
+
+    var handler_tes_terpasang = false;
+    function pasang_tombol_tes() {
+        if (!HALAMAN_INDEX_PEMINDAHAN) {
+            return;
+        }
+        if (!handler_tes_terpasang) {
+            handler_tes_terpasang = true;
+            $('body').append(MODAL_TES_HTML);
+            $(document).on('click', '#bt_tes_cari', buka_panel_tes);
+            $(document).on('click', '#tes_cari_btn_perbarui', function () {
+                $('#tes_cari_laporan').val(buat_laporan_tes());
+                $('#tes_cari_status').text('Diperbarui.');
+            });
+            $(document).on('click', '#tes_cari_btn_salin', salin_laporan_tes);
+            $(document).on('click', '#tes_cari_btn_coba', coba_cari_kode);
+            $(document).on('click', '#tes_cari_btn_tutup, #tes_cari_close_x', tutup_semua_modal);
+            $(document).on('keydown', '#tes_cari_kode', function (e) {
+                if (e.which === 13) {
+                    coba_cari_kode();
+                    return false;
+                }
+            });
+        }
+        if (!document.getElementById('bt_tes_cari')) {
+            $('<button type="button" id="bt_tes_cari">🧪 TES CARI</button>').css({
+                background: '#dc2626', color: '#fff', border: 'none',
+                padding: '10px 16px', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer'
+            }).css(CSS_TOMBOL_TES_MELAYANG).appendTo('body');
+        }
+        posisikan_tombol_tes();
     }
 
     var STYLE = [
@@ -1281,8 +1351,18 @@
         pasang_tombol_tes();
         pastikan_tombol_ada();
 
+        var tes_dijadwalkan = false;
         var observer = new MutationObserver(function () {
             pastikan_tombol_ada();
+            // Tabel daftar bisa dirender ulang (pencarian/paging) -> pastikan tombol TES
+            // tetap ada di atasnya. Maks 1x per frame.
+            if (HALAMAN_INDEX_PEMINDAHAN && !tes_dijadwalkan) {
+                tes_dijadwalkan = true;
+                requestAnimationFrame(function () {
+                    tes_dijadwalkan = false;
+                    pasang_tombol_tes();
+                });
+            }
         });
         observer.observe(document.body, { childList: true, subtree: true });
     });
