@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Lihat Data Barang (Pemindahan Barang)
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
+// @version      1.5.0
 // @description  Tambah tombol "Lihat Data Barang" di atas tabel Daftar Barang - tampilkan Barcode, Jumlah Transfer, Keterangan dari halaman ini atau dari kode/ID/link Pemindahan Barang lain, lalu bisa langsung dimasukkan (copy field) ke tabel di halaman ini. Dari/Ke Outlet & Gudang diisi dari pengaturan yang disimpan user (pertama kali pilih manual di form lalu Simpan), dicek ulang lewat konfirmasi sebelum Masukkan ke Tabel.
 // @author       You
 // @match        https://*.erzap.com/pemindahan_barangs*
@@ -76,7 +76,29 @@
         '#llb_header::-webkit-scrollbar-thumb{background:transparent;border-radius:3px;}',
         '.mib_modal .mib_body:hover::-webkit-scrollbar-thumb,',
         '#llb_hasil:hover::-webkit-scrollbar-thumb,',
-        '#llb_header:hover::-webkit-scrollbar-thumb{background:#dc2626;}'
+        '#llb_header:hover::-webkit-scrollbar-thumb{background:#dc2626;}',
+        // Dialog di dalam halaman (pengganti alert/confirm bawaan browser)
+        '#llb_dialog{display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:100000;',
+        'background:rgba(0,0,0,0.55);align-items:center;justify-content:center;padding:16px;',
+        'box-sizing:border-box;font-family:Arial, sans-serif;}',
+        '#llb_dialog .llb_dialog_kotak{background:#fff;border-radius:8px;border-top:4px solid #dc2626;',
+        'box-shadow:0 4px 24px rgba(0,0,0,0.35);width:420px;max-width:100%;max-height:90vh;',
+        'overflow-y:auto;padding:16px;box-sizing:border-box;}',
+        '#llb_dialog_judul{font-weight:bold;font-size:16px;margin-bottom:10px;}',
+        '#llb_dialog_isi{font-size:13px;color:#333;}',
+        '#llb_dialog_isi p{margin:0 0 8px;}',
+        '#llb_dialog_isi ul{margin:0 0 8px;padding-left:20px;}',
+        '.llb_dialog_tabel{width:100%;border-collapse:collapse;margin:4px 0 10px;font-size:13px;}',
+        '.llb_dialog_tabel td{border:1px solid #eee;padding:6px 8px;vertical-align:top;}',
+        '.llb_dialog_tabel td:first-child{color:#666;white-space:nowrap;width:1%;}',
+        '.llb_dialog_awas{background:#fdecea;color:#b91c1c;border-radius:4px;padding:8px;',
+        'margin:0 0 8px;font-weight:bold;}',
+        '.llb_dialog_kecil{font-size:12px;color:#666;}',
+        '#llb_dialog .llb_dialog_tombol{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;}',
+        '#llb_dialog .llb_dialog_tombol button{padding:8px 14px;border-radius:4px;border:1px solid #ccc;',
+        'background:#f5f5f5;cursor:pointer;font-size:14px;}',
+        '#llb_dialog #llb_dialog_ya{background:#dc2626;border-color:#dc2626;color:#fff;font-weight:bold;}',
+        '@media (max-width:480px){#llb_dialog .llb_dialog_tombol button{flex:1 1 auto;}}'
     ].join('');
 
     var MODAL_HTML =
@@ -136,6 +158,7 @@
     }
 
     function tutup_semua_modal() {
+        tutup_dialog();
         $('#overlay_modal_umum').hide();
         $('.mib_modal').css('display', 'none');
     }
@@ -350,59 +373,119 @@
             .text(ada ? 'Ganti dengan Pilihan di Form' : 'Simpan dari Form');
     }
 
+    // ---------- Dialog di dalam halaman (pengganti alert()/confirm() bawaan browser) ----------
+    // Dialog bawaan bisa DIBLOKIR browser (mis. user pernah mencentang "Jangan izinkan
+    // halaman ini membuat dialog"): confirm() langsung dianggap Batal tanpa tampil apa pun,
+    // jadi klik tombol terasa tidak jalan. Dialog ini bagian dari halaman, selalu tampil.
+    // opsi: { judul, isi_html, bahaya (judul merah), teks_ya (kosong = cuma tombol OK),
+    //         teks_batal, on_ya }
+    var DIALOG_HTML =
+        '<div id="llb_dialog"><div class="llb_dialog_kotak">' +
+            '<div id="llb_dialog_judul"></div>' +
+            '<div id="llb_dialog_isi"></div>' +
+            '<div class="llb_dialog_tombol">' +
+                '<button type="button" id="llb_dialog_batal">Batal</button>' +
+                '<button type="button" id="llb_dialog_ya"></button>' +
+            '</div>' +
+        '</div></div>';
+
+    function tampilkan_dialog(opsi) {
+        var $ya = $('#llb_dialog_ya');
+        var $batal = $('#llb_dialog_batal');
+        $('#llb_dialog_judul').text(opsi.judul || '').css('color', opsi.bahaya ? '#dc2626' : '#333');
+        $('#llb_dialog_isi').html(opsi.isi_html || '');
+        $ya.off('click').text(opsi.teks_ya || '').toggle(!!opsi.teks_ya);
+        $batal.off('click').text(opsi.teks_ya ? (opsi.teks_batal || 'Batal') : 'OK');
+        $ya.on('click', function () {
+            tutup_dialog();
+            if (opsi.on_ya) {
+                opsi.on_ya();
+            }
+        });
+        $batal.on('click', tutup_dialog);
+        $('#llb_dialog').css('display', 'flex');
+        (opsi.teks_ya ? $ya : $batal).trigger('focus');
+    }
+
+    function tutup_dialog() {
+        $('#llb_dialog').css('display', 'none');
+    }
+
+    function info_dialog(judul, isi_html, bahaya) {
+        tampilkan_dialog({ judul: judul, isi_html: isi_html, bahaya: bahaya });
+    }
+
+    function daftar_html(items) {
+        return '<ul>' + items.map(function (x) { return '<li>' + escape_html(x) + '</li>'; }).join('') + '</ul>';
+    }
+
+    function tabel_header_html(header) {
+        return '<table class="llb_dialog_tabel">' + LABEL_HEADER.map(function (l) {
+            return '<tr><td>' + escape_html(l) + '</td><td><b>' + escape_html(header[l]) + '</b></td></tr>';
+        }).join('') + '</table>';
+    }
+
     function simpan_header_ke_localstorage() {
         var header = baca_header_dari_form();
         var kosong = LABEL_HEADER.filter(function (l) { return !header[l]; });
         if (kosong.length > 0) {
-            alert('Belum dipilih di form halaman ini:\n- ' + kosong.join('\n- ') +
-                '\n\nTutup modal, pilih dulu di form, lalu buka lagi Lihat Data Barang dan klik Simpan.');
+            info_dialog('Belum dipilih di form',
+                '<p>Field berikut belum dipilih di form halaman ini:</p>' + daftar_html(kosong) +
+                '<p>Tutup jendela ini, pilih dulu di form, lalu buka lagi Lihat Data Barang dan klik Simpan.</p>', true);
             return;
         }
         var lama = baca_header_tersimpan();
-        if (lama) {
-            var sama = LABEL_HEADER.every(function (l) { return lama[l] === header[l]; });
-            if (sama) {
-                alert('Pilihan di form sama dengan yang sudah tersimpan.');
-                return;
-            }
-            var daftar = LABEL_HEADER.map(function (l) { return l + ': ' + header[l]; }).join('\n');
-            if (!confirm('Ganti pengaturan tersimpan dengan pilihan di form sekarang?\n\n' + daftar)) {
-                return;
-            }
+        if (!lama) {
+            tulis_header_tersimpan(header);
+            return;
         }
+        var sama = LABEL_HEADER.every(function (l) { return lama[l] === header[l]; });
+        if (sama) {
+            info_dialog('Tidak ada perubahan', '<p>Pilihan di form sama dengan yang sudah tersimpan.</p>');
+            return;
+        }
+        tampilkan_dialog({
+            judul: 'Ganti pengaturan tersimpan?',
+            isi_html: '<p>Pengaturan baru (dari pilihan di form sekarang):</p>' + tabel_header_html(header),
+            teks_ya: 'Ya, Ganti',
+            on_ya: function () { tulis_header_tersimpan(header); }
+        });
+    }
+
+    function tulis_header_tersimpan(header) {
         try {
             localStorage.setItem(KUNCI_LOCALSTORAGE_HEADER, JSON.stringify(header));
         } catch (e) {
-            alert('Gagal menyimpan ke localStorage: ' + e.message);
+            info_dialog('Gagal menyimpan', '<p>Gagal menyimpan ke localStorage: ' + escape_html(e.message) + '</p>', true);
             return;
         }
         render_header_lihat_barang();
     }
 
-    // Dipanggil sebelum "Masukkan ke Tabel". Tanpa pengaturan tersimpan proses ditolak:
-    // lebih aman daripada menebak outlet/gudang. Kalau ada, user WAJIB cek ulang dulu
-    // outlet & gudang yang akan dipakai (konfirmasi OK/Batal) sebelum form diubah.
-    function header_untuk_masukkan(jumlah_barang) {
+    // Dipanggil saat klik "Masukkan ke Tabel". Tanpa pengaturan tersimpan proses ditolak
+    // (lebih aman daripada menebak outlet/gudang). Kalau ada, user WAJIB cek ulang dulu
+    // outlet & gudang yang akan dipakai; lanjut(header) hanya jalan kalau klik "Ya".
+    function minta_konfirmasi_header(jumlah_barang, lanjut) {
         var header = baca_header_tersimpan();
         if (!header) {
-            alert('Dari/Ke Outlet & Gudang belum disimpan.\n\nPilih dulu di form halaman ini, ' +
-                'lalu buka Lihat Data Barang dan klik "Simpan dari Form".');
-            return null;
+            info_dialog('Outlet & Gudang belum disimpan',
+                '<p>Pilih dulu Dari Outlet, Dari Gudang, Ke Outlet &amp; Ke Gudang di form halaman ini, ' +
+                'lalu buka Lihat Data Barang dan klik <b>Simpan dari Form</b>.</p>', true);
+            return;
         }
-        var peringatan = '';
-        if (header['Dari Gudang'] === header['Ke Gudang']) {
-            peringatan = '\n⚠️ PERHATIAN: Dari Gudang dan Ke Gudang SAMA.\n';
-        }
-        var pesan = 'CEK ULANG OUTLET & GUDANG\n\n' +
-            LABEL_HEADER.map(function (l) { return l + ': ' + header[l]; }).join('\n') + '\n' +
-            peringatan +
-            '\nJumlah barang: ' + jumlah_barang + '\n\n' +
-            'Sudah benar?\nOK = lanjut masukkan ke tabel\n' +
-            'Batal = berhenti (ganti di form, lalu klik "Ganti dengan Pilihan di Form")';
-        if (!confirm(pesan)) {
-            return null;
-        }
-        return header;
+        var peringatan = header['Dari Gudang'] === header['Ke Gudang']
+            ? '<div class="llb_dialog_awas">⚠️ Dari Gudang dan Ke Gudang SAMA.</div>' : '';
+        tampilkan_dialog({
+            judul: '⚠️ Cek Ulang Outlet & Gudang',
+            bahaya: true,
+            isi_html: '<p>Barang akan dimasukkan ke tabel dengan pengaturan ini. Pastikan sudah benar:</p>' +
+                tabel_header_html(header) + peringatan +
+                '<p>Jumlah barang: <b>' + jumlah_barang + '</b></p>' +
+                '<p class="llb_dialog_kecil">Kalau salah: klik Batal, ganti pilihan di form, ' +
+                'lalu klik "Ganti dengan Pilihan di Form".</p>',
+            teks_ya: 'Ya, Masukkan ke Tabel',
+            on_ya: function () { lanjut(header); }
+        });
     }
 
     // Terapkan header hasil fetch ke form yang sedang dibuka. Outlet diisi lebih dulu,
@@ -803,21 +886,24 @@
 
     function masukkan_hasil_ke_table() {
         if (data_lihat_barang_terakhir.length === 0) {
-            alert('Tidak ada data untuk dimasukkan ke table.');
+            info_dialog('Tidak ada data', '<p>Tidak ada barang untuk dimasukkan ke tabel.</p>');
             return;
         }
-        var header = header_untuk_masukkan(data_lihat_barang_terakhir.length);
-        if (!header) {
-            return;
-        }
+        minta_konfirmasi_header(data_lihat_barang_terakhir.length, jalankan_masukkan_v1);
+    }
 
+    function jalankan_masukkan_v1(header) {
         $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', true);
         $('#llb_progress').show().text('Menerapkan Dari/Ke Outlet & Gudang ...');
         kunci_posisi_scroll();
 
         terapkan_header_ke_form(header, function (gagal) {
             if (gagal.length > 0) {
-                alert('Gagal menerapkan field berikut, proses dibatalkan:\n- ' + gagal.join('\n- ') + '\n\nCek Console (F12) untuk detail opsi yang tersedia.');
+                info_dialog('Gagal mengisi Outlet / Gudang',
+                    '<p>Proses dibatalkan, tidak ada barang yang dimasukkan. Field berikut tidak bisa diisi:</p>' +
+                    daftar_html(gagal) +
+                    '<p>Kemungkinan pilihan tersimpan tidak ada di daftar pilihan form ini. Cek lagi, lalu klik ' +
+                    '"Ganti dengan Pilihan di Form" kalau perlu.</p>', true);
                 $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
                 lepas_kunci_scroll();
                 $('#llb_progress').hide();
@@ -938,21 +1024,24 @@
 
     function masukkan_hasil_ke_table_v2() {
         if (data_tr_barang_terakhir.length === 0) {
-            alert('Tidak ada data untuk dimasukkan ke table.');
+            info_dialog('Tidak ada data', '<p>Tidak ada barang untuk dimasukkan ke tabel.</p>');
             return;
         }
-        var header = header_untuk_masukkan(data_tr_barang_terakhir.length);
-        if (!header) {
-            return;
-        }
+        minta_konfirmasi_header(data_tr_barang_terakhir.length, jalankan_masukkan_v2);
+    }
 
+    function jalankan_masukkan_v2(header) {
         $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', true);
         $('#llb_progress').show().text('Menerapkan Dari/Ke Outlet & Gudang ...');
         kunci_posisi_scroll();
 
         terapkan_header_ke_form(header, function (gagal) {
             if (gagal.length > 0) {
-                alert('Gagal menerapkan field berikut, proses dibatalkan:\n- ' + gagal.join('\n- ') + '\n\nCek Console (F12) untuk detail opsi yang tersedia.');
+                info_dialog('Gagal mengisi Outlet / Gudang',
+                    '<p>Proses dibatalkan, tidak ada barang yang dimasukkan. Field berikut tidak bisa diisi:</p>' +
+                    daftar_html(gagal) +
+                    '<p>Kemungkinan pilihan tersimpan tidak ada di daftar pilihan form ini. Cek lagi, lalu klik ' +
+                    '"Ganti dengan Pilihan di Form" kalau perlu.</p>', true);
                 $(TOMBOL_MODAL_LIHAT_BARANG).prop('disabled', false);
                 lepas_kunci_scroll();
                 $('#llb_progress').hide();
@@ -990,6 +1079,7 @@
         }
         $('<style>').text(STYLE).appendTo('head');
         $('body').append(MODAL_HTML);
+        $('body').append(DIALOG_HTML);
 
         $(document).on('click', '#overlay_modal_umum', tutup_semua_modal);
 
