@@ -1,15 +1,16 @@
 // ==UserScript==
 // @name         Auto Koreksi, Simpan, & Reload - Erzap
 // @namespace    http://tampermonkey.net/
-// @version      1.11.1
-// @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/koreksiso.js
-// @description  [v1.11.1] Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
+// @version      1.12.0
+// @updateURL    https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/scripts/koreksiso.js
+// @downloadURL  https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/scripts/koreksiso.js
+// @description  [v1.12.0] Hanya lanjut otomatis kalau halaman dibuka oleh script sendiri (maks 1 menit) - buka halaman koreksi manual tidak pernah auto jalan. Ganti ID SO = mulai dari awal (isi pengkoreksi & tanggal lagi, tidak auto jalan). Halaman tanpa tombol Simpan dilewati; di akhir cek ulang semua halaman -> SO SELESAI, stop & refresh halaman. Nama Pengkoreksi & Tanggal Koreksi diisi manual sebelum START (dipakai untuk semua halaman). Alur: KOREKSI (Koreksi teratas = Hasil SO, Koreksi ke-2 dst = 0) -> SIMPAN (Enter) -> RELOAD. Tombol CEK SIMPAN: lewati halaman tanpa tombol Simpan, pindah ke halaman berikutnya yang masih ada tombol Simpan lalu langsung isi
 // @author       You
 // @match        https://*.erzap.com/stok_opnams/proses_koreksi_so/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
 // @grant        none
+// @noframes
 // ==/UserScript==
 
 (function() {
@@ -31,6 +32,30 @@
         ['erzap_auto_running', 'erzap_isian_manual', 'erzap_page_logs', 'erzap_max_page',
          'erzap_rangkuman_tertunda', 'erzap_so_id'].forEach(k => sessionStorage.removeItem(k));
         console.log('[Aistim] Koreksi: ID SO berubah (' + idLama + ' -> ' + idSO() + '), status proses direset');
+    })();
+
+    // Lanjut otomatis HANYA kalau halaman ini dibuka oleh script sendiri: sebelum
+    // pindah halaman / simpan (yang bisa memuat ulang halaman), script menitip tanda
+    // { so, t }. Tanpa tanda yang sah (SO sama, umurnya < 1 menit) status "auto jalan"
+    // dianggap sisa proses lama -> dimatikan. Jadi membuka halaman koreksi secara
+    // manual (SO lain, SO yang sama, atau tab yang dipulihkan) tidak pernah auto jalan.
+    // Tanda langsung dihapus setelah dibaca, hanya berlaku untuk satu kali muat halaman.
+    const TANDA_LANJUT = 'erzap_lanjut_oleh_script';
+    const TANDA_LANJUT_MAKS_MS = 60000;
+    function tandaiLanjutOlehScript() {
+        sessionStorage.setItem(TANDA_LANJUT, JSON.stringify({ so: idSO(), t: Date.now() }));
+    }
+    (function cekBolehLanjut() {
+        let tanda = null;
+        try { tanda = JSON.parse(sessionStorage.getItem(TANDA_LANJUT) || 'null'); } catch (e) {}
+        sessionStorage.removeItem(TANDA_LANJUT);
+        if (sessionStorage.getItem('erzap_auto_running') !== 'true') return;
+        const umur = tanda ? Date.now() - tanda.t : -1;
+        if (tanda && tanda.so === idSO() && umur >= 0 && umur < TANDA_LANJUT_MAKS_MS) return;
+        sessionStorage.setItem('erzap_auto_running', 'false');
+        console.log('[Aistim] Koreksi: halaman tidak dibuka oleh proses auto (' +
+            (tanda ? 'tanda ' + (tanda.so !== idSO() ? 'SO lain' : 'kedaluwarsa') : 'tanpa tanda') +
+            ') -> tidak lanjut otomatis');
     })();
 
     let isRunning = sessionStorage.getItem('erzap_auto_running') === 'true';
@@ -641,6 +666,7 @@
                     btn.textContent = 'KE HAL ' + nomorTerakhir + '...';
                     console.log('[Aistim] Cek simpan: tombol Simpan ada di', hal.url, '(' + hal.cara + ') -> pindah & isi');
                     tandaiAutoMulai();
+                    tandaiLanjutOlehScript();
                     location.href = url;
                     return; // cekJalan dibiarkan true: halaman akan berganti
                 }
@@ -823,9 +849,9 @@
             const sudahDiproses = !!document.querySelector(KOREKSI_SELECTOR + '[data-aistim-done]');
 
             // Halaman tanpa tombol Simpan = sudah tersimpan -> lewati, JANGAN simpan ulang.
-            // Ditunggu ~1 detik dulu, siapa tahu tombolnya baru dirender.
+            // Ditunggu ~1 detik dulu (10 x 100ms), siapa tahu tombolnya baru dirender.
             if (!sudahDiproses && !tombolSimpanTampil()) {
-                if (coba < 5) {
+                if (coba < 10) {
                     setTimeout(() => runAutoProcess(btnElement, coba + 1), 100);
                     return;
                 }
@@ -991,6 +1017,9 @@
                 simpanTerdeteksi = false;
                 simpanError = false;
                 requestAktif = 0;
+                // Simpan bisa membuat Erzap memuat ulang halaman ini -> titip tanda
+                // supaya proses tetap lanjut di halaman hasil muat ulang itu.
+                tandaiLanjutOlehScript();
                 tekanEnter(lastKoreksiInput);
 
                 // Enter belum tentu nyangkut di semua halaman. Kalau dalam 400ms gak ada
@@ -1005,6 +1034,7 @@
                     if (nunggu < 400) { setTimeout(cekSimpanMulai, 50); return; }
 
                     // @world main -> fungsi simpan milik halaman bisa dipanggil langsung
+                    tandaiLanjutOlehScript();
                     if (typeof submit_form_koreksi_so === 'function') submit_form_koreksi_so();
                     else if (divSimpan) divSimpan.click();
                     tungguSimpanSelesai(selesai);
@@ -1220,6 +1250,7 @@
         const nextLink = cariLinkBerikutnya();
         console.log('[Aistim] Koreksi: link berikutnya =', nextLink ? nextLink.outerHTML : '(tidak ketemu -> selesai)');
         if (nextLink) {
+            tandaiLanjutOlehScript();
             nextLink.click();
             tungguHalamanBaru(nextLink);
         } else {

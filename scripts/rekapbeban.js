@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Rekap Beban
 // @namespace    http://tampermonkey.net/
-// @version      1.1.3
-// @updateURL    https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapbeban.js
-// @downloadURL  https://raw.githubusercontent.com/devtim-lab/AistimScript/main/rekapbeban.js
+// @version      1.1.4
+// @updateURL    https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/scripts/rekapbeban.js
+// @downloadURL  https://raw.githubusercontent.com/devtim-lab/Aistim-dev/main/scripts/rekapbeban.js
 // @description  [v1.1.3] Fix: tombol Rekap Beban macet (error) sejak ERZAP mengganti elemen outlet dari <select> ke widget lain
 // @author       You
 // @match        https://*.erzap.com/jurnals/index_transaksi_beban/new*
