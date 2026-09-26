@@ -1,4 +1,4 @@
-const VERSION = '2.9.1';
+const VERSION = '2.9.2';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
@@ -10,7 +10,7 @@ const REPO = {
   branch: 'main',
   dir: 'scripts'
 };
-const LIST_CACHE_MS = 5 * 60 * 1000; // cache daftar file 5 menit (hemat rate limit GitHub API)
+const LIST_CACHE_MS = 1 * 60 * 1000; // cache daftar file 1 menit (v2.9.2: dipicu ulang tiap menit oleh alarm)
 
 // Shim: listener window 'load' tetap jalan walau script diinject setelah load selesai
 const LOAD_SHIM = "window.addEventListener=(function(orig){return function(t,f,o){if(t==='load'&&document.readyState==='complete'){try{setTimeout(f,0);}catch(e){}return;}return orig.call(window,t,f,o);};})(window.addEventListener);";
@@ -271,12 +271,25 @@ async function syncUserScripts() {
 }
 
 // ===== LIFECYCLE =====
+const ALARM_SYNC = 'aistim-auto-sync';
+
 chrome.runtime.onInstalled.addListener(() => {
   syncUserScripts();
+  chrome.alarms.create(ALARM_SYNC, { periodInMinutes: 1 });
   console.log('[Aistim] v' + VERSION + ' installed — bundled scripts + auto-sync GitHub (CSP-safe)');
 });
 
-chrome.runtime.onStartup.addListener(() => syncUserScripts());
+chrome.runtime.onStartup.addListener(() => {
+  syncUserScripts();
+  chrome.alarms.create(ALARM_SYNC, { periodInMinutes: 1 });
+});
+
+// v2.9.2: auto-cek GitHub tiap 1 menit (mendekati realtime) — sebelumnya cuma
+// sync saat install/startup/toggle popup, jadi update script baru bisa telat
+// sampai user restart browser atau klik 🔄 manual.
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_SYNC) syncUserScripts();
+});
 
 // Re-sync saat daftar manual / toggle auto berubah dari popup
 // (autoScripts & effectiveScripts sengaja TIDAK didengar — ditulis oleh sync sendiri)

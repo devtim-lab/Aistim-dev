@@ -1,4 +1,4 @@
-# Aistim Tool v2.9.1
+# Aistim Tool v2.9.2
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -127,11 +127,16 @@ Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus s
 
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] ===== Content script v2.9.1 loaded =====` — content script aktif
+- `[Aistim] ===== Content script v2.9.2 loaded =====` — content script aktif
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol Erzap berhasil
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.9.2
+- **Auto-sync mendekati realtime**: tambah `chrome.alarms` (permission baru `"alarms"`) — background otomatis `syncUserScripts()` tiap 1 menit, bukan cuma saat browser start / toggle popup. Script baru/berubah di GitHub kebaca tanpa perlu restart browser atau klik 🔄 manual
+- `LIST_CACHE_MS` diturunkan dari 5 menit → **1 menit**, disesuaikan dengan interval alarm di atas
+- Catatan: interval 1 menit ini batas minimum `chrome.alarms` di Chrome — bukan realtime instan, tapi paling cepat yang bisa dicapai tanpa server/webhook sendiri
 
 ## Changelog v2.9.1
 - **Fix auto-sync**: daftar file di `scripts/` sekarang dibaca lewat `raw.githubusercontent.com` (index.json), bukan GitHub API sebagai jalur utama — API tanpa token cuma jatah 60 request/jam per IP, kalau habis auto-sync gagal diam-diam & ekstensi balik ke bundel lama tanpa pesan error
