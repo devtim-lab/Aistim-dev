@@ -1,4 +1,4 @@
-# Aistim Tool v2.9.2
+# Aistim Tool v2.9.3
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -127,11 +127,15 @@ Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus s
 
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] ===== Content script v2.9.2 loaded =====` — content script aktif
+- `[Aistim] ===== Content script v2.9.3 loaded =====` — content script aktif
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol Erzap berhasil
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.9.3
+- **Fix bug "Duplicate script ID" di `chrome://extensions/`**: `syncUserScripts()` dipanggil dari banyak sumber (install, browser start, alarm tiap 1 menit, toggle popup) — kalau 2 panggilan tumpang tindih, keduanya sama-sama `register()` id script yang sama secara paralel dan Chrome menolak yang kedua, membuat script itu (`rekapbeban.js`, `koreksiso.js`, dll) gagal aktif sampai sync bersih berikutnya
+- Ditambah kunci (mutex) di `syncUserScripts()`: hanya 1 proses sync jalan sekaligus; panggilan yang masuk saat sync masih berjalan diantre & dijalankan ulang sekali setelah selesai, bukan ditumpuk
 
 ## Changelog v2.9.2
 - **Auto-sync mendekati realtime**: tambah `chrome.alarms` (permission baru `"alarms"`) — background otomatis `syncUserScripts()` tiap 1 menit, bukan cuma saat browser start / toggle popup. Script baru/berubah di GitHub kebaca tanpa perlu restart browser atau klik 🔄 manual

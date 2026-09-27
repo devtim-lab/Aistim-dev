@@ -1,4 +1,4 @@
-const VERSION = '2.9.2';
+const VERSION = '2.9.3';
 const X_FETCH_ALLOW = ['partdistro.com'];   // host yang boleh diakses lewat jembatan x-fetch
 
 // ===== KONFIGURASI =====
@@ -204,7 +204,35 @@ async function loadManualScripts() {
 }
 
 // ===== SYNC UTAMA =====
-async function syncUserScripts() {
+// v2.9.3: syncUserScripts() dipicu dari banyak sumber (onInstalled, onStartup,
+// alarm 1 menit, storage.onChanged) yang bisa nyaris bersamaan — kalau 2
+// panggilan tumpang tindih, keduanya sama-sama lihat "belum ada script
+// terdaftar" lalu sama-sama register() id yang sama -> Chrome menolak yang
+// kedua dengan "Duplicate script ID" dan script itu gagal aktif. Dikunci di
+// sini: hanya 1 sync jalan sekaligus; panggilan yang masuk saat sync masih
+// jalan cukup antre & dijalankan ulang sekali setelah yang jalan selesai
+// (bukan ditumpuk berkali-kali).
+let syncPromise = null;
+let syncQueued = false;
+
+function syncUserScripts() {
+  if (syncPromise) {
+    syncQueued = true;
+    return syncPromise;
+  }
+  syncPromise = syncUserScriptsSekarang()
+    .catch(e => console.error('[Aistim] syncUserScripts gagal:', e))
+    .finally(() => {
+      syncPromise = null;
+      if (syncQueued) {
+        syncQueued = false;
+        syncUserScripts();
+      }
+    });
+  return syncPromise;
+}
+
+async function syncUserScriptsSekarang() {
   const data = await chrome.storage.local.get(['disabledAuto']);
   const disabledAuto = data.disabledAuto || [];
 
