@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Hasil Koreksi SO - Daftar Stok Opnam
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX
+// @version      1.1.0
+// @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
 // @match        https://*.erzap.com/stok_opnams*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -265,6 +265,37 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     }
 
+    // Posisikan panel dropdown (kalender tanggal / daftar gudang) supaya selalu
+    // muat di layar. Sebelumnya panel selalu dibuka ke bawah (top:100%) dengan
+    // max-height tetap (70vh / 320px) tanpa peduli posisi tombolnya -- di HP,
+    // kalau tombol "Pilih Tanggal" sudah di tengah/bawah popup, sisa panel
+    // (termasuk tombol Terapkan/Batal di paling bawah) kepotong di luar layar
+    // dan TIDAK BISA dijangkau sama sekali, bahkan lewat scroll panel sendiri
+    // (yang kepotong itu boks panelnya, bukan cuma isinya). Sekarang tinggi &
+    // arah bukanya dihitung ulang tiap kali panel dibuka, sesuai sisa ruang
+    // layar saat itu -- kalau ruang di bawah tombol terlalu sempit, panel
+    // dibuka ke atas.
+    function posisikanPanelDropdown(wrap, panel, tinggiIdeal) {
+        const rect = wrap.getBoundingClientRect();
+        const margin = 12;
+        const ruangBawah = window.innerHeight - rect.bottom - margin;
+        const ruangAtas = rect.top - margin;
+        const bukaAtas = ruangBawah < 160 && ruangAtas > ruangBawah;
+        const ruangTersedia = bukaAtas ? ruangAtas : ruangBawah;
+        panel.style.maxHeight = Math.max(120, Math.min(tinggiIdeal, ruangTersedia)) + 'px';
+        if (bukaAtas) {
+            panel.style.top = 'auto';
+            panel.style.bottom = '100%';
+            panel.style.marginTop = '0';
+            panel.style.marginBottom = '4px';
+        } else {
+            panel.style.top = '100%';
+            panel.style.bottom = 'auto';
+            panel.style.marginTop = '4px';
+            panel.style.marginBottom = '0';
+        }
+    }
+
     // Widget date-range dua kalender + preset, mirip picker "Pilih Tanggal" yang
     // sudah dipakai di halaman lain Erzap. onTerapkan(mulaiISO|null, akhirISO|null)
     // dipanggil begitu user klik Terapkan (mulaiISO/akhirISO format "YYYY-MM-DD").
@@ -481,7 +512,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
         tombolSummary.addEventListener('click', e => {
             e.stopPropagation();
-            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            const buka = panel.style.display === 'none';
+            if (buka) posisikanPanelDropdown(wrap, panel, window.innerHeight * 0.7);
+            panel.style.display = buka ? 'block' : 'none';
         });
         // Sengaja TIDAK ditutup otomatis kalau klik di luar panel -- panel cuma
         // tertutup lewat tombol Terapkan/Batal, atau klik ulang tombol ringkasannya.
@@ -555,6 +588,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         tombolSummary.addEventListener('click', e => {
             e.stopPropagation();
             const buka = panel.style.display === 'none';
+            if (buka) posisikanPanelDropdown(wrap, panel, 320);
             panel.style.display = buka ? 'flex' : 'none';
             if (buka) { inputCari.value = ''; renderDaftar(''); inputCari.focus(); }
         });
