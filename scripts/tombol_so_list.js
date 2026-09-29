@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hasil Koreksi SO - Daftar Stok Opnam
 // @namespace    http://tampermonkey.net/
-// @version      1.1.5
+// @version      1.1.6
 // @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
 // @match        https://*.erzap.com/stok_opnams*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -77,9 +77,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
         const rows = baris
             .filter(({ tr }) => !tr || tr.style.display !== 'none') // ikutkan cuma baris yang lolos filter Gudang
-            .map(({ item, tdSKU, tdHasilSO, tdSebelum, tdSesudah, tdSelisih }) => {
+            .map(({ item, tdSKU, tdSebelum, tdSesudah, tdSelisih }) => {
                 const sku = parseInt(tdSKU.textContent, 10);
-                const hasilSO = parseInt(tdHasilSO.textContent, 10);
                 const sebelum = parseRupiah(tdSebelum.textContent);
                 const sesudah = parseRupiah(tdSesudah.textContent);
                 const selisih = parseRupiah(tdSelisih.textContent);
@@ -90,15 +89,14 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                     'Pelaksana SO': item.pelaksanaSO,
                     'Jumlah Produk': item.jumlahProduk,
                     'SKU Terkoreksi': isNaN(sku) ? tdSKU.textContent : sku,
-                    'Hasil SO': isNaN(hasilSO) ? tdHasilSO.textContent : hasilSO,
-                    'Nilai Sebelum': isNaN(sebelum) ? tdSebelum.textContent : sebelum,
-                    'Nilai Setelah': isNaN(sesudah) ? tdSesudah.textContent : sesudah,
+                    'Nilai Sebelum Koreksi': isNaN(sebelum) ? tdSebelum.textContent : sebelum,
+                    'Nilai Setelah Koreksi': isNaN(sesudah) ? tdSesudah.textContent : sesudah,
                     'Selisih': isNaN(selisih) ? tdSelisih.textContent : selisih
                 };
             });
 
         const ws = XLSX.utils.json_to_sheet(rows);
-        ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 30 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+        ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 30 }, { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 16 }];
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Hasil Koreksi SO');
 
@@ -746,9 +744,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                     <th style="${thStyle}text-align:left;white-space:normal;min-width:180px;max-width:280px;">Pelaksana SO</th>
                     <th style="${thStyle}text-align:right;">Jumlah Produk</th>
                     <th style="${thStyle}text-align:right;">SKU Terkoreksi</th>
-                    <th style="${thStyle}text-align:right;">Hasil SO</th>
-                    <th style="${thStyle}text-align:right;">Nilai Sebelum</th>
-                    <th style="${thStyle}text-align:right;">Nilai Setelah</th>
+                    <th style="${thStyle}text-align:right;">Nilai Sebelum Koreksi</th>
+                    <th style="${thStyle}text-align:right;">Nilai Setelah Koreksi</th>
                     <th style="${thStyle}text-align:right;">Selisih</th>
                     <th style="${thStyle}"></th>
                 </tr>
@@ -781,12 +778,6 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                 tdSKU.style.cssText = 'padding:6px 8px;border:1px solid #dee2e6;text-align:right;color:#999;';
                 tdSKU.textContent = '...';
 
-                // Hasil SO = Jumlah Produk - SKU Terkoreksi. Baru bisa dihitung
-                // setelah SKU Terkoreksi selesai di-fetch, jadi ikut "..." dulu.
-                const tdHasilSO = document.createElement('td');
-                tdHasilSO.style.cssText = 'padding:6px 8px;border:1px solid #dee2e6;text-align:right;color:#999;';
-                tdHasilSO.textContent = '...';
-
                 const tdSebelum = document.createElement('td');
                 tdSebelum.style.cssText = 'padding:6px 8px;border:1px solid #dee2e6;text-align:right;color:#999;';
                 tdSebelum.textContent = '...';
@@ -815,14 +806,13 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                 tr.appendChild(tdPelaksana);
                 tr.appendChild(tdProduk);
                 tr.appendChild(tdSKU);
-                tr.appendChild(tdHasilSO);
                 tr.appendChild(tdSebelum);
                 tr.appendChild(tdSesudah);
                 tr.appendChild(tdSelisih);
                 tr.appendChild(tdLink);
                 tbody.appendChild(tr);
 
-                return { item, tr, tdSKU, tdHasilSO, tdSebelum, tdSesudah, tdSelisih };
+                return { item, tr, tdSKU, tdSebelum, tdSesudah, tdSelisih };
             });
             table.appendChild(tbody);
             // Baris Total di bagian bawah tabel (tfoot, nempel di bawah kalau di-scroll,
@@ -833,7 +823,6 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                 <td colspan="4" style="${tfStyle}text-align:right;">Total</td>
                 <td id="totalProduk" style="${tfStyle}text-align:right;color:#999;">...</td>
                 <td id="totalSKU" style="${tfStyle}text-align:right;color:#999;">...</td>
-                <td id="totalHasilSO" style="${tfStyle}text-align:right;color:#999;">...</td>
                 <td id="totalSebelum" style="${tfStyle}text-align:right;color:#999;">...</td>
                 <td id="totalSesudah" style="${tfStyle}text-align:right;color:#999;">...</td>
                 <td id="totalSelisih" style="${tfStyle}text-align:right;color:#999;">...</td>
@@ -844,7 +833,6 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
             const tdTotalProduk = tfoot.querySelector('#totalProduk');
             const tdTotalSKU = tfoot.querySelector('#totalSKU');
-            const tdTotalHasilSO = tfoot.querySelector('#totalHasilSO');
             const tdTotalSebelum = tfoot.querySelector('#totalSebelum');
             const tdTotalSesudah = tfoot.querySelector('#totalSesudah');
             const tdTotalSelisih = tfoot.querySelector('#totalSelisih');
@@ -877,7 +865,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                 });
 
                 if (!adaTampil) {
-                    [tdTotalProduk, tdTotalSKU, tdTotalHasilSO, tdTotalSebelum, tdTotalSesudah, tdTotalSelisih].forEach(td => {
+                    [tdTotalProduk, tdTotalSKU, tdTotalSebelum, tdTotalSesudah, tdTotalSelisih].forEach(td => {
                         td.textContent = '-';
                         td.style.color = '#999';
                     });
@@ -887,21 +875,18 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                 const warna = adaGagal ? '#dc3545' : '#333';
                 tdTotalProduk.textContent = totalProduk;
                 tdTotalSKU.textContent = totalSKU;
-                tdTotalHasilSO.textContent = (totalProduk - totalSKU) + (adaGagal ? ' *' : '');
                 tdTotalSebelum.textContent = formatRupiah(totalSebelum);
                 tdTotalSesudah.textContent = formatRupiah(totalSesudah);
                 tdTotalSelisih.textContent = formatRupiah(totalSelisih) + (adaGagal ? ' *' : '');
-                [tdTotalProduk, tdTotalSKU, tdTotalHasilSO, tdTotalSebelum, tdTotalSesudah, tdTotalSelisih].forEach(td => td.style.color = warna);
-                const titleGagal = 'Sebagian data gagal diambil, total belum lengkap';
-                tdTotalHasilSO.title = adaGagal ? titleGagal : '';
-                tdTotalSelisih.title = adaGagal ? titleGagal : '';
+                [tdTotalProduk, tdTotalSKU, tdTotalSebelum, tdTotalSesudah, tdTotalSelisih].forEach(td => td.style.color = warna);
+                tdTotalSelisih.title = adaGagal ? 'Sebagian data gagal diambil, total belum lengkap' : '';
             }
 
             // Fetch data tiap dokumen satu-satu (bukan paralel) supaya tidak
             // membanjiri server dengan banyak request sekaligus. Total dihitung
             // ulang tiap satu baris selesai (lihat hitungTotal di atas).
             (async () => {
-                for (const { item, tdSKU, tdHasilSO, tdSebelum, tdSesudah, tdSelisih } of baris) {
+                for (const { item, tdSKU, tdSebelum, tdSesudah, tdSelisih } of baris) {
                     if (!document.body.contains(overlay)) return; // popup sudah ditutup
                     try {
                         const d = await ambilDataDokumen(item.href);
@@ -910,12 +895,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                         tdSesudah.textContent = d.sesudah;
                         tdSelisih.textContent = d.selisih;
                         [tdSKU, tdSebelum, tdSesudah, tdSelisih].forEach(td => td.style.color = '#333');
-
-                        const produk = parseInt(item.jumlahProduk, 10);
-                        tdHasilSO.textContent = (isNaN(produk) || typeof d.jumlahSKU !== 'number') ? '-' : (produk - d.jumlahSKU);
-                        tdHasilSO.style.color = '#333';
                     } catch (e) {
-                        [tdSKU, tdHasilSO, tdSebelum, tdSesudah, tdSelisih].forEach(td => {
+                        [tdSKU, tdSebelum, tdSesudah, tdSelisih].forEach(td => {
                             td.textContent = 'Gagal';
                             td.style.color = '#dc3545';
                         });
