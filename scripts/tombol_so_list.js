@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hasil Koreksi SO - Daftar Stok Opnam
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
 // @match        https://*.erzap.com/stok_opnams*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -848,7 +848,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
             const tfStyle = 'padding:6px 8px;border:1px solid #dee2e6;background:#eef2f5;position:sticky;bottom:0;';
             const tfoot = document.createElement('tfoot');
             tfoot.innerHTML = `<tr style="font-weight:bold;">
-                <td colspan="5" style="${tfStyle}text-align:right;">Total</td>
+                <td colspan="4" style="${tfStyle}text-align:right;">Total</td>
+                <td id="totalProduk" style="${tfStyle}text-align:right;color:#999;">...</td>
                 <td id="totalSKU" style="${tfStyle}text-align:right;color:#999;">...</td>
                 <td id="totalSebelum" style="${tfStyle}text-align:right;color:#999;">...</td>
                 <td id="totalSesudah" style="${tfStyle}text-align:right;color:#999;">...</td>
@@ -858,6 +859,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
             table.appendChild(tfoot);
             listWrap.appendChild(table);
 
+            const tdTotalProduk = tfoot.querySelector('#totalProduk');
             const tdTotalSKU = tfoot.querySelector('#totalSKU');
             const tdTotalSebelum = tfoot.querySelector('#totalSebelum');
             const tdTotalSesudah = tfoot.querySelector('#totalSesudah');
@@ -868,12 +870,16 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
             // -- supaya totalnya ikut menyesuaikan begitu filter Gudang diganti,
             // baik untuk baris yang datanya sudah selesai atau masih "..." di-fetch.
             function hitungTotal() {
-                let totalSKU = 0, totalSebelum = 0, totalSesudah = 0, totalSelisih = 0;
+                let totalProduk = 0, totalSKU = 0, totalSebelum = 0, totalSesudah = 0, totalSelisih = 0;
                 let adaGagal = false, adaTampil = false;
 
-                baris.forEach(({ tr, tdSKU, tdSebelum, tdSesudah, tdSelisih }) => {
+                baris.forEach(({ item, tr, tdSKU, tdSebelum, tdSesudah, tdSelisih }) => {
                     if (tr.style.display === 'none') return;
                     adaTampil = true;
+
+                    const produk = parseInt(item.jumlahProduk, 10);
+                    if (!isNaN(produk)) totalProduk += produk;
+
                     if (tdSKU.textContent === 'Gagal') { adaGagal = true; return; }
 
                     const sku = parseInt(tdSKU.textContent, 10);
@@ -887,7 +893,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                 });
 
                 if (!adaTampil) {
-                    [tdTotalSKU, tdTotalSebelum, tdTotalSesudah, tdTotalSelisih].forEach(td => {
+                    [tdTotalProduk, tdTotalSKU, tdTotalSebelum, tdTotalSesudah, tdTotalSelisih].forEach(td => {
                         td.textContent = '-';
                         td.style.color = '#999';
                     });
@@ -895,11 +901,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                 }
 
                 const warna = adaGagal ? '#dc3545' : '#333';
+                tdTotalProduk.textContent = totalProduk;
                 tdTotalSKU.textContent = totalSKU;
                 tdTotalSebelum.textContent = formatRupiah(totalSebelum);
                 tdTotalSesudah.textContent = formatRupiah(totalSesudah);
                 tdTotalSelisih.textContent = formatRupiah(totalSelisih) + (adaGagal ? ' *' : '');
-                [tdTotalSKU, tdTotalSebelum, tdTotalSesudah, tdTotalSelisih].forEach(td => td.style.color = warna);
+                [tdTotalProduk, tdTotalSKU, tdTotalSebelum, tdTotalSesudah, tdTotalSelisih].forEach(td => td.style.color = warna);
                 tdTotalSelisih.title = adaGagal ? 'Sebagian data gagal diambil, total belum lengkap' : '';
             }
 
