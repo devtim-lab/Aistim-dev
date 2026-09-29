@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hasil Koreksi SO - Daftar Stok Opnam
 // @namespace    http://tampermonkey.net/
-// @version      1.1.6
+// @version      1.1.7
 // @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
 // @match        https://*.erzap.com/stok_opnams*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -89,9 +89,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                     'Pelaksana SO': item.pelaksanaSO,
                     'Jumlah Produk': item.jumlahProduk,
                     'SKU Terkoreksi': isNaN(sku) ? tdSKU.textContent : sku,
-                    'Nilai Sebelum Koreksi': isNaN(sebelum) ? tdSebelum.textContent : sebelum,
-                    'Nilai Setelah Koreksi': isNaN(sesudah) ? tdSesudah.textContent : sesudah,
-                    'Selisih': isNaN(selisih) ? tdSelisih.textContent : selisih
+                    'Nilai Sebelum Koreksi SO': isNaN(sebelum) ? tdSebelum.textContent : sebelum,
+                    'Nilai Setelah Koreksi SO': isNaN(sesudah) ? tdSesudah.textContent : sesudah,
+                    'Selisih Koreksi SO': isNaN(selisih) ? tdSelisih.textContent : selisih
                 };
             });
 
@@ -744,9 +744,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                     <th style="${thStyle}text-align:left;white-space:normal;min-width:180px;max-width:280px;">Pelaksana SO</th>
                     <th style="${thStyle}text-align:right;">Jumlah Produk</th>
                     <th style="${thStyle}text-align:right;">SKU Terkoreksi</th>
-                    <th style="${thStyle}text-align:right;">Nilai Sebelum Koreksi</th>
-                    <th style="${thStyle}text-align:right;">Nilai Setelah Koreksi</th>
-                    <th style="${thStyle}text-align:right;">Selisih</th>
+                    <th style="${thStyle}text-align:right;">Nilai Sebelum Koreksi SO</th>
+                    <th style="${thStyle}text-align:right;">Nilai Setelah Koreksi SO</th>
+                    <th style="${thStyle}text-align:right;">Selisih Koreksi SO</th>
                     <th style="${thStyle}"></th>
                 </tr>
             </thead>`;
