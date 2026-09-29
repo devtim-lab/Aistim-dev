@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hasil Koreksi SO - Daftar Stok Opnam
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Telusuri semua halaman Daftar Stok Opnam, filter tanggal & Gudang, lihat Jumlah SKU/Nilai/Selisih tiap SO, ekspor ke XLSX. Panel filter tanggal/gudang otomatis muat di layar HP.
 // @match        https://*.erzap.com/stok_opnams*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -86,9 +86,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                     'No Formulir': item.noFormulir,
                     'Tanggal': item.tanggal,
                     'Gudang': item.gudang,
-                    'Produk': item.jumlahProduk,
                     'Pelaksana SO': item.pelaksanaSO,
-                    'Jumlah SKU': isNaN(sku) ? tdSKU.textContent : sku,
+                    'Jumlah Produk': item.jumlahProduk,
+                    'SKU Terkoreksi': isNaN(sku) ? tdSKU.textContent : sku,
                     'Nilai Sebelum': isNaN(sebelum) ? tdSebelum.textContent : sebelum,
                     'Nilai Setelah': isNaN(sesudah) ? tdSesudah.textContent : sesudah,
                     'Selisih': isNaN(selisih) ? tdSelisih.textContent : selisih
@@ -96,7 +96,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
             });
 
         const ws = XLSX.utils.json_to_sheet(rows);
-        ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 10 }, { wch: 30 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+        ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 30 }, { wch: 10 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Hasil Koreksi SO');
 
@@ -770,9 +770,9 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                     <th style="${thStyle}text-align:left;">No Formulir</th>
                     <th style="${thStyle}text-align:left;">Tanggal</th>
                     <th style="${thStyle}text-align:left;white-space:normal;min-width:160px;max-width:240px;">Gudang</th>
-                    <th style="${thStyle}text-align:right;">Produk</th>
                     <th style="${thStyle}text-align:left;white-space:normal;min-width:180px;max-width:280px;">Pelaksana SO</th>
-                    <th style="${thStyle}text-align:right;">Jumlah SKU</th>
+                    <th style="${thStyle}text-align:right;">Jumlah Produk</th>
+                    <th style="${thStyle}text-align:right;">SKU Terkoreksi</th>
                     <th style="${thStyle}text-align:right;">Nilai Sebelum</th>
                     <th style="${thStyle}text-align:right;">Nilai Setelah</th>
                     <th style="${thStyle}text-align:right;">Selisih</th>
@@ -795,13 +795,13 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                 tdGudang.style.cssText = 'padding:6px 8px;border:1px solid #dee2e6;white-space:normal;word-break:break-word;min-width:160px;max-width:240px;';
                 tdGudang.textContent = item.gudang;
 
-                const tdProduk = document.createElement('td');
-                tdProduk.style.cssText = 'padding:6px 8px;border:1px solid #dee2e6;text-align:right;';
-                tdProduk.textContent = item.jumlahProduk;
-
                 const tdPelaksana = document.createElement('td');
                 tdPelaksana.style.cssText = 'padding:6px 8px;border:1px solid #dee2e6;white-space:normal;word-break:break-word;min-width:180px;max-width:280px;';
                 tdPelaksana.textContent = item.pelaksanaSO;
+
+                const tdProduk = document.createElement('td');
+                tdProduk.style.cssText = 'padding:6px 8px;border:1px solid #dee2e6;text-align:right;';
+                tdProduk.textContent = item.jumlahProduk;
 
                 const tdSKU = document.createElement('td');
                 tdSKU.style.cssText = 'padding:6px 8px;border:1px solid #dee2e6;text-align:right;color:#999;';
@@ -831,8 +831,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
                 tr.appendChild(tdNo);
                 tr.appendChild(tdTgl);
                 tr.appendChild(tdGudang);
-                tr.appendChild(tdProduk);
                 tr.appendChild(tdPelaksana);
+                tr.appendChild(tdProduk);
                 tr.appendChild(tdSKU);
                 tr.appendChild(tdSebelum);
                 tr.appendChild(tdSesudah);
