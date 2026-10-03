@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.2.0
 // @description  Tombol merekam klik & request (fetch/XHR) di Lihat Stok untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
+// @match        https://*.erzap.com/produks*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
 // @grant        none
@@ -124,10 +125,31 @@
         return v ? 'LOG SCRIPT RAK (rakstok.js):\n' + v : 'LOG SCRIPT RAK: (kosong / rakstok.js belum jalan)';
     }
 
+    // Ringkasan gambar di tabel halaman (untuk mencari asal gambar produk)
+    function laporanGambar() {
+        const out = ['== GAMBAR DI HALAMAN =='];
+        const semua = document.querySelectorAll('img');
+        out.push('Total <img> di halaman: ' + semua.length);
+        let n = 0;
+        document.querySelectorAll('tbody tr').forEach((tr) => {
+            if (n >= 8) return;
+            const imgs = tr.querySelectorAll('img');
+            if (!imgs.length) return;
+            n++;
+            const sel = Array.from(tr.children).slice(0, 4).map((td) => rapih(td.textContent).slice(0, 30)).join(' | ');
+            const src = Array.from(imgs).slice(0, 3).map((im) =>
+                'src=' + (im.getAttribute('src') || '') + (im.getAttribute('data-src') ? ' data-src=' + im.getAttribute('data-src') : '') +
+                (im.className ? ' class=' + rapih(im.className).slice(0, 40) : '')).join(' ; ');
+            out.push('BARIS: ' + sel + '\n   ' + src);
+        });
+        if (!n) out.push('(tidak ada <img> di baris tabel)');
+        return out.join('\n');
+    }
+
     function tampilkanHasil() {
         const teks = ['PEREKAM AISTIM ' + location.href, 'Waktu: ' + new Date().toString(), '', '== KLIK & REQUEST HALAMAN ==']
             .concat(log.length ? log : ['(tidak ada yang terekam)'])
-            .concat(['', logRak()]).join('\n');
+            .concat(['', laporanGambar(), '', logRak()]).join('\n');
 
         const bd = document.createElement('div');
         bd.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
