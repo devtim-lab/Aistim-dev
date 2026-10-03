@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Tambah kolom Rak di sebelah kanan Nama pada tabel Lihat Stok. Klik sel untuk isi/ubah rak (disimpan di browser per barcode).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -24,7 +24,8 @@
 
     const style = document.createElement('style');
     style.textContent = `
-        .rk_cell { cursor: pointer; white-space: nowrap; min-width: 60px; }
+        .rk_th, .rk_cell { width: 90px; min-width: 90px; max-width: 140px; box-sizing: border-box; }
+        .rk_cell { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .rk_cell .rk_val { font-weight: 600; color: #0d6efd; }
         .rk_cell .rk_kosong { color: #aaa; font-style: italic; font-size: 12px; }
     `;
@@ -106,8 +107,35 @@
             tds[namaIdx].insertAdjacentElement('afterend', td);
         });
 
-        // minta DataTables menyelaraskan lebar header & isi
-        if (headChanged) setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+        if (headChanged) {
+            window.dispatchEvent(new Event('resize')); // biar DataTables hitung ulang dulu
+            [60, 300, 800].forEach((ms) => setTimeout(() => syncWidths(table), ms));
+        }
+        syncWidths(table);
+    }
+
+    // Samakan lebar tiap kolom header (tabel header terpisah) dengan kolom tabel isi,
+    // supaya th dan td lurus walau tabel bisa di-scroll horizontal.
+    function syncWidths(table) {
+        const wrapper = table.closest('.dataTables_wrapper');
+        if (!wrapper) return;
+        const bodyThs = table.querySelectorAll('thead tr:first-child th');
+        if (!bodyThs.length) return;
+        const widths = Array.from(bodyThs).map((t) => t.getBoundingClientRect().width);
+        if (widths.some((w) => !w)) return;
+        const total = table.getBoundingClientRect().width;
+        wrapper.querySelectorAll('table').forEach((t) => {
+            if (t === table) return;
+            const ths = t.querySelectorAll('thead tr:first-child th');
+            if (ths.length !== widths.length) return;
+            t.style.width = total + 'px';
+            const inner = t.closest('.dataTables_scrollHeadInner');
+            if (inner) inner.style.width = total + 'px';
+            ths.forEach((th, i) => {
+                th.style.boxSizing = 'border-box';
+                th.style.width = th.style.minWidth = th.style.maxWidth = widths[i] + 'px';
+            });
+        });
     }
 
     // Klik sel Rak -> isi/ubah (prompt, ramah HP)
@@ -137,5 +165,9 @@
     }
 
     new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('resize', () => {
+        const t = document.querySelector(TABLE_SEL);
+        if (t) setTimeout(() => syncWidths(t), 100);
+    });
     schedule();
 })();
