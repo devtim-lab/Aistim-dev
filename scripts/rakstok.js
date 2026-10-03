@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), ikon gambar produk di kolom Nama (gambar diambil saat diklik, tampil di popup), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -49,9 +49,9 @@
         .rk_cell .rk_muted { color: #aaa; }
         .rk_cell .rk_err { color: #dc3545; }
 
-        .gs_ikon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
-                   margin: 0 6px 2px 0; border: 1px solid #ccd; border-radius: 6px; background: #f4f6ff;
-                   cursor: pointer; font-size: 15px; line-height: 1; vertical-align: middle; user-select: none; }
+        .gs_ikon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+                   margin: 0 5px 2px 0; border: 1px solid #ccd; border-radius: 5px; background: #f4f6ff;
+                   cursor: pointer; font-size: 12px; line-height: 1; vertical-align: middle; user-select: none; }
         .gs_ikon:hover { background: #e3e8ff; }
         #gs_modal_bd { position: fixed; inset: 0; z-index: 99996; background: rgba(0,0,0,.55);
                        display: flex; align-items: center; justify-content: center; }
