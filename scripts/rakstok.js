@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Kolom Rak di kanan Nama pada Lihat Stok. Otomatis diambil dari "Penempatan Rak" di dialog Aktifitas Stok (per gudang yang ada stoknya). Klik sel untuk muat ulang.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -12,7 +12,7 @@
     'use strict';
 
     const TABLE_SEL = '#data_table_produk';
-    const CACHE_KEY = 'aistim_rak_cache_v2';
+    const CACHE_KEY = 'aistim_rak_cache_v3';
     const CACHE_TTL = 60 * 60 * 1000; // 1 jam
     const MAKS_GUDANG = 8;            // batas request aktifitas per produk
     const CONCURRENCY = 3;
@@ -38,6 +38,7 @@
         .rk_th, .rk_cell { min-width: 120px; box-sizing: border-box; }
         .rk_cell { cursor: pointer; font-size: 12px; }
         .rk_cell .rk_item { display: block; white-space: nowrap; }
+        .rk_cell .rk_lanjut { padding-left: 12px; }
         /* Layar sempit (HP): lebar dibatasi, teks boleh turun baris */
         @media (max-width: 768px) {
             .rk_th, .rk_cell { width: 130px; max-width: 200px; }
@@ -151,6 +152,7 @@
     function parseHtml(html) {
         const doc = new DOMParser().parseFromString(html, 'text/html');
         doc.querySelectorAll('script, style').forEach((x) => x.remove());
+        doc.querySelectorAll('br').forEach((b) => b.replaceWith('\n')); // textContent tidak memuat <br>
         return doc;
     }
 
@@ -243,19 +245,25 @@
             return;
         }
         ada.forEach((x) => {
-            const baris = document.createElement('span');
-            baris.className = 'rk_item';
-            if (x.g) {
-                const g = document.createElement('span');
-                g.className = 'rk_g';
-                g.textContent = x.g + ': ';
-                baris.appendChild(g);
-            }
-            const v = document.createElement('span');
-            v.className = 'rk_val';
-            v.textContent = x.r;
-            baris.appendChild(v);
-            td.appendChild(baris);
+            // maksimal 3 nama rak per baris, sisanya turun ke baris berikutnya
+            const names = x.r.split(/\s*,\s*/).filter(Boolean);
+            const chunks = [];
+            for (let i = 0; i < names.length; i += 3) chunks.push(names.slice(i, i + 3).join(', '));
+            chunks.forEach((teks, idx) => {
+                const baris = document.createElement('span');
+                baris.className = 'rk_item' + (idx > 0 && x.g ? ' rk_lanjut' : '');
+                if (idx === 0 && x.g) {
+                    const g = document.createElement('span');
+                    g.className = 'rk_g';
+                    g.textContent = x.g + ': ';
+                    baris.appendChild(g);
+                }
+                const v = document.createElement('span');
+                v.className = 'rk_val';
+                v.textContent = teks;
+                baris.appendChild(v);
+                td.appendChild(baris);
+            });
         });
         jadwalSync();
     }
