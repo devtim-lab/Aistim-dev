@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Perekam Request (Debug)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Tombol merekam klik & request (fetch/XHR) di Lihat Stok untuk dikirim ke developer. Token/cookie tidak ikut direkam.
+// @version      1.1.0
+// @description  Tombol merekam klik & request (fetch/XHR) di Lihat Stok untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -13,6 +13,16 @@
     'use strict';
     if (window.__aistimRekam) return;
     window.__aistimRekam = true;
+
+    // Default tersembunyi & tidak mengubah fetch/XHR. Aktifkan: tambahkan ?rekam=1 di URL
+    // halaman (disimpan di browser), matikan: ?rekam=0.
+    const FLAG = 'aistim_rekam_aktif';
+    try {
+        const q = new URLSearchParams(location.search).get('rekam');
+        if (q === '1') localStorage.setItem(FLAG, '1');
+        else if (q === '0') localStorage.removeItem(FLAG);
+        if (localStorage.getItem(FLAG) !== '1') return;
+    } catch (e) { return; }
 
     let merekam = false;
     let log = [];
