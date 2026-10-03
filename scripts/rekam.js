@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Tombol merekam klik & request (fetch/XHR) di Lihat Stok untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @match        https://*.erzap.com/produks*
@@ -121,8 +121,9 @@
     }
 
     function logRak() {
-        const v = document.documentElement.getAttribute('data-aistim-rak-log');
-        return v ? 'LOG SCRIPT RAK (rakstok.js):\n' + v : 'LOG SCRIPT RAK: (kosong / rakstok.js belum jalan)';
+        const r = document.documentElement.getAttribute('data-aistim-rak-log');
+        const g = document.documentElement.getAttribute('data-aistim-gambar-log');
+        return 'LOG SCRIPT RAK (rakstok.js):\n' + (r || '(kosong)') + '\n\nLOG SCRIPT GAMBAR (gambarstok.js):\n' + (g || '(kosong)');
     }
 
     // Ringkasan gambar di tabel halaman (untuk mencari asal gambar produk)
