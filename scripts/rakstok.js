@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Kolom Rak di kanan Nama pada Lihat Stok. Otomatis diambil dari "Penempatan Rak" di dialog Aktifitas Stok (per gudang yang ada stoknya). Klik sel untuk muat ulang.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -113,15 +113,30 @@
         return parseFloat(m[0].replace(/\./g, '').replace(',', '.'));
     }
 
+    // Catatan ringkas tiap request (dibaca tombol Perekam lewat atribut dokumen)
+    const rakLog = [];
+    function catatLog(baris) {
+        rakLog.push(new Date().toTimeString().slice(0, 8) + ' ' + baris);
+        if (rakLog.length > 30) rakLog.shift();
+        try { document.documentElement.setAttribute('data-aistim-rak-log', rakLog.join('\n')); } catch (e) { /* abaikan */ }
+    }
+
     async function ambilHtml(url, params) {
         const qs = new URLSearchParams(params).toString();
-        const res = await fetch(url + '?' + qs, {
-            credentials: 'same-origin',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'text/plain, */*; q=0.01' // sama dengan $.ajax dataType:text milik situs
-            }
-        });
+        let res;
+        try {
+            res = await fetch(url + '?' + qs, {
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'text/plain, */*; q=0.01' // sama dengan $.ajax dataType:text milik situs
+                }
+            });
+        } catch (e) {
+            catatLog('FETCH ' + url + '?' + qs + ' -> ERROR ' + e);
+            throw e;
+        }
+        catatLog('FETCH ' + url + '?' + qs + ' -> ' + res.status);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.text();
     }
@@ -167,7 +182,10 @@
         });
         const teks = parseHtml(html).body.textContent || '';
         const m = teks.match(/Penempatan Rak\s*:?\s*([\s\S]*?)(?:Tabel ini dibaca|Tanggal\s+Kode|$)/i);
-        if (!m) return '';
+        if (!m) {
+            catatLog('RAK tidak ketemu di respons (' + teks.length + ' char): ' + teks.replace(/\s+/g, ' ').trim().slice(0, 150));
+            return '';
+        }
         return m[1].split(/\n+/).map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).join(', ');
     }
 

@@ -13,6 +13,7 @@
     "tombol_so_list.js",
     "smart_repair.js",
     "rak_barang.js",
-    "rakstok.js"
+    "rakstok.js",
+    "rekam.js"
   ]
 }
