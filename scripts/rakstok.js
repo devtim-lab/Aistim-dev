@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Kolom Rak di kanan Nama pada Lihat Stok. Otomatis diambil dari "Penempatan Rak" di dialog Aktifitas Stok (per gudang yang ada stoknya). Klik sel untuk muat ulang.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -227,7 +227,7 @@
         }
         ada.forEach((x, i) => {
             if (i) td.appendChild(document.createElement('br'));
-            if (ada.length > 1 && x.g) {
+            if (x.g) {
                 const g = document.createElement('span');
                 g.className = 'rk_g';
                 g.textContent = x.g + ': ';
