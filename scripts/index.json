@@ -13,6 +13,7 @@
     "smart_repair.js",
     "rak_barang.js",
     "rakstok.js",
-    "rekam.js"
+    "rekam.js",
+    "rekapstokmin.js"
   ]
 }
