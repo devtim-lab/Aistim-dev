@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Lihat Stok - Gambar Produk
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Thumbnail gambar produk di kolom Nama pada Lihat Stok. Diambil dari tab Gambar di halaman detail produk (/produks/<id>), dimuat saat baris terlihat & disimpan di cache. Klik thumbnail untuk memperbesar.
+// @version      1.1.0
+// @description  Ikon gambar di kolom Nama pada Lihat Stok. Gambar baru diambil saat ikon diklik (tidak membebani tabel), ditampilkan di popup. Sumber: tab Gambar di halaman detail produk (/produks/<id>).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -12,28 +12,7 @@
     'use strict';
 
     const TABLE_SEL = '#data_table_produk';
-    const CACHE_KEY = 'aistim_gambar_cache_v1';
-    const TTL = 24 * 60 * 60 * 1000;      // gambar ketemu: 24 jam
-    const TTL_KOSONG = 60 * 60 * 1000;    // tidak ada gambar / gagal: 1 jam
-    const CONCURRENCY = 3;
-
-    // ---------- cache ----------
-    let cache = {};
-    try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') || {}; } catch (e) { cache = {}; }
-    let saveTimer = null;
-    function saveCache() {
-        clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => {
-            try {
-                const now = Date.now();
-                Object.keys(cache).forEach((k) => {
-                    const ttl = cache[k].u ? TTL : TTL_KOSONG;
-                    if (now - cache[k].t > ttl) delete cache[k];
-                });
-                localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-            } catch (e) { /* abaikan */ }
-        }, 500);
-    }
+    const CACHE = {}; // id -> [url,...] selama halaman terbuka (tanpa localStorage)
 
     // ---------- log ringkas (dibaca devtool) ----------
     const logBaris = [];
@@ -45,19 +24,28 @@
 
     const style = document.createElement('style');
     style.textContent = `
-        .gs_box { float: left; width: 44px; height: 44px; margin: 0 8px 4px 0; border: 1px solid #ddd;
-                  border-radius: 4px; background: #fafafa; display: flex; align-items: center;
-                  justify-content: center; overflow: hidden; font-size: 11px; color: #aaa; cursor: default; }
-        .gs_box.gs_ada { cursor: zoom-in; }
-        .gs_box img { width: 100%; height: 100%; object-fit: contain; }
-        #gs_lightbox { position: fixed; inset: 0; z-index: 99996; background: rgba(0,0,0,.75);
-                       display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
-        #gs_lightbox img { max-width: 92vw; max-height: 90vh; background: #fff; border-radius: 6px; }
+        .gs_ikon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+                   margin: 0 6px 2px 0; border: 1px solid #ccd; border-radius: 6px; background: #f4f6ff;
+                   cursor: pointer; font-size: 15px; line-height: 1; vertical-align: middle; user-select: none; }
+        .gs_ikon:hover { background: #e3e8ff; }
+        #gs_modal_bd { position: fixed; inset: 0; z-index: 99996; background: rgba(0,0,0,.55);
+                       display: flex; align-items: center; justify-content: center; }
+        #gs_modal { background: #fff; border-radius: 10px; width: 94%; max-width: 560px; max-height: 88vh;
+                    display: flex; flex-direction: column; box-shadow: 0 6px 24px rgba(0,0,0,.35); font-family: inherit; }
+        #gs_modal .gs_head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+                             padding: 12px 14px; border-bottom: 1px solid #eee; }
+        #gs_modal .gs_judul { font-weight: 600; font-size: 14px; word-break: break-word; }
+        #gs_modal .gs_tutup { border: none; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: #666; }
+        #gs_modal .gs_isi { padding: 12px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+        #gs_modal .gs_isi img { max-width: 100%; max-height: 70vh; object-fit: contain; border: 1px solid #eee; border-radius: 6px; background: #fafafa; }
+        #gs_modal .gs_info { color: #777; font-size: 13px; padding: 20px 0; text-align: center; }
+        #gs_modal .gs_info.gs_err { color: #dc3545; }
     `;
     document.head.appendChild(style);
 
-    // ---------- ambil URL gambar dari halaman detail produk ----------
-    async function ambilUrlGambar(id) {
+    // ---------- ambil semua gambar dari halaman detail produk ----------
+    async function ambilGambar(id) {
+        if (CACHE[id]) return CACHE[id];
         const res = await fetch('/produks/' + encodeURIComponent(id), {
             credentials: 'same-origin',
             headers: { 'Accept': 'text/html' }
@@ -66,80 +54,91 @@
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         const pane = doc.querySelector('#tab_produk_gambar');
-        if (!pane) { catatLog('produk ' + id + ': #tab_produk_gambar tidak ada'); return ''; }
-        for (const im of pane.querySelectorAll('img')) {
+        if (!pane) { catatLog('produk ' + id + ': #tab_produk_gambar tidak ada'); CACHE[id] = []; return []; }
+        const urls = [];
+        pane.querySelectorAll('img').forEach((im) => {
             const src = im.getAttribute('src') || im.getAttribute('data-src') || '';
-            if (!src || /^data:/i.test(src)) continue;
-            try { return new URL(src, location.origin).href; } catch (e) { /* lanjut */ }
-        }
-        catatLog('produk ' + id + ': tidak ada <img> di tab Gambar');
-        return '';
-    }
-
-    // ---------- tampilan ----------
-    function tampil(box, url) {
-        box.textContent = '';
-        box.classList.toggle('gs_ada', !!url);
-        if (!url) { box.textContent = '-'; return; }
-        const img = document.createElement('img');
-        img.alt = '';
-        img.loading = 'lazy';
-        img.src = url;
-        img.addEventListener('error', () => { box.classList.remove('gs_ada'); box.textContent = '!'; });
-        box.dataset.url = url;
-        box.appendChild(img);
-        jadwalResize();
-    }
-
-    let resizeTimer = null;
-    function jadwalResize() { // minta tabel (DataTables / kolom Rak) hitung ulang lebar kolom
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => window.dispatchEvent(new Event('resize')), 300);
-    }
-
-    // ---------- antrean ----------
-    const queue = [];
-    let running = 0;
-    function pump() {
-        while (running < CONCURRENCY && queue.length) {
-            const job = queue.shift();
-            running++;
-            job().finally(() => { running--; pump(); });
-        }
-    }
-
-    function muat(box) {
-        const id = box.dataset.prd;
-        if (!id) { tampil(box, ''); return; }
-        const c = cache[id];
-        if (c && Date.now() - c.t < (c.u ? TTL : TTL_KOSONG)) { tampil(box, c.u); return; }
-        box.textContent = '...';
-        queue.push(async () => {
+            if (!src || /^data:/i.test(src)) return;
             try {
-                const u = await ambilUrlGambar(id);
-                cache[id] = { t: Date.now(), u: u };
-                saveCache();
-                document.querySelectorAll('.gs_box').forEach((b) => { if (b.dataset.prd === id) tampil(b, u); });
-            } catch (e) {
-                console.error('[Gambar] gagal produk=', id, e);
-                catatLog('produk ' + id + ' gagal: ' + e.message);
-                box.textContent = '!';
-            }
+                const u = new URL(src, location.origin).href;
+                if (urls.indexOf(u) === -1) urls.push(u);
+            } catch (e) { /* lewati */ }
         });
-        pump();
+        if (!urls.length) catatLog('produk ' + id + ': tidak ada <img> di tab Gambar');
+        CACHE[id] = urls;
+        return urls;
     }
 
-    const io = 'IntersectionObserver' in window
-        ? new IntersectionObserver((entries) => {
-            entries.forEach((en) => {
-                if (!en.isIntersecting) return;
-                io.unobserve(en.target);
-                muat(en.target);
-            });
-        }, { rootMargin: '300px' })
-        : null;
+    // ---------- popup ----------
+    function tutupModal() {
+        const bd = document.getElementById('gs_modal_bd');
+        if (bd) bd.remove();
+    }
 
-    // ---------- pasang di kolom Nama ----------
+    function bukaModal(id, judul) {
+        tutupModal();
+        const bd = document.createElement('div');
+        bd.id = 'gs_modal_bd';
+        const modal = document.createElement('div');
+        modal.id = 'gs_modal';
+
+        const head = document.createElement('div');
+        head.className = 'gs_head';
+        const j = document.createElement('div');
+        j.className = 'gs_judul';
+        j.textContent = judul || ('Produk ' + id);
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'gs_tutup';
+        x.innerHTML = '&times;';
+        x.addEventListener('click', tutupModal);
+        head.appendChild(j);
+        head.appendChild(x);
+
+        const isi = document.createElement('div');
+        isi.className = 'gs_isi';
+        const info = document.createElement('div');
+        info.className = 'gs_info';
+        info.textContent = 'Memuat gambar...';
+        isi.appendChild(info);
+
+        modal.appendChild(head);
+        modal.appendChild(isi);
+        bd.appendChild(modal);
+        bd.addEventListener('click', (e) => { if (e.target === bd) tutupModal(); });
+        document.body.appendChild(bd);
+
+        ambilGambar(id).then((urls) => {
+            if (!document.body.contains(bd)) return; // popup sudah ditutup
+            isi.textContent = '';
+            if (!urls.length) {
+                const t = document.createElement('div');
+                t.className = 'gs_info';
+                t.textContent = 'Produk ini belum punya gambar.';
+                isi.appendChild(t);
+                return;
+            }
+            urls.forEach((u) => {
+                const img = document.createElement('img');
+                img.alt = '';
+                img.src = u;
+                img.addEventListener('error', () => { img.alt = 'Gambar gagal dimuat'; });
+                isi.appendChild(img);
+            });
+        }).catch((e) => {
+            console.error('[Gambar] gagal produk=', id, e);
+            catatLog('produk ' + id + ' gagal: ' + e.message);
+            isi.textContent = '';
+            const t = document.createElement('div');
+            t.className = 'gs_info gs_err';
+            t.textContent = 'Gagal memuat gambar (' + e.message + ').';
+            isi.appendChild(t);
+        });
+    }
+
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') tutupModal(); });
+
+    // ---------- pasang ikon di kolom Nama ----------
     function findIndexIn(tr, label) {
         for (let i = 0; i < tr.children.length; i++) {
             if (tr.children[i].textContent.trim().toLowerCase() === label) return i;
@@ -154,33 +153,30 @@
         if (namaIdx < 0) return;
 
         table.querySelectorAll('tbody tr').forEach((tr) => {
-            if (tr.querySelector('.gs_box')) return;
+            if (tr.querySelector('.gs_ikon')) return;
             const tds = tr.children;
             if (tds.length <= namaIdx) return; // baris pesan kosong / loading
             const stokCell = tr.querySelector('td.bt_dialog_aktifitas_stok');
             if (!stokCell || !stokCell.dataset.prd) return;
 
-            const box = document.createElement('span');
-            box.className = 'gs_box';
-            box.dataset.prd = stokCell.dataset.prd;
-            box.textContent = '...';
-            tds[namaIdx].insertBefore(box, tds[namaIdx].firstChild);
-            if (io) io.observe(box); else muat(box);
+            const ikon = document.createElement('span');
+            ikon.className = 'gs_ikon';
+            ikon.title = 'Lihat gambar produk';
+            ikon.textContent = '🖼️'; // 🖼
+            ikon.dataset.prd = stokCell.dataset.prd;
+            tds[namaIdx].insertBefore(ikon, tds[namaIdx].firstChild);
         });
     }
 
-    // klik thumbnail -> perbesar
+    // klik ikon -> ambil & tampilkan gambar di popup
     document.addEventListener('click', (e) => {
-        const box = e.target.closest && e.target.closest('.gs_box.gs_ada');
-        if (!box || !box.dataset.url) return;
+        const ikon = e.target.closest && e.target.closest('.gs_ikon');
+        if (!ikon) return;
+        e.preventDefault();
         e.stopPropagation();
-        const lb = document.createElement('div');
-        lb.id = 'gs_lightbox';
-        const img = document.createElement('img');
-        img.src = box.dataset.url;
-        lb.appendChild(img);
-        lb.addEventListener('click', () => lb.remove());
-        document.body.appendChild(lb);
+        const td = ikon.closest('td');
+        const judul = td ? td.textContent.replace(ikon.textContent, '').replace(/\s+/g, ' ').trim() : '';
+        bukaModal(ikon.dataset.prd, judul);
     }, true);
 
     let timer = null;
