@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
+// @version      1.2.2
 // @description  Kolom Rak di kanan Nama pada Lihat Stok. Otomatis diambil dari "Penempatan Rak" di dialog Aktifitas Stok (per gudang yang ada stoknya). Klik sel untuk muat ulang.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -245,10 +245,10 @@
             return;
         }
         ada.forEach((x) => {
-            // maksimal 3 nama rak per baris, sisanya turun ke baris berikutnya
+            // maksimal 2 nama rak per baris, sisanya turun ke baris berikutnya
             const names = x.r.split(/\s*,\s*/).filter(Boolean);
             const chunks = [];
-            for (let i = 0; i < names.length; i += 3) chunks.push(names.slice(i, i + 3).join(', '));
+            for (let i = 0; i < names.length; i += 2) chunks.push(names.slice(i, i + 2).join(', '));
             chunks.forEach((teks, idx) => {
                 const baris = document.createElement('span');
                 baris.className = 'rk_item' + (idx > 0 && x.g ? ' rk_lanjut' : '');
