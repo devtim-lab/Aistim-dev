@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @description  Kolom Rak di kanan Nama pada Lihat Stok. Otomatis diambil dari "Penempatan Rak" di dialog Aktifitas Stok (per gudang yang ada stoknya). Klik sel untuk muat ulang.
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -117,7 +117,10 @@
         const qs = new URLSearchParams(params).toString();
         const res = await fetch(url + '?' + qs, {
             credentials: 'same-origin',
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'text/plain, */*; q=0.01' // sama dengan $.ajax dataType:text milik situs
+            }
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.text();
@@ -179,10 +182,17 @@
         target = target.slice(0, MAKS_GUDANG);
 
         const hasil = [];
+        let errTerakhir = null;
         for (const g of target) {
-            const rak = await rakGudang(idproduk, g.id, idoutlet);
-            hasil.push({ g: g.nama, o: g.outlet, r: rak });
+            try {
+                const rak = await rakGudang(idproduk, g.id, idoutlet);
+                hasil.push({ g: g.nama, o: g.outlet, r: rak });
+            } catch (e) {
+                errTerakhir = e;
+                console.error('[Rak] gudang', g.id, g.nama, e);
+            }
         }
+        if (!hasil.length && errTerakhir) throw errTerakhir;
         return hasil;
     }
 
@@ -261,7 +271,7 @@
                 });
             } catch (e) {
                 console.error('[Rak] gagal produk=', idproduk, e);
-                renderStatus(td, 'gagal (klik)', 'rk_err');
+                renderStatus(td, 'gagal: ' + (e && e.message ? e.message : e) + ' (klik)', 'rk_err');
             }
         });
         pump();
