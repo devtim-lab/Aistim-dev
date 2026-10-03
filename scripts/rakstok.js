@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Tambah kolom Rak di sebelah kanan Nama pada tabel Lihat Stok. Klik sel untuk isi/ubah rak (disimpan di browser per barcode).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -30,8 +30,8 @@
     `;
     document.head.appendChild(style);
 
-    function findIndex(table, label) {
-        const ths = table.querySelectorAll('thead th');
+    function findIndexIn(tr, label) {
+        const ths = tr.children;
         for (let i = 0; i < ths.length; i++) {
             if (ths[i].textContent.trim().toLowerCase() === label) return i;
         }
@@ -45,21 +45,50 @@
         if (rak) td.firstChild.textContent = rak;
     }
 
+    function setThText(th, txt) {
+        const w = document.createTreeWalker(th, NodeFilter.SHOW_TEXT);
+        let first = null, n;
+        const rest = [];
+        while ((n = w.nextNode())) {
+            if (!n.nodeValue.trim()) continue;
+            if (!first) first = n; else rest.push(n);
+        }
+        if (first) { first.nodeValue = txt; rest.forEach((x) => (x.nodeValue = '')); }
+        else th.textContent = txt;
+    }
+
+    // Header: tabel Lihat Stok memakai DataTables dengan header terpisah (scrollHead) +
+    // thead tersembunyi di tabel isi. Tambah kolom di SEMUA thead yang punya "Nama",
+    // dengan meng-clone th Nama supaya struktur/gaya (termasuk yang disembunyikan) sama.
+    function enhanceHeaders(root) {
+        let changed = false;
+        root.querySelectorAll('thead tr').forEach((tr) => {
+            if (tr.querySelector('.rk_th')) return;
+            const idx = findIndexIn(tr, 'nama');
+            if (idx < 0) return;
+            const th = tr.children[idx].cloneNode(true);
+            th.className = (th.className || '').replace(/\bsorting\w*\b/g, '').trim() + ' rk_th';
+            th.removeAttribute('aria-sort');
+            th.removeAttribute('aria-label');
+            th.removeAttribute('tabindex');
+            th.style.width = '';
+            th.style.cursor = 'default';
+            setThText(th, 'Rak');
+            tr.children[idx].insertAdjacentElement('afterend', th);
+            changed = true;
+        });
+        return changed;
+    }
+
     function enhance(table) {
-        const namaIdx = findIndex(table, 'nama');
-        const barcodeIdx = findIndex(table, 'barcode');
+        const headRow = table.querySelector('thead tr');
+        if (!headRow) return;
+        const namaIdx = findIndexIn(headRow, 'nama') >= 0 ? findIndexIn(headRow, 'nama') : (headRow.querySelector('.rk_th') ? findIndexIn(headRow, 'rak') - 1 : -1);
+        const barcodeIdx = findIndexIn(headRow, 'barcode');
         if (namaIdx < 0 || barcodeIdx < 0) return;
 
-        // Header
-        const headRow = table.querySelector('thead tr');
-        if (headRow && !headRow.querySelector('.rk_th')) {
-            const namaTh = headRow.children[namaIdx];
-            const th = document.createElement('th');
-            th.className = 'rk_th';
-            th.textContent = 'Rak';
-            th.style.cursor = 'default';
-            namaTh.insertAdjacentElement('afterend', th);
-        }
+        const wrapper = table.closest('.dataTables_wrapper') || table.parentElement || document;
+        const headChanged = enhanceHeaders(wrapper);
 
         // Baris data
         const map = loadMap();
@@ -76,6 +105,9 @@
             renderCell(td, map[barcode] || '');
             tds[namaIdx].insertAdjacentElement('afterend', td);
         });
+
+        // minta DataTables menyelaraskan lebar header & isi
+        if (headChanged) setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
     }
 
     // Klik sel Rak -> isi/ubah (prompt, ramah HP)
