@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
+// @version      1.4.2
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -56,9 +56,9 @@
         .gs_ikon:hover { background: #e3e8ff; }
         .gs_ikon.gs_kosong { opacity: .45; }
         /* Gambar panjang/lebar dipotong (crop) dari atas, ukuran dikunci sama untuk semua baris */
-        .gs_ikon img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important;
-                       min-width: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important;
-                       object-fit: cover !important; object-position: 50% 0 !important; display: block; }
+        .gs_ikon { flex: none; max-width: 20px; max-height: 20px; }
+        .gs_ikon.gs_foto { background-color: #fff; background-repeat: no-repeat;
+                           background-size: cover; background-position: 50% 0; }
         #gs_modal_bd { position: fixed; inset: 0; z-index: 99996; background: rgba(0,0,0,.55);
                        display: flex; align-items: center; justify-content: center; }
         #gs_modal { background: #fff; border-radius: 10px; width: 94%; max-width: 560px; max-height: 88vh;
@@ -404,13 +404,17 @@
 
     function pasangThumb(ikon, urls) {
         if (!urls.length) { ikon.classList.add('gs_kosong'); return; }
-        const img = document.createElement('img');
-        img.alt = '';
-        img.loading = 'lazy';
-        img.src = urls[0];
-        img.addEventListener('error', () => { img.remove(); ikon.textContent = '🖼️'; ikon.classList.add('gs_kosong'); });
-        ikon.textContent = '';
-        ikon.appendChild(img);
+        // Pakai background-image (bukan <img>) supaya gambar panjang selalu terpotong
+        // di dalam kotak 20x20 dan CSS situs tidak bisa memanjangkannya.
+        const u = urls[0];
+        const probe = new Image();
+        probe.onload = () => {
+            ikon.textContent = '';
+            ikon.classList.add('gs_foto');
+            ikon.style.backgroundImage = 'url("' + u.replace(/"/g, '%22') + '")';
+        };
+        probe.onerror = () => { ikon.classList.add('gs_kosong'); };
+        probe.src = u;
     }
 
     function pompaThumb() {
