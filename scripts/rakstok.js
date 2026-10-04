@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.4.2
+// @version      1.4.3
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -68,7 +68,9 @@
         #gs_modal .gs_judul { font-weight: 600; font-size: 14px; word-break: break-word; }
         #gs_modal .gs_tutup { border: none; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: #666; }
         #gs_modal .gs_isi { padding: 12px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; align-items: center; }
-        #gs_modal .gs_isi img { max-width: 100%; max-height: 70vh; object-fit: contain; border: 1px solid #eee; border-radius: 6px; background: #fafafa; }
+        #gs_modal .gs_isi img { max-width: 100%; max-height: 70vh; object-fit: contain; border: 1px solid #eee; border-radius: 6px; background: #fafafa;
+                                pointer-events: none; -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none; }
+        #gs_modal, #gs_modal * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
         #gs_modal .gs_info { color: #777; font-size: 13px; padding: 20px 0; text-align: center; }
         #gs_modal .gs_info.gs_err { color: #dc3545; }
 
@@ -452,6 +454,10 @@
         bd.id = 'gs_modal_bd';
         const modal = document.createElement('div');
         modal.id = 'gs_modal';
+        // blokir menu klik-kanan / tekan-lama & seret gambar di popup
+        ['contextmenu', 'dragstart', 'selectstart'].forEach((ev) => {
+            modal.addEventListener(ev, (e) => e.preventDefault());
+        });
 
         const head = document.createElement('div');
         head.className = 'gs_head';
@@ -492,6 +498,7 @@
             urls.forEach((u) => {
                 const img = document.createElement('img');
                 img.alt = '';
+                img.draggable = false;
                 img.src = u;
                 img.addEventListener('error', () => { img.alt = 'Gambar gagal dimuat'; });
                 isi.appendChild(img);
