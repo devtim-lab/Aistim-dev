@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
-// @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), ikon gambar produk di kolom Nama (gambar diambil saat diklik, tampil di popup), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
+// @version      1.4.0
+// @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -49,10 +49,13 @@
         .rk_cell .rk_muted { color: #aaa; }
         .rk_cell .rk_err { color: #dc3545; }
 
-        .gs_ikon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
-                   margin: 0 5px 2px 0; border: 1px solid #ccd; border-radius: 5px; background: #f4f6ff;
-                   cursor: pointer; font-size: 12px; line-height: 1; vertical-align: middle; user-select: none; }
+        .gs_ikon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+                   margin: 0 5px 2px 0; border: 1px solid #ccd; border-radius: 4px; background: #f4f6ff;
+                   cursor: pointer; font-size: 11px; line-height: 1; vertical-align: middle; user-select: none;
+                   overflow: hidden; box-sizing: border-box; }
         .gs_ikon:hover { background: #e3e8ff; }
+        .gs_ikon.gs_kosong { opacity: .45; }
+        .gs_ikon img { width: 100%; height: 100%; object-fit: cover; display: block; }
         #gs_modal_bd { position: fixed; inset: 0; z-index: 99996; background: rgba(0,0,0,.55);
                        display: flex; align-items: center; justify-content: center; }
         #gs_modal { background: #fff; border-radius: 10px; width: 94%; max-width: 560px; max-height: 88vh;
@@ -357,8 +360,16 @@
     const GCACHE = {}; // id -> [url,...] selama halaman terbuka
 
     // ---------- ambil semua gambar dari halaman detail produk ----------
-    async function ambilGambar(id) {
-        if (GCACHE[id]) return GCACHE[id];
+    const GPROMISE = {}; // id -> promise yang sedang berjalan (hindari fetch ganda)
+    function ambilGambar(id) {
+        if (GCACHE[id]) return Promise.resolve(GCACHE[id]);
+        if (!GPROMISE[id]) {
+            GPROMISE[id] = ambilGambarFetch(id).finally(() => { delete GPROMISE[id]; });
+        }
+        return GPROMISE[id];
+    }
+
+    async function ambilGambarFetch(id) {
         const res = await fetch('/produks/' + encodeURIComponent(id), {
             credentials: 'same-origin',
             headers: { 'Accept': 'text/html' }
@@ -381,6 +392,46 @@
         GCACHE[id] = urls;
         return urls;
     }
+
+    // ---------- thumbnail kecil (seukuran favicon) di kolom Nama ----------
+    // Dimuat bertahap: hanya saat ikon terlihat di layar, maks 3 permintaan sekaligus.
+    const ANTRI = [];
+    let jalan = 0;
+    const MAKS_PARALEL = 3;
+
+    function pasangThumb(ikon, urls) {
+        if (!urls.length) { ikon.classList.add('gs_kosong'); return; }
+        const img = document.createElement('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.src = urls[0];
+        img.addEventListener('error', () => { img.remove(); ikon.textContent = '🖼️'; ikon.classList.add('gs_kosong'); });
+        ikon.textContent = '';
+        ikon.appendChild(img);
+    }
+
+    function pompaThumb() {
+        while (jalan < MAKS_PARALEL && ANTRI.length) {
+            const ikon = ANTRI.shift();
+            if (!document.body.contains(ikon)) continue;
+            jalan++;
+            ambilGambar(ikon.dataset.prd)
+                .then((urls) => pasangThumb(ikon, urls))
+                .catch(() => { ikon.classList.add('gs_kosong'); })
+                .finally(() => { jalan--; pompaThumb(); });
+        }
+    }
+
+    const ioThumb = 'IntersectionObserver' in window
+        ? new IntersectionObserver((entries) => {
+            entries.forEach((en) => {
+                if (!en.isIntersecting) return;
+                ioThumb.unobserve(en.target);
+                ANTRI.push(en.target);
+            });
+            pompaThumb();
+        }, { rootMargin: '200px' })
+        : null;
 
     // ---------- popup ----------
     function tutupModal() {
@@ -488,6 +539,7 @@
                 ikon.textContent = '\uD83D\uDDBC\uFE0F'; // ikon gambar
                 ikon.dataset.prd = stokCell.dataset.prd;
                 namaTd.insertBefore(ikon, namaTd.firstChild);
+                if (ioThumb) ioThumb.observe(ikon); else { ANTRI.push(ikon); pompaThumb(); }
             }
             namaTd.insertAdjacentElement('afterend', td);
             if (io) io.observe(td); else muat(td, false);
