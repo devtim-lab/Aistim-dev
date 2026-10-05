@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.5.2
+// @version      1.5.3
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -612,10 +612,6 @@
             : (headRow.querySelector('.rk_th') ? findIndexIn(headRow, 'rak') - 1 : -1);
         const barcodeIdx = findIndexIn(headRow, 'barcode');
         if (namaIdx < 0 || barcodeIdx < 0) return;
-        // kolom Harga Jual (indeks header sudah bergeser +1 bila kolom Rak sudah dipasang di sebelah kirinya)
-        const hjHead = Array.from(headRow.children).findIndex((th) => /^harga\s*jual/i.test(th.textContent.trim()));
-        const rkHead = Array.from(headRow.children).findIndex((th) => th.classList.contains('rk_th'));
-        const hargaIdx = hjHead < 0 ? -1 : (rkHead >= 0 && rkHead < hjHead ? hjHead - 1 : hjHead);
 
         const wrapper = table.closest('.dataTables_wrapper') || table.parentElement || document;
         const headChanged = enhanceHeaders(wrapper);
@@ -647,19 +643,28 @@
                 if (ioThumb) ioThumb.observe(ikon); else { ANTRI.push(ikon); pompaThumb(); }
             }
             namaTd.insertAdjacentElement('afterend', td);
-            if (hargaIdx >= 0 && stokCell && stokCell.dataset.prd && tds[hargaIdx] && tds[hargaIdx] !== td
-                && !tds[hargaIdx].querySelector('.hj_btn')) {
+            if (io) io.observe(td); else muat(td, false);
+        });
+
+        // Tombol panah Harga Jual: dipasang ulang tiap pass (situs bisa menulis ulang isi sel setelah tabel digambar)
+        const hjNow = Array.from(headRow.children).findIndex((th) => /^harga\s*jual/i.test(th.textContent.trim()));
+        if (hjNow >= 0) {
+            table.querySelectorAll('tbody tr').forEach((tr) => {
+                if (!tr.querySelector('.rk_cell')) return;
+                const stok = tr.querySelector('td.bt_dialog_aktifitas_stok');
+                const hd = tr.children[hjNow];
+                if (!stok || !stok.dataset.prd || !hd || hd.classList.contains('rk_cell')) return;
+                hd.classList.add('hj_td');
+                hd.dataset.hjprd = stok.dataset.prd;
+                if (hd.querySelector('.hj_btn')) return;
                 const b = document.createElement('span');
                 b.className = 'hj_btn';
                 b.title = 'Harga jual per pelanggan';
-                b.textContent = '▾'; // panah bawah
-                b.dataset.prd = stokCell.dataset.prd;
-                tds[hargaIdx].classList.add('hj_td');
-                tds[hargaIdx].dataset.hjprd = stokCell.dataset.prd;
-                tds[hargaIdx].appendChild(b);
-            }
-            if (io) io.observe(td); else muat(td, false);
-        });
+                b.textContent = '\u25BE'; // panah bawah
+                b.dataset.prd = stok.dataset.prd;
+                hd.appendChild(b);
+            });
+        }
 
         if (headChanged) {
             window.dispatchEvent(new Event('resize'));
@@ -672,13 +677,15 @@
     document.addEventListener('click', (e) => {
         const trg = e.target.closest && e.target.closest('.hj_btn, .hj_td');
         if (!trg) return;
-        if (e.target.closest('.hj_list')) { e.stopPropagation(); return; } // klik di dalam daftar: biarkan
+        if (e.target.closest('.hj_list')) return; // klik di dalam daftar: biarkan
         const td = trg.closest('td');
         if (!td) return;
         const b = td.querySelector('.hj_btn');
         if (!b) return;
-        e.preventDefault();
-        e.stopPropagation();
+        const langsungTombol = !!e.target.closest('.hj_btn');
+        // klik pada kontrol bawaan situs (panah merah, link, tombol) di sel ini: jangan dicampuri
+        if (!langsungTombol && e.target.closest('a, button, i, svg, [onclick], [data-bs-toggle]')) return;
+        if (langsungTombol) { e.preventDefault(); e.stopPropagation(); }
         const ada = td.querySelector('.hj_list');
         if (ada) { ada.remove(); b.classList.remove('hj_buka'); b.textContent = '▾'; return; }
 
