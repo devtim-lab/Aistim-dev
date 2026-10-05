@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.5.5
+// @version      1.5.6
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -439,7 +439,10 @@
                     if (cells.length <= col) return;
                     const nama = teksBersih(cells[0]);
                     const nilai = nilaiSel(cells[col]);
-                    if (nama && nilai !== '') hasil.push({ nama: nama, harga: formatAngka(nilai) });
+                    if (!nama || nilai === '') return;
+                    if (hasil.some((x) => x.nama.toLowerCase() === nama.toLowerCase())) return; // hindari dobel (tabel jenis muncul lebih dari sekali)
+                    const fa = formatAngka(nilai);
+                    hasil.push({ nama: nama, harga: /^-?[\d.,]+$/.test(fa) ? 'Rp ' + fa : fa });
                 });
             });
         });
