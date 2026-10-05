@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.5.3
+// @version      1.5.4
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -413,39 +413,35 @@
         return panes;
     }
 
+    // Tabel "Harga Jual per Jenis Pelanggan": kolom Jenis (Platinum, Gold, Silver, Basic, Marketplace) + Diskon (input)
+    function formatAngka(t) {
+        const n = Number(String(t).replace(/,/g, ''));
+        return isFinite(n) && String(t).trim() !== '' ? n.toLocaleString('id-ID', { maximumFractionDigits: 2 }) : String(t);
+    }
+
     function ekstrakHarga(doc, id) {
         const hasil = [];
         const panes = cariPaneHarga(doc);
         if (!panes.length) { catatLog('produk ' + id + ': tab harga tidak ditemukan'); return null; }
+        const judulTabel = [];
         panes.forEach((pane) => {
             pane.querySelectorAll('table').forEach((tb) => {
                 const heads = Array.from(tb.querySelectorAll('thead th')).map(teksBersih);
-                const rows = Array.from(tb.querySelectorAll('tbody tr'));
-                if (!rows.length) return;
-                // Bentuk mendatar: 1 baris data, header = nama level (Basic, dst.)
-                if (rows.length === 1 && heads.length > 2) {
-                    const cells = Array.from(rows[0].children).map(nilaiSel);
-                    heads.forEach((h, i) => { if (h && cells[i] && !isNaN(angka(cells[i]))) hasil.push({ nama: h, harga: cells[i] }); });
-                    return;
-                }
-                // Bentuk menurun: tiap baris = satu level/pelanggan + harga
-                rows.forEach((tr) => {
-                    const cells = Array.from(tr.children).map(nilaiSel).filter((t) => t !== '');
+                judulTabel.push(heads.slice(0, 3).join('/'));
+                if (!heads.length || !/^jenis/i.test(heads[0])) return; // hanya tabel "per Jenis Pelanggan"
+                tb.querySelectorAll('tbody tr').forEach((tr) => {
+                    const cells = Array.from(tr.children);
                     if (cells.length < 2) return;
-                    const harga = cells.slice().reverse().find((t) => /\d/.test(t) && !isNaN(angka(t)));
-                    const nama = cells.find((t) => !/^[\d.,\s]+$/.test(t));
-                    if (nama && harga && nama !== harga) hasil.push({ nama: nama, harga: harga });
+                    const nama = teksBersih(cells[0]);
+                    const nilai = nilaiSel(cells[1]);
+                    if (nama && nilai !== '') hasil.push({ nama: nama, harga: formatAngka(nilai) });
                 });
             });
         });
-        catatLog('produk ' + id + ': ' + hasil.length + ' harga ditemukan');
+        catatLog('produk ' + id + ': ' + hasil.length + ' jenis pelanggan ditemukan');
         if (!hasil.length) {
-            // keterangan untuk pencocokan struktur (mis. tabel dimuat lewat AJAX, jadi kosong di HTML)
-            const p0 = panes[0];
-            const trs = p0.querySelectorAll('tr');
-            HDIAG[id] = 'pane=#' + (p0.id || '?') + ', tabel=' + p0.querySelectorAll('table').length + ', baris=' + trs.length
-                + (trs[1] ? ', contoh: ' + teksBersih(trs[1]).slice(0, 80) : '');
-            catatLog('produk ' + id + ' harga kosong: ' + HDIAG[id]);
+            HDIAG[id] = 'tabel di tab: ' + (judulTabel.join(' ; ') || 'tidak ada');
+            catatLog('produk ' + id + ' jenis pelanggan kosong: ' + HDIAG[id]);
         }
         return hasil;
     }
@@ -707,8 +703,12 @@
             if (!td.contains(box)) return;
             const data = HCACHE[b.dataset.prd];
             if (data === null || data === undefined) return info('Tab harga tidak ditemukan.', true);
-            if (!data.length) return info('Harga tidak terbaca. ' + (HDIAG[b.dataset.prd] || ''), true);
+            if (!data.length) return info('Tabel jenis pelanggan tidak terbaca. ' + (HDIAG[b.dataset.prd] || ''), true);
             box.textContent = '';
+            const jd = document.createElement('div');
+            jd.className = 'hj_info';
+            jd.textContent = 'Diskon per jenis pelanggan';
+            box.appendChild(jd);
             data.forEach((r) => {
                 const row = document.createElement('div');
                 row.className = 'hj_row';
