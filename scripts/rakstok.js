@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.5.6
+// @version      1.5.7
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -61,10 +61,12 @@
                            background-size: cover; background-position: 50% 0; }
 
         /* Tombol panah harga jual per pelanggan */
-        .hj_btn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
-                  margin-left: 6px; border: 1px solid #ccd; border-radius: 4px; background: #f4f6ff; color: #0d6efd;
-                  cursor: pointer; font-size: 11px; line-height: 1; vertical-align: middle; user-select: none; }
-        .hj_td { cursor: pointer; }
+        /* Tombol selalu di pojok kanan atas sel Harga Jual: ukuran & posisi sama di semua baris, tidak ikut pindah saat teks turun baris */
+        .hj_td { position: relative; padding-right: 40px !important; cursor: pointer; }
+        .hj_btn { position: absolute; top: 6px; right: 6px; margin: 0; width: 26px; height: 26px; min-width: 26px;
+                  box-sizing: border-box; display: flex; align-items: center; justify-content: center;
+                  border: 1px solid #ccd; border-radius: 6px; background: #f4f6ff; color: #0d6efd;
+                  cursor: pointer; font-size: 14px; line-height: 1; user-select: none; -webkit-tap-highlight-color: transparent; }
         .hj_btn:hover { background: #e3e8ff; }
         .hj_btn.hj_buka { background: #0d6efd; color: #fff; }
         .hj_list { display: block; margin-top: 6px; padding: 6px 8px; border: 1px solid #dde; border-radius: 6px;
