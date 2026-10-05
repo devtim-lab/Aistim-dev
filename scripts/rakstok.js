@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.4.3
-// @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
+// @version      1.5.0
+// @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -59,6 +59,21 @@
         .gs_ikon { flex: none; max-width: 20px; max-height: 20px; }
         .gs_ikon.gs_foto { background-color: #fff; background-repeat: no-repeat;
                            background-size: cover; background-position: 50% 0; }
+
+        /* Tombol panah harga jual per pelanggan */
+        .hj_btn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+                  margin-left: 6px; border: 1px solid #ccd; border-radius: 4px; background: #f4f6ff; color: #0d6efd;
+                  cursor: pointer; font-size: 11px; line-height: 1; vertical-align: middle; user-select: none; }
+        .hj_btn:hover { background: #e3e8ff; }
+        .hj_btn.hj_buka { background: #0d6efd; color: #fff; }
+        .hj_list { display: block; margin-top: 6px; padding: 6px 8px; border: 1px solid #dde; border-radius: 6px;
+                   background: #fafbff; font-size: 12px; font-weight: 400; text-align: left; min-width: 150px; }
+        .hj_list .hj_row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; border-bottom: 1px dashed #e5e7f0; }
+        .hj_list .hj_row:last-child { border-bottom: 0; }
+        .hj_list .hj_nm { color: #555; }
+        .hj_list .hj_hg { font-weight: 600; color: #0d6efd; white-space: nowrap; }
+        .hj_list .hj_info { color: #888; }
+        .hj_list .hj_info.hj_err { color: #dc3545; }
         #gs_modal_bd { position: fixed; inset: 0; z-index: 99996; background: rgba(0,0,0,.55);
                        display: flex; align-items: center; justify-content: center; }
         #gs_modal { background: #fff; border-radius: 10px; width: 94%; max-width: 560px; max-height: 88vh;
@@ -363,6 +378,66 @@
         : null;
 
     const GCACHE = {}; // id -> [url,...] selama halaman terbuka
+    const HCACHE = {}; // id -> [{nama, harga},...] harga jual per pelanggan (dari halaman detail yang sama)
+
+    // ---------- ambil harga jual per pelanggan dari tab harga di halaman detail produk ----------
+    function teksBersih(el) { return (el.textContent || '').replace(/\s+/g, ' ').trim(); }
+
+    function nilaiSel(td) {
+        const inp = td.querySelector('input, select');
+        if (inp) {
+            if (inp.tagName === 'SELECT') {
+                const o = inp.options[inp.selectedIndex];
+                return o ? o.textContent.trim() : '';
+            }
+            return (inp.getAttribute('value') || inp.value || '').trim();
+        }
+        return teksBersih(td);
+    }
+
+    function cariPaneHarga(doc) {
+        const panes = [];
+        const tambah = (el) => { if (el && panes.indexOf(el) === -1) panes.push(el); };
+        // 1) tab (link) yang judulnya mengandung "harga"
+        doc.querySelectorAll('a[href^="#"], [data-bs-target^="#"], [data-target^="#"]').forEach((a) => {
+            if (!/harga/i.test(a.textContent)) return;
+            const ref = a.getAttribute('href') || a.getAttribute('data-bs-target') || a.getAttribute('data-target') || '';
+            if (ref.length < 2) return;
+            try { tambah(doc.querySelector(ref)); } catch (e) { /* selector tidak valid */ }
+        });
+        // 2) pane dengan id mengandung "harga"
+        doc.querySelectorAll('[id*="harga" i]').forEach((el) => { if (el.querySelector('table')) tambah(el); });
+        return panes;
+    }
+
+    function ekstrakHarga(doc, id) {
+        const hasil = [];
+        const panes = cariPaneHarga(doc);
+        if (!panes.length) { catatLog('produk ' + id + ': tab harga tidak ditemukan'); return null; }
+        panes.forEach((pane) => {
+            pane.querySelectorAll('table').forEach((tb) => {
+                const heads = Array.from(tb.querySelectorAll('thead th')).map(teksBersih);
+                const rows = Array.from(tb.querySelectorAll('tbody tr'));
+                if (!rows.length) return;
+                // Bentuk mendatar: 1 baris data, header = nama level (Basic, dst.)
+                if (rows.length === 1 && heads.length > 2) {
+                    const cells = Array.from(rows[0].children).map(nilaiSel);
+                    heads.forEach((h, i) => { if (h && cells[i] && !isNaN(angka(cells[i]))) hasil.push({ nama: h, harga: cells[i] }); });
+                    return;
+                }
+                // Bentuk menurun: tiap baris = satu level/pelanggan + harga
+                rows.forEach((tr) => {
+                    const cells = Array.from(tr.children).map(nilaiSel).filter((t) => t !== '');
+                    if (cells.length < 2) return;
+                    const harga = cells.slice().reverse().find((t) => /\d/.test(t) && !isNaN(angka(t)));
+                    const nama = cells.find((t) => !/^[\d.,\s]+$/.test(t));
+                    if (nama && harga && nama !== harga) hasil.push({ nama: nama, harga: harga });
+                });
+            });
+        });
+        catatLog('produk ' + id + ': ' + hasil.length + ' harga ditemukan');
+        return hasil;
+    }
 
     // ---------- ambil semua gambar dari halaman detail produk ----------
     const GPROMISE = {}; // id -> promise yang sedang berjalan (hindari fetch ganda)
@@ -382,6 +457,7 @@
         catatLog('GET /produks/' + id + ' -> ' + res.status);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        try { HCACHE[id] = ekstrakHarga(doc, id); } catch (e) { catatLog('produk ' + id + ' harga error: ' + e.message); HCACHE[id] = null; }
         const pane = doc.querySelector('#tab_produk_gambar');
         if (!pane) { catatLog('produk ' + id + ': #tab_produk_gambar tidak ada'); GCACHE[id] = []; return []; }
         const urls = [];
@@ -525,6 +601,10 @@
             : (headRow.querySelector('.rk_th') ? findIndexIn(headRow, 'rak') - 1 : -1);
         const barcodeIdx = findIndexIn(headRow, 'barcode');
         if (namaIdx < 0 || barcodeIdx < 0) return;
+        // kolom Harga Jual (indeks header sudah bergeser +1 bila kolom Rak sudah dipasang di sebelah kirinya)
+        const hjHead = Array.from(headRow.children).findIndex((th) => /^harga\s*jual/i.test(th.textContent.trim()));
+        const rkHead = Array.from(headRow.children).findIndex((th) => th.classList.contains('rk_th'));
+        const hargaIdx = hjHead < 0 ? -1 : (rkHead >= 0 && rkHead < hjHead ? hjHead - 1 : hjHead);
 
         const wrapper = table.closest('.dataTables_wrapper') || table.parentElement || document;
         const headChanged = enhanceHeaders(wrapper);
@@ -556,6 +636,15 @@
                 if (ioThumb) ioThumb.observe(ikon); else { ANTRI.push(ikon); pompaThumb(); }
             }
             namaTd.insertAdjacentElement('afterend', td);
+            if (hargaIdx >= 0 && stokCell && stokCell.dataset.prd && tds[hargaIdx] && tds[hargaIdx] !== td
+                && !tds[hargaIdx].querySelector('.hj_btn')) {
+                const b = document.createElement('span');
+                b.className = 'hj_btn';
+                b.title = 'Harga jual per pelanggan';
+                b.textContent = '▾'; // panah bawah
+                b.dataset.prd = stokCell.dataset.prd;
+                tds[hargaIdx].appendChild(b);
+            }
             if (io) io.observe(td); else muat(td, false);
         });
 
@@ -565,6 +654,56 @@
         }
         syncWidths(table);
     }
+
+    // klik panah harga -> tampilkan/sembunyikan daftar harga per pelanggan di bawah angka harga
+    document.addEventListener('click', (e) => {
+        const b = e.target.closest && e.target.closest('.hj_btn');
+        if (!b) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const td = b.closest('td');
+        if (!td) return;
+        const ada = td.querySelector('.hj_list');
+        if (ada) { ada.remove(); b.classList.remove('hj_buka'); b.textContent = '▾'; return; }
+
+        const box = document.createElement('div');
+        box.className = 'hj_list';
+        const info = (teks, err) => {
+            box.textContent = '';
+            const d = document.createElement('div');
+            d.className = 'hj_info' + (err ? ' hj_err' : '');
+            d.textContent = teks;
+            box.appendChild(d);
+        };
+        info('Memuat harga...');
+        td.appendChild(box);
+        b.classList.add('hj_buka');
+        b.textContent = '▴'; // panah atas
+
+        ambilGambar(b.dataset.prd).then(() => {
+            if (!td.contains(box)) return;
+            const data = HCACHE[b.dataset.prd];
+            if (data === null || data === undefined) return info('Tab harga tidak ditemukan.', true);
+            if (!data.length) return info('Belum ada harga per pelanggan.');
+            box.textContent = '';
+            data.forEach((r) => {
+                const row = document.createElement('div');
+                row.className = 'hj_row';
+                const n = document.createElement('span');
+                n.className = 'hj_nm';
+                n.textContent = r.nama;
+                const h = document.createElement('span');
+                h.className = 'hj_hg';
+                h.textContent = r.harga;
+                row.appendChild(n);
+                row.appendChild(h);
+                box.appendChild(row);
+            });
+        }).catch((err) => {
+            catatLog('harga produk ' + b.dataset.prd + ' gagal: ' + err.message);
+            if (td.contains(box)) info('Gagal memuat harga (' + err.message + ').', true);
+        });
+    }, true);
 
     // klik ikon gambar -> ambil & tampilkan gambar di popup
     document.addEventListener('click', (e) => {
