@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
+// @version      1.5.1
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -378,6 +378,7 @@
         : null;
 
     const GCACHE = {}; // id -> [url,...] selama halaman terbuka
+    const HDIAG = {}; // id -> keterangan bila tab harga ditemukan tapi tabelnya kosong
     const HCACHE = {}; // id -> [{nama, harga},...] harga jual per pelanggan (dari halaman detail yang sama)
 
     // ---------- ambil harga jual per pelanggan dari tab harga di halaman detail produk ----------
@@ -398,6 +399,7 @@
     function cariPaneHarga(doc) {
         const panes = [];
         const tambah = (el) => { if (el && panes.indexOf(el) === -1) panes.push(el); };
+        tambah(doc.querySelector('#tab_produk_harga_pelanggan')); // tab "Harga Jual" (dari hasil rekam)
         // 1) tab (link) yang judulnya mengandung "harga"
         doc.querySelectorAll('a[href^="#"], [data-bs-target^="#"], [data-target^="#"]').forEach((a) => {
             if (!/harga/i.test(a.textContent)) return;
@@ -436,6 +438,14 @@
             });
         });
         catatLog('produk ' + id + ': ' + hasil.length + ' harga ditemukan');
+        if (!hasil.length) {
+            // keterangan untuk pencocokan struktur (mis. tabel dimuat lewat AJAX, jadi kosong di HTML)
+            const p0 = panes[0];
+            const trs = p0.querySelectorAll('tr');
+            HDIAG[id] = 'pane=#' + (p0.id || '?') + ', tabel=' + p0.querySelectorAll('table').length + ', baris=' + trs.length
+                + (trs[1] ? ', contoh: ' + teksBersih(trs[1]).slice(0, 80) : '');
+            catatLog('produk ' + id + ' harga kosong: ' + HDIAG[id]);
+        }
         return hasil;
     }
 
@@ -684,7 +694,7 @@
             if (!td.contains(box)) return;
             const data = HCACHE[b.dataset.prd];
             if (data === null || data === undefined) return info('Tab harga tidak ditemukan.', true);
-            if (!data.length) return info('Belum ada harga per pelanggan.');
+            if (!data.length) return info('Harga tidak terbaca. ' + (HDIAG[b.dataset.prd] || ''), true);
             box.textContent = '';
             data.forEach((r) => {
                 const row = document.createElement('div');
