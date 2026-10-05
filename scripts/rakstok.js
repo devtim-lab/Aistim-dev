@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
+// @version      1.5.2
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -64,6 +64,7 @@
         .hj_btn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
                   margin-left: 6px; border: 1px solid #ccd; border-radius: 4px; background: #f4f6ff; color: #0d6efd;
                   cursor: pointer; font-size: 11px; line-height: 1; vertical-align: middle; user-select: none; }
+        .hj_td { cursor: pointer; }
         .hj_btn:hover { background: #e3e8ff; }
         .hj_btn.hj_buka { background: #0d6efd; color: #fff; }
         .hj_list { display: block; margin-top: 6px; padding: 6px 8px; border: 1px solid #dde; border-radius: 6px;
@@ -653,6 +654,8 @@
                 b.title = 'Harga jual per pelanggan';
                 b.textContent = '▾'; // panah bawah
                 b.dataset.prd = stokCell.dataset.prd;
+                tds[hargaIdx].classList.add('hj_td');
+                tds[hargaIdx].dataset.hjprd = stokCell.dataset.prd;
                 tds[hargaIdx].appendChild(b);
             }
             if (io) io.observe(td); else muat(td, false);
@@ -667,12 +670,15 @@
 
     // klik panah harga -> tampilkan/sembunyikan daftar harga per pelanggan di bawah angka harga
     document.addEventListener('click', (e) => {
-        const b = e.target.closest && e.target.closest('.hj_btn');
+        const trg = e.target.closest && e.target.closest('.hj_btn, .hj_td');
+        if (!trg) return;
+        if (e.target.closest('.hj_list')) { e.stopPropagation(); return; } // klik di dalam daftar: biarkan
+        const td = trg.closest('td');
+        if (!td) return;
+        const b = td.querySelector('.hj_btn');
         if (!b) return;
         e.preventDefault();
         e.stopPropagation();
-        const td = b.closest('td');
-        if (!td) return;
         const ada = td.querySelector('.hj_list');
         if (ada) { ada.remove(); b.classList.remove('hj_buka'); b.textContent = '▾'; return; }
 
