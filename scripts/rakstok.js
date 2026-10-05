@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.5.4
+// @version      1.5.5
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -424,23 +424,28 @@
         const panes = cariPaneHarga(doc);
         if (!panes.length) { catatLog('produk ' + id + ': tab harga tidak ditemukan'); return null; }
         const judulTabel = [];
+        let kolomJenis = '';
         panes.forEach((pane) => {
             pane.querySelectorAll('table').forEach((tb) => {
                 const heads = Array.from(tb.querySelectorAll('thead th')).map(teksBersih);
                 judulTabel.push(heads.slice(0, 3).join('/'));
                 if (!heads.length || !/^jenis/i.test(heads[0])) return; // hanya tabel "per Jenis Pelanggan"
+                // kolom harga jual (bukan Diskon): header mengandung "harga"
+                const col = heads.findIndex((h, i) => i > 0 && /harga/i.test(h) && !/diskon/i.test(h));
+                kolomJenis = heads.join(' | ');
+                if (col < 0) return;
                 tb.querySelectorAll('tbody tr').forEach((tr) => {
                     const cells = Array.from(tr.children);
-                    if (cells.length < 2) return;
+                    if (cells.length <= col) return;
                     const nama = teksBersih(cells[0]);
-                    const nilai = nilaiSel(cells[1]);
+                    const nilai = nilaiSel(cells[col]);
                     if (nama && nilai !== '') hasil.push({ nama: nama, harga: formatAngka(nilai) });
                 });
             });
         });
         catatLog('produk ' + id + ': ' + hasil.length + ' jenis pelanggan ditemukan');
         if (!hasil.length) {
-            HDIAG[id] = 'tabel di tab: ' + (judulTabel.join(' ; ') || 'tidak ada');
+            HDIAG[id] = kolomJenis ? 'kolom tabel Jenis: ' + kolomJenis + ' (tidak ada kolom harga)' : 'tabel di tab: ' + (judulTabel.join(' ; ') || 'tidak ada');
             catatLog('produk ' + id + ' jenis pelanggan kosong: ' + HDIAG[id]);
         }
         return hasil;
@@ -707,7 +712,7 @@
             box.textContent = '';
             const jd = document.createElement('div');
             jd.className = 'hj_info';
-            jd.textContent = 'Diskon per jenis pelanggan';
+            jd.textContent = 'Harga jual per jenis pelanggan';
             box.appendChild(jd);
             data.forEach((r) => {
                 const row = document.createElement('div');
