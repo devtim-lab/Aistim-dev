@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
+// @version      1.6.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -145,6 +145,45 @@
         render();
     }
 
+    // ---------- Rekap hari ini: telusuri halaman 1,2,... sampai nota lebih lama dari hari ini ----------
+    let mode = 'hari';         // 'hari' = rekap hari ini, 'halaman' = per halaman
+    let hari = null;           // { items, totalBaris, halaman, waktu, error }
+    async function muatHari() {
+        if (sedangFetch) return;
+        sedangFetch = true;
+        render();
+        try {
+            const awal = new Date(); awal.setHours(0, 0, 0, 0);
+            const t0 = awal.getTime();
+            const peta = new Map();
+            let total = 0, hal = 0, p1 = null;
+            for (let n = 1; n <= 12; n++) {
+                const res = await fetch(LIST_URL + (n > 1 ? '?page=' + n : ''), { credentials: 'same-origin', cache: 'no-store' });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+                const r = ekstrakDaftar(doc, location.origin + LIST_URL);
+                if (n === 1) p1 = r;
+                total += r.totalBaris; hal = n;
+                r.items.forEach((it) => { if (it.ts >= t0 && !peta.has(it.faktur)) peta.set(it.faktur, it); });
+                if (r.items.some((it) => it.ts && it.ts < t0) || r.totalBaris < 50) break;
+            }
+            hari = { items: Array.from(peta.values()).sort((a, b) => b.ts - a.ts), totalBaris: total, halaman: hal, waktu: Date.now(), error: '' };
+            if (p1) {
+                data = { items: p1.items, totalBaris: p1.totalBaris, halaman: 1, waktu: Date.now(), error: '' };
+                ls.set(K_CACHE, JSON.stringify(data));
+            }
+        } catch (e) {
+            hari = { items: (hari && hari.items) || [], totalBaris: (hari && hari.totalBaris) || 0, halaman: (hari && hari.halaman) || 0, waktu: (hari && hari.waktu) || 0, error: e.message || String(e) };
+        }
+        sedangFetch = false;
+        halKini = 1;
+        if (data && !hari.error) cekBunyi();
+        sesuaikanBadge();
+        render();
+    }
+
+    function muatSesuaiMode() { if (mode === 'hari') muatHari(); else muatData(true, halKini); }
+
     // ---------- Status "sudah dilihat" ----------
     const terakhirDilihat = () => +(ls.get(K_SEEN) || 0);
     const tsTerbaru = () => (data && data.items.length ? data.items[0].ts : 0);
@@ -181,6 +220,13 @@
         '.it .f a{color:#1d4ed8;text-decoration:none}',
         '.it .m{color:#666;font-size:12px;margin-top:2px}',
         '.tag{display:inline-block;background:#f97316;color:#fff;border-radius:4px;font-size:10px;font-weight:700;padding:1px 5px;margin-left:6px;vertical-align:middle}',
+        '.tabs{display:flex;border-bottom:1px solid #fecaca}',
+        '.tabs button{flex:1;padding:8px;border:none;background:#fff;font-size:13px;color:#666;cursor:pointer;border-bottom:3px solid transparent}',
+        '.tabs button.on{color:#dc2626;font-weight:700;border-bottom-color:#dc2626}',
+        '.rk{padding:6px 12px;border-bottom:1px solid #eee;font-size:13px;max-height:30vh;overflow-y:auto}',
+        '.rkh{font-size:11px;color:#888;text-transform:uppercase;margin-bottom:2px}',
+        '.rkr{display:flex;justify-content:space-between;gap:8px;padding:2px 0}',
+        '.rkr.tot{border-top:1px solid #ddd;margin-top:3px;padding-top:4px}',
         '.kosong{padding:24px 12px;text-align:center;color:#777;font-size:13px}'
     ].join('');
     root.appendChild(css);
@@ -248,6 +294,7 @@
         const n = jumlahBaru();
         badge.textContent = n > 99 ? '99+' : String(n);
         badge.classList.toggle('ada', n > 0);
+        if (tombolInline) tombolInline.textContent = '🔔 Pesanan Web' + (n > 0 ? ' (' + n + ')' : '');
     }
 
     // ----- panel -----
@@ -256,7 +303,7 @@
         terbuka = !terbuka;
         panel.classList.toggle('buka', terbuka);
         if (terbuka) {
-            muatData(true, 1);
+            if (mode === 'hari') muatHari(); else muatData(true, 1);
             render();
         } else {
             if (data && data.halaman === 1) tandaiDilihat();
@@ -293,24 +340,51 @@
         const bRef = el('button', '', sedangFetch ? '...' : '↻');
         bRef.type = 'button';
         bRef.title = 'Muat ulang';
-        bRef.onclick = () => muatData(true, halKini);
+        bRef.onclick = muatSesuaiMode;
         const bTutup = el('button', '', '✕');
         bTutup.type = 'button';
         bTutup.onclick = togglePanel;
         hd.append(bRef, bTutup);
         panel.appendChild(hd);
 
-        const sub = el('div', 'sub' + (data && data.error ? ' err' : ''));
+        const tabs = el('div', 'tabs');
+        [['hari', 'Hari ini'], ['halaman', 'Per halaman']].forEach(([m, t]) => {
+            const bt = el('button', m === mode ? 'on' : '', t);
+            bt.type = 'button';
+            bt.onclick = () => { if (mode === m) return; mode = m; if (m === 'hari') { if (!hari) muatHari(); else render(); } else if (!data) muatData(true, 1); else render(); };
+            tabs.appendChild(bt);
+        });
+        panel.appendChild(tabs);
+
+        const src = mode === 'hari' ? hari : data;
+        const sub = el('div', 'sub' + (src && src.error ? ' err' : ''));
         if (sedangFetch) sub.textContent = 'Memindai no faktur berawalan 1...';
-        else if (!data) sub.textContent = 'Memuat...';
-        else if (data.error) sub.textContent = 'Gagal memuat: ' + data.error + (data.waktu ? ' (data lama ' + fmtWaktu(data.waktu) + ')' : '');
-        else sub.textContent = data.items.length + ' nota web dari ' + data.totalBaris + ' baris · halaman ' + (data.halaman || 1) + ' Data Penjualan · dicek ' + fmtWaktu(data.waktu);
+        else if (!src) sub.textContent = 'Memuat...';
+        else if (src.error) sub.textContent = 'Gagal memuat: ' + src.error + (src.waktu ? ' (data lama ' + fmtWaktu(src.waktu) + ')' : '');
+        else if (mode === 'hari') sub.textContent = 'Rekap hari ini: ' + src.items.length + ' nota web (dipindai ' + src.totalBaris + ' baris, halaman 1-' + src.halaman + ') · dicek ' + fmtWaktu(src.waktu);
+        else sub.textContent = src.items.length + ' nota web dari ' + src.totalBaris + ' baris · halaman ' + (src.halaman || 1) + ' Data Penjualan · dicek ' + fmtWaktu(src.waktu);
         panel.appendChild(sub);
+
+        if (mode === 'hari' && src && !src.error && src.items.length) {
+            const per = new Map();
+            src.items.forEach((it) => { const k = it.outlet || '(tanpa outlet)'; per.set(k, (per.get(k) || 0) + 1); });
+            const rk = el('div', 'rk');
+            rk.appendChild(el('div', 'rkh', 'Per outlet'));
+            Array.from(per.entries()).sort((x, y) => y[1] - x[1]).forEach(([k, n]) => {
+                const r = el('div', 'rkr');
+                r.append(el('span', '', k), el('b', '', String(n)));
+                rk.appendChild(r);
+            });
+            const tot = el('div', 'rkr tot');
+            tot.append(el('span', '', 'Total hari ini'), el('b', '', String(src.items.length)));
+            rk.appendChild(tot);
+            panel.appendChild(rk);
+        }
 
         const list = el('div', 'list');
         const seen = terakhirDilihat();
-        if (data && data.items.length) {
-            data.items.forEach((it) => {
+        if (src && src.items.length) {
+            src.items.forEach((it) => {
                 const row = el('div', 'it' + (it.ts > seen ? ' baru' : ''));
                 const f = el('div', 'f');
                 if (it.href) {
@@ -325,16 +399,16 @@
                 row.appendChild(el('div', 'm', fmtWaktu(it.ts) + (it.outlet ? ' · ' + it.outlet : '') + (it.kode ? ' · ' + it.kode : '')));
                 list.appendChild(row);
             });
-        } else if (data && !data.error) {
-            list.appendChild(el('div', 'kosong', data.totalBaris
-                ? 'Tidak ada nota dengan pola nomor faktur web di ' + data.totalBaris + ' baris di halaman ' + (data.halaman || 1) + '.'
-                : 'Tabel Data Penjualan tidak terbaca (0 baris).'));
-        } else if (!data || sedangFetch) {
+        } else if (src && !src.error) {
+            list.appendChild(el('div', 'kosong', mode === 'hari'
+                ? 'Belum ada nota web hari ini.'
+                : (src.totalBaris ? 'Tidak ada nota dengan pola nomor faktur web di ' + src.totalBaris + ' baris di halaman ' + (src.halaman || 1) + '.' : 'Tabel Data Penjualan tidak terbaca (0 baris).')));
+        } else if (!src || sedangFetch) {
             list.appendChild(el('div', 'kosong', 'Memuat...'));
         }
         panel.appendChild(list);
 
-        if (data) {
+        if (mode === 'halaman' && data) {
             const nav = el('div', 'nav');
             nav.style.cssText = 'display:flex;gap:8px;padding:8px 10px 10px;';
             const mk = (teks, off, fn) => {
@@ -354,6 +428,31 @@
 
     // bersihkan sisa pengaturan filter lama (fitur filter dihapus)
     ls.del(K_FILTER);
+
+    // ---------- Tombol lonceng sebaris di halaman Data Pesanan Penjualan (di kiri "Rekap Pesanan Baru") ----------
+    var tombolInline = null;
+    if (/^\/pesanan_penjualans\/?$/.test(location.pathname)) {
+        let sejak = Date.now();
+        const pasangInline = () => {
+            if (tombolInline && document.contains(tombolInline)) return;
+            const rekap = document.getElementById('btn-rekap-pesanan');
+            if (!rekap || !rekap.parentNode) {
+                if (Date.now() - sejak > 90000) fab.style.display = '';   // tombol Rekap tak muncul: pakai FAB saja
+                return;
+            }
+            tombolInline = document.createElement('button');
+            tombolInline.id = 'aistim_pw_inline';
+            tombolInline.type = 'button';
+            tombolInline.className = 'btn btn-danger';
+            tombolInline.style.cssText = 'white-space:nowrap;margin:4px 8px 4px 0;';
+            tombolInline.addEventListener('click', togglePanel);
+            rekap.parentNode.insertBefore(tombolInline, rekap);
+            fab.style.display = 'none';
+            sesuaikanBadge();
+        };
+        fab.style.display = 'none';
+        setInterval(pasangInline, 1000);
+    }
 
     // ---------- Mulai ----------
     function pasang() {
