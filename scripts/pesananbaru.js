@@ -1,16 +1,37 @@
 // ==UserScript==
 // @name         Erzap - Rekap Pesanan Baru per Outlet (Tema Merah)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.7
-// @description  [v1.2.7] Hapus tombol hijau 'Rekap Pesanan' lama bawaan ekstensi (ID sama, menghalangi tombol ini). [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
+// @version      1.3.0
+// @description  [v1.3.0] Sekaligus menghapus tombol hijau 'Rekap Pesanan' lama bawaan ekstensi di halaman Erzap mana pun (menggantikan script bersihkan_tombol_lama.js). [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
 // @author       You
-// @match        https://*.erzap.com/pesanan_penjualans*
+// @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==
 
 (function() {
     'use strict';
+
+    // Tombol hijau "Rekap Pesanan" lama (bawaan content.js ekstensi <= v2.9.8) memakai ID yang sama dengan
+    // tombol di script ini dan tidak berfungsi. Buang yang lama saja; tombol milik script lain (ber-data-aistim) aman.
+    function hapusTombolLama() {
+        document.querySelectorAll('#btn-rekap-pesanan').forEach(b => {
+            const teks = (b.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            // tombol lama: tanpa penanda data-aistim dan persis berteks "Rekap Pesanan"
+            if (!b.hasAttribute('data-aistim') && teks === 'rekap pesanan') b.remove();
+        });
+    }
+
+    // @match mencakup semua halaman Erzap karena tombol lama bisa muncul di halaman mana pun.
+    // Di luar daftar pesanan, tugas script ini hanya membersihkan tombol lama (60 detik pertama), lalu selesai.
+    if (!/^\/pesanan_penjualans/.test(location.pathname)) {
+        hapusTombolLama();
+        const obs = new MutationObserver(hapusTombolLama);
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+        setTimeout(() => obs.disconnect(), 60000);
+        return;
+    }
+
     console.log("[Aistim] Script Rekap Pesanan berhasil dimuat dan sedang berjalan...");
 
     // 0. CSS terpusat (prefix rp_) + responsif mobile
@@ -85,14 +106,6 @@
         rekapBtn.innerHTML = '<i class="fa fa-bars" style="margin-right: 5px;"></i> Rekap Pesanan Baru';
         rekapBtn.addEventListener('click', mulaiRekapPesananBaru);
         return rekapBtn;
-    }
-
-    // Tombol hijau "Rekap Pesanan" lama (bawaan content.js ekstensi <= v2.9.8) memakai ID yang sama dan
-    // menghalangi tombol ini. Buang tombol ber-ID itu yang BUKAN milik script ini.
-    function hapusTombolLama() {
-        document.querySelectorAll('#btn-rekap-pesanan').forEach(b => {
-            if (b.getAttribute('data-aistim') !== 'pesananbaru') b.remove();
-        });
     }
 
     function pasangTombolRekap() {

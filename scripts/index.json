@@ -14,7 +14,6 @@
     "rak_barang.js",
     "rakstok.js",
     "rekam.js",
-    "rekapstokmin.js",
-    "bersihkan_tombol_lama.js"
+    "rekapstokmin.js"
   ]
 }
