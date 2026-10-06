@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.1.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm, badge jumlah nota baru, dan filter "hanya nota web" di halaman Data Penjualan.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -93,11 +93,19 @@
         sedangFetch = true;
         render();
         try {
-            const res = await fetch(LIST_URL, { credentials: 'same-origin', cache: 'no-store' });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
-            const r = ekstrakDaftar(doc, location.origin + LIST_URL);
-            data = { items: r.items, totalBaris: r.totalBaris, waktu: Date.now(), error: '' };
+            // pindai halaman 1-3 Data Penjualan sekaligus, gabungkan & buang duplikat
+            const halaman = await Promise.all([1, 2, 3].map(async (n) => {
+                const u = LIST_URL + (n > 1 ? '?page=' + n : '');
+                const res = await fetch(u, { credentials: 'same-origin', cache: 'no-store' });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+                return ekstrakDaftar(doc, location.origin + LIST_URL);
+            }));
+            const peta = new Map();
+            let total = 0;
+            halaman.forEach((r) => { total += r.totalBaris; r.items.forEach((it) => { if (!peta.has(it.faktur)) peta.set(it.faktur, it); }); });
+            const items = Array.from(peta.values()).sort((a, b) => b.ts - a.ts);
+            data = { items, totalBaris: total, waktu: Date.now(), error: '' };
             ls.set(K_CACHE, JSON.stringify(data));
         } catch (e) {
             data = { items: (data && data.items) || [], totalBaris: (data && data.totalBaris) || 0, waktu: (data && data.waktu) || 0, error: e.message || String(e) };
@@ -267,9 +275,10 @@
         panel.appendChild(hd);
 
         const sub = el('div', 'sub' + (data && data.error ? ' err' : ''));
-        if (!data) sub.textContent = 'Memuat...';
+        if (sedangFetch) sub.textContent = 'Memindai no faktur berawalan 1...';
+        else if (!data) sub.textContent = 'Memuat...';
         else if (data.error) sub.textContent = 'Gagal memuat: ' + data.error + (data.waktu ? ' (data lama ' + fmtWaktu(data.waktu) + ')' : '');
-        else sub.textContent = data.items.length + ' nota web dari ' + data.totalBaris + ' baris di halaman pertama Data Penjualan · dicek ' + fmtWaktu(data.waktu);
+        else sub.textContent = data.items.length + ' nota web dari ' + data.totalBaris + ' baris (3 halaman pertama Data Penjualan) · dicek ' + fmtWaktu(data.waktu);
         panel.appendChild(sub);
 
         if (halamanDaftar()) {
@@ -302,7 +311,7 @@
             });
         } else if (data && !data.error) {
             list.appendChild(el('div', 'kosong', data.totalBaris
-                ? 'Tidak ada nota dengan pola nomor faktur web di ' + data.totalBaris + ' baris halaman pertama.'
+                ? 'Tidak ada nota dengan pola nomor faktur web di ' + data.totalBaris + ' baris yang dipindai.'
                 : 'Tabel Data Penjualan tidak terbaca (0 baris).'));
         } else if (!data || sedangFetch) {
             list.appendChild(el('div', 'kosong', 'Memuat...'));
