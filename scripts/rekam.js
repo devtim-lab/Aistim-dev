@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.4.0
+// @description  [v1.4.0] Hasil rekaman kini memuat struktur halaman (tabel, filter, kata 'website'). Tombol 🔍 partdistro: intip halaman partdistro.com (lewat jembatan ekstensi). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -111,8 +111,10 @@
     const ui = document.createElement('div');
     ui.id = 'rk_rekam_ui';
     ui.style.cssText = 'position:fixed;left:8px;bottom:70px;z-index:99990;font-family:sans-serif;';
-    ui.innerHTML = '<button id="rk_btn" type="button" style="padding:8px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">&#9210; Rekam</button>';
+    ui.innerHTML = '<button id="rk_btn" type="button" style="padding:8px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">&#9210; Rekam</button>' +
+        ' <button id="rk_pd" type="button" style="padding:8px 12px;border:none;border-radius:20px;background:#0d6efd;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">&#128269; partdistro</button>';
     const btn = ui.firstChild;
+    const btnPd = ui.querySelector('#rk_pd');
 
     function perbaruiTombol() {
         btn.innerHTML = merekam ? '&#9209; Stop (' + log.length + ')' : '&#9210; Rekam';
@@ -145,20 +147,17 @@
         return out.join('\n');
     }
 
-    function tampilkanHasil() {
-        const teks = ['PEREKAM AISTIM ' + location.href, 'Waktu: ' + new Date().toString(), '', '== KLIK & REQUEST HALAMAN ==']
-            .concat(log.length ? log : ['(tidak ada yang terekam)'])
-            .concat(['', laporanGambar(), '', logRak()]).join('\n');
-
+    function tampilModal(teks, judul) {
         const bd = document.createElement('div');
         bd.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
         bd.innerHTML = '<div style="background:#fff;width:94%;max-width:640px;border-radius:8px;padding:12px;display:flex;flex-direction:column;max-height:88vh;">' +
-            '<div style="font-weight:bold;margin-bottom:6px;">Hasil rekaman (' + log.length + ' baris)</div>' +
+            '<div id="rk_judul" style="font-weight:bold;margin-bottom:6px;"></div>' +
             '<textarea id="rk_out" readonly style="flex:1;min-height:260px;font:11px monospace;"></textarea>' +
             '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">' +
             '<button id="rk_tutup" type="button" style="padding:6px 14px;">Tutup</button>' +
             '<button id="rk_salin" type="button" style="padding:6px 14px;background:#28a745;color:#fff;border:none;border-radius:4px;">Salin</button></div></div>';
         document.body.appendChild(bd);
+        bd.querySelector('#rk_judul').textContent = judul;
         const ta = bd.querySelector('#rk_out');
         ta.value = teks;
         bd.querySelector('#rk_tutup').onclick = () => bd.remove();
@@ -168,6 +167,129 @@
             bd.querySelector('#rk_salin').textContent = 'Tersalin ✓';
         };
     }
+
+    function tampilkanHasil() {
+        const teks = ['PEREKAM AISTIM ' + location.href, 'Waktu: ' + new Date().toString(), '', '== KLIK & REQUEST HALAMAN ==']
+            .concat(log.length ? log : ['(tidak ada yang terekam)'])
+            .concat(['', laporanGambar(), '', logRak(), '', '== STRUKTUR HALAMAN INI ==', ringkasDoc(document)]).join('\n');
+        tampilModal(teks, 'Hasil rekaman (' + log.length + ' baris)');
+    }
+
+    // ----- intip halaman partdistro.com (lewat jembatan ekstensi Aistim; memakai login partdistro di browser ini) -----
+    let seqX = 0;
+    function xfetch(url) {
+        return new Promise((resolve, reject) => {
+            if (document.documentElement.getAttribute('data-aistim-xfetch') !== '1') {
+                reject(new Error('Jembatan ekstensi Aistim tidak aktif di halaman ini'));
+                return;
+            }
+            const id = 'rkx' + (++seqX) + '_' + Date.now();
+            const timer = setTimeout(() => { window.removeEventListener('message', onMsg); reject(new Error('timeout (30 detik)')); }, 30000);
+            function onMsg(ev) {
+                if (ev.source !== window || !ev.data || !ev.data.aistimFetchResult || ev.data.aistimFetchResult.id !== id) return;
+                clearTimeout(timer);
+                window.removeEventListener('message', onMsg);
+                const r = ev.data.aistimFetchResult;
+                if (r.error) reject(new Error(r.error)); else resolve(r);
+            }
+            window.addEventListener('message', onMsg);
+            window.postMessage({ aistimFetch: { id: id, url: url, opts: {} } }, location.origin);
+        });
+    }
+
+    function ringkasHalaman(html) {
+        return ringkasDoc(new DOMParser().parseFromString(html, 'text/html'));
+    }
+
+    function ringkasDoc(doc) {
+        const out = [];
+        out.push('Judul: ' + rapih(doc.title));
+        if (doc.querySelector('input[type=password]')) out.push('!! Tampaknya HALAMAN LOGIN (ada kolom password). Login dulu di partdistro.com, lalu ulangi.');
+        const hs = Array.from(doc.querySelectorAll('h1,h2,h3,h4')).map((h) => rapih(h.textContent)).filter(Boolean).slice(0, 12);
+        out.push('Heading: ' + (hs.join(' | ') || '-'));
+
+        const seen = {};
+        const links = [];
+        doc.querySelectorAll('a[href]').forEach((a) => {
+            const t = rapih(a.textContent).slice(0, 40);
+            const h = a.getAttribute('href') || '';
+            if (!t || !h || h.charAt(0) === '#' || /^javascript/i.test(h)) return;
+            const k = t + '>' + h;
+            if (seen[k]) return;
+            seen[k] = 1;
+            links.push(t + ' -> ' + sensor(h).slice(0, 110));
+        });
+        out.push('Link menu/halaman (' + links.length + ' unik, 45 pertama):');
+        links.slice(0, 45).forEach((l) => out.push('  ' + l));
+
+        const tabel = Array.from(doc.querySelectorAll('table'));
+        out.push('Jumlah tabel: ' + tabel.length);
+        tabel.slice(0, 4).forEach((t, i) => {
+            const th = Array.from(t.querySelectorAll('th')).map((x) => rapih(x.textContent).slice(0, 25));
+            const rows = Array.from(t.querySelectorAll('tbody tr'));
+            out.push('TABEL ' + (i + 1) + ' id=' + (t.id || '-') + ' class=' + rapih(t.className).slice(0, 50) + ' baris=' + rows.length);
+            out.push('  header: ' + th.join(' | '));
+            rows.slice(0, 3).forEach((r) => {
+                out.push('  baris: ' + Array.from(r.children).map((td) => rapih(td.textContent).slice(0, 30)).join(' | '));
+                const a = r.querySelector('a[href]');
+                if (a) out.push('    link: ' + sensor(a.getAttribute('href')).slice(0, 110));
+            });
+        });
+
+        const st = Array.from(doc.querySelectorAll('[class*=badge],[class*=label],[class*=status],[class*=notif],[class*=count]'))
+            .map((e) => rapih(e.className).slice(0, 30) + '="' + rapih(e.textContent).slice(0, 30) + '"')
+            .filter((v, i, a) => a.indexOf(v) === i).slice(0, 15);
+        out.push('Badge/status: ' + (st.join(' ; ') || '-'));
+
+        // Form pencarian/filter: kolom & pilihan (mis. filter sumber/via/website)
+        const forms = Array.from(doc.querySelectorAll('form'));
+        out.push('Jumlah form: ' + forms.length);
+        forms.slice(0, 4).forEach((f, i) => {
+            out.push('FORM ' + (i + 1) + ' id=' + (f.id || '-') + ' method=' + (f.getAttribute('method') || 'get') + ' action=' + sensor(f.getAttribute('action') || '').slice(0, 80));
+            f.querySelectorAll('select').forEach((sel) => {
+                const opsi = Array.from(sel.options).slice(0, 15).map((o) => rapih(o.text).slice(0, 22) + '=' + String(o.value).slice(0, 18)).join(' ; ');
+                out.push('  select name=' + (sel.name || '-') + ' id=' + (sel.id || '-') + ' opsi: ' + opsi);
+            });
+            Array.from(f.querySelectorAll('input:not([type=hidden]):not([type=password]):not([type=submit])')).slice(0, 15).forEach((inp) => {
+                out.push('  input name=' + (inp.name || '-') + ' type=' + (inp.type || 'text') + (inp.placeholder ? ' placeholder=' + rapih(inp.placeholder).slice(0, 25) : ''));
+            });
+        });
+
+        // Di mana kata "website"/"partdistro" muncul (cara nota dari web dibedakan)
+        const cocok = [];
+        doc.querySelectorAll('body *').forEach((el) => {
+            if (cocok.length >= 12 || /^(script|style|noscript|option)$/i.test(el.tagName) || (el.closest && el.closest('#rk_rekam_ui'))) return;
+            const t = rapih(el.textContent);
+            if (t.length > 0 && t.length <= 60 && /website|partdistro|olzap/i.test(t) && !Array.from(el.children).some((c) => /website|partdistro|olzap/i.test(c.textContent || ''))) {
+                cocok.push('<' + el.tagName.toLowerCase() + (el.className ? ' class="' + rapih(el.className).slice(0, 40) + '"' : '') + (el.id ? ' id="' + el.id + '"' : '') + '> "' + t + '"');
+            }
+        });
+        out.push('Kata website/partdistro/olzap muncul di: ' + (cocok.length ? '' : '-'));
+        cocok.forEach((c) => out.push('  ' + c));
+        return out.join('\n');
+    }
+
+    async function intipPartdistro() {
+        const u = prompt('Alamat halaman partdistro.com yang mau diintip (mis. halaman daftar pesanan). Kosongkan = halaman depan:', 'https://partdistro.com/');
+        if (u === null) return;
+        let url;
+        try { url = new URL(u.trim() || 'https://partdistro.com/', 'https://partdistro.com/'); } catch (e) { alert('Alamat tidak valid'); return; }
+        if (!/(^|\.)partdistro\.com$/i.test(url.hostname)) { alert('Hanya partdistro.com yang diizinkan'); return; }
+        btnPd.textContent = '⏳ ...';
+        let teks;
+        try {
+            const r = await xfetch(url.href);
+            teks = ['INTIP PARTDISTRO ' + sensor(url.href), 'Waktu: ' + new Date().toString(),
+                'Status: ' + r.status + (r.url && r.url !== url.href ? ' | dialihkan ke ' + sensor(r.url) : '') + ' | ' + (r.text || '').length + ' char', '',
+                ringkasHalaman(r.text || ''), '',
+                '(Catatan: baris contoh tabel bisa memuat nama pelanggan. Hapus bagian itu bila perlu sebelum dikirim.)'].join('\n');
+        } catch (e) {
+            teks = 'GAGAL mengintip ' + url.href + '\n' + (e && e.message || e);
+        }
+        btnPd.innerHTML = '&#128269; partdistro';
+        tampilModal(teks, 'Hasil intip partdistro.com');
+    }
+    btnPd.addEventListener('click', intipPartdistro);
 
     btn.addEventListener('click', () => {
         if (!merekam) {
