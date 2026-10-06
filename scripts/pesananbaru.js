@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Rekap Pesanan Baru per Outlet (Tema Merah)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.6
-// @description  [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
+// @version      1.2.7
+// @description  [v1.2.7] Hapus tombol hijau 'Rekap Pesanan' lama bawaan ekstensi (ID sama, menghalangi tombol ini). [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
 // @author       You
 // @match        https://*.erzap.com/pesanan_penjualans*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -79,6 +79,7 @@
     function buatTombolRekap() {
         const rekapBtn = document.createElement('button');
         rekapBtn.id = 'btn-rekap-pesanan';
+        rekapBtn.setAttribute('data-aistim', 'pesananbaru'); // penanda: tombol milik script ini
         rekapBtn.type = 'button';
         rekapBtn.className = 'btn btn-danger';
         rekapBtn.innerHTML = '<i class="fa fa-bars" style="margin-right: 5px;"></i> Rekap Pesanan Baru';
@@ -86,7 +87,16 @@
         return rekapBtn;
     }
 
+    // Tombol hijau "Rekap Pesanan" lama (bawaan content.js ekstensi <= v2.9.8) memakai ID yang sama dan
+    // menghalangi tombol ini. Buang tombol ber-ID itu yang BUKAN milik script ini.
+    function hapusTombolLama() {
+        document.querySelectorAll('#btn-rekap-pesanan').forEach(b => {
+            if (b.getAttribute('data-aistim') !== 'pesananbaru') b.remove();
+        });
+    }
+
     function pasangTombolRekap() {
+        hapusTombolLama();
         if (document.getElementById('btn-rekap-pesanan')) return true; // Sudah ada
         pasangStyle();
         const terlihat = el => !!el && el.offsetParent !== null; // elemen display:none (mis. disembunyikan di mobile) dilewati
