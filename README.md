@@ -1,4 +1,4 @@
-# Aistim Tool v2.9.3
+# Aistim Tool v2.9.4
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -127,11 +127,14 @@ Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus s
 
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] ===== Content script v2.9.3 loaded =====` — content script aktif
+- `[Aistim] ===== Content script v2.9.4 loaded =====` — content script aktif
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol Erzap berhasil
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.9.4
+- **Release ZIP siap pakai**: workflow release sekarang melampirkan `Aistim-dev-<versi>.zip` dengan `manifest.json` di root (bisa langsung di-load di Chrome/Lemur). Jangan pakai "Source code (zip)" bawaan GitHub — terbungkus folder sehingga muncul error "File manifes tidak ada atau tidak dapat dibaca"
 
 ## Changelog v2.9.3
 - **Fix bug "Duplicate script ID" di `chrome://extensions/`**: `syncUserScripts()` dipanggil dari banyak sumber (install, browser start, alarm tiap 1 menit, toggle popup) — kalau 2 panggilan tumpang tindih, keduanya sama-sama `register()` id script yang sama secara paralel dan Chrome menolak yang kedua, membuat script itu (`rekapbeban.js`, `koreksiso.js`, dll) gagal aktif sampai sync bersih berikutnya
