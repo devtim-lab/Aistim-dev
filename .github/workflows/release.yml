@@ -1,7 +1,9 @@
 name: Release
 
 # Otomatis bikin tag + release saat version di manifest.json naik.
-# ZIP release otomatis bernama Aistim-dev-<versi>.zip
+# ZIP release bernama Aistim-dev-<versi>.zip dengan manifest.json di ROOT zip
+# (siap "Load unpacked/zip" di Chrome/Lemur), dilampirkan sebagai asset release.
+# JANGAN pakai "Source code (zip)" bawaan GitHub — isinya terbungkus folder.
 
 on:
   push:
@@ -17,19 +19,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create release for new version
+      - name: Build extension ZIP (manifest.json di root)
+        run: |
+          VERSION=$(python3 -c "import json;print(json.load(open('manifest.json'))['version'])")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          ZIP="Aistim-dev-$VERSION.zip"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          zip -r "$ZIP" manifest.json background content popup icons scripts
+          unzip -l "$ZIP" | grep -E ' manifest\.json$' || { echo "manifest.json tidak ada di root zip"; exit 1; }
+
+      - name: Create release / upload asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(python3 -c "import json;print(json.load(open('manifest.json'))['version'])")
           TAG="v$VERSION"
           echo "Version di manifest: $VERSION (tag: $TAG)"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG sudah ada — skip"
+            echo "Release $TAG sudah ada — perbarui ZIP asset saja"
+            gh release upload "$TAG" "$ZIP" --clobber
           else
-            gh release create "$TAG" \
+            gh release create "$TAG" "$ZIP" \
               --title "Aistim Tool v$VERSION" \
-              --notes "Lihat README.md untuk changelog lengkap." \
+              --notes "Download **$ZIP** (bukan Source code zip). Lihat README.md untuk changelog lengkap." \
               --latest
             echo "Release $TAG dibuat"
           fi
