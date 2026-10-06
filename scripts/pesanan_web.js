@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.0
+// @version      1.10.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -40,7 +40,17 @@
         return new Date(y, mo - 1, d, h, mi).getTime();
     }
 
-    function ekstrakBaris(tr, base) {
+    // Cari kolom "Total" dari header tabel (kalau tidak ada: sel angka terakhir di baris)
+    function kolomTotal(tabel) {
+        const ths = Array.from(((tabel.tHead && tabel.tHead.rows[0]) || tabel.querySelector('tr') || { children: [] }).children);
+        const nama = ths.map((t) => rapih(t.textContent).toLowerCase());
+        let i = nama.findIndex((n) => /^(grand\s*)?total(\s*(faktur|bayar|penjualan|tagihan))?$/.test(n));
+        if (i < 0) i = nama.findIndex((n) => /total|tagihan|grand/.test(n));
+        return i;
+    }
+    const RE_UANG = /^(rp\.?\s*)?-?\d[\d.,]*$/i;
+
+    function ekstrakBaris(tr, base, kolTotal) {
         const tds = Array.from(tr.children).filter((c) => /^t[dh]$/i.test(c.tagName));
         for (let i = 0; i < tds.length; i++) {
             const teks = rapih(tds[i].textContent);
@@ -53,7 +63,13 @@
                 const h = a && a.getAttribute('href');
                 if (h && h !== '#' && !/^javascript/i.test(h)) href = new URL(h, base).href;
             } catch (e) { /* abaikan */ }
+            let total = '';
+            if (kolTotal >= 0 && tds[kolTotal]) total = rapih(tds[kolTotal].textContent);
+            else {
+                for (let j = tds.length - 1; j > i; j--) { const t = rapih(tds[j].textContent); if (RE_UANG.test(t) && /\d{3}/.test(t)) { total = t; break; } }
+            }
             return {
+                total: total,
                 faktur: m[0],
                 ts: waktuDariKode(m[2]),
                 kode: kode ? kode[1] : '',
@@ -67,7 +83,11 @@
     function ekstrakDaftar(doc, base) {
         const rows = Array.from(doc.querySelectorAll('table tbody tr'));
         const items = [];
-        rows.forEach((tr) => { const it = ekstrakBaris(tr, base); if (it) items.push(it); });
+        rows.forEach((tr) => {
+            const tabel = tr.closest('table');
+            const it = ekstrakBaris(tr, base, tabel ? kolomTotal(tabel) : -1);
+            if (it) items.push(it);
+        });
         items.sort((a, b) => b.ts - a.ts);
         return { items: items, totalBaris: rows.length };
     }
@@ -411,7 +431,7 @@
                 }
                 if (it.ts > seen) f.appendChild(el('span', 'tag', 'BARU'));
                 row.appendChild(f);
-                row.appendChild(el('div', 'm', fmtWaktu(it.ts) + (it.outlet ? ' · ' + it.outlet : '') + (it.kode ? ' · ' + it.kode : '')));
+                row.appendChild(el('div', 'm', [fmtWaktu(it.ts), it.kode, it.total ? (/^rp/i.test(it.total) ? it.total : 'Rp ' + it.total) : ''].filter(Boolean).join(' - ')));
                 list.appendChild(row);
             });
         } else if (src && !src.error) {
