@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         devtool
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
-// @description  [v1.4.0] Hasil rekaman kini memuat struktur halaman (tabel, filter, kata 'website'). Tombol 🔍 partdistro: intip halaman partdistro.com (lewat jembatan ekstensi). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
+// @version      1.4.1
+// @description  [v1.4.1] Hasil rekaman memuat struktur halaman (tabel, filter, kata 'website'). Tombol merekam klik & request (fetch/XHR) di SEMUA halaman Erzap untuk dikirim ke developer. TERSEMBUNYI secara default: aktif hanya setelah buka halaman dengan ?rekam=1 (matikan lagi dengan ?rekam=0). Token/cookie tidak ikut direkam.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @world        main
@@ -111,10 +111,8 @@
     const ui = document.createElement('div');
     ui.id = 'rk_rekam_ui';
     ui.style.cssText = 'position:fixed;left:8px;bottom:70px;z-index:99990;font-family:sans-serif;';
-    ui.innerHTML = '<button id="rk_btn" type="button" style="padding:8px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">&#9210; Rekam</button>' +
-        ' <button id="rk_pd" type="button" style="padding:8px 12px;border:none;border-radius:20px;background:#0d6efd;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">&#128269; partdistro</button>';
+    ui.innerHTML = '<button id="rk_btn" type="button" style="padding:8px 12px;border:none;border-radius:20px;background:#343a40;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">&#9210; Rekam</button>';
     const btn = ui.firstChild;
-    const btnPd = ui.querySelector('#rk_pd');
 
     function perbaruiTombol() {
         btn.innerHTML = merekam ? '&#9209; Stop (' + log.length + ')' : '&#9210; Rekam';
@@ -173,32 +171,6 @@
             .concat(log.length ? log : ['(tidak ada yang terekam)'])
             .concat(['', laporanGambar(), '', logRak(), '', '== STRUKTUR HALAMAN INI ==', ringkasDoc(document)]).join('\n');
         tampilModal(teks, 'Hasil rekaman (' + log.length + ' baris)');
-    }
-
-    // ----- intip halaman partdistro.com (lewat jembatan ekstensi Aistim; memakai login partdistro di browser ini) -----
-    let seqX = 0;
-    function xfetch(url) {
-        return new Promise((resolve, reject) => {
-            if (document.documentElement.getAttribute('data-aistim-xfetch') !== '1') {
-                reject(new Error('Jembatan ekstensi Aistim tidak aktif di halaman ini'));
-                return;
-            }
-            const id = 'rkx' + (++seqX) + '_' + Date.now();
-            const timer = setTimeout(() => { window.removeEventListener('message', onMsg); reject(new Error('timeout (30 detik)')); }, 30000);
-            function onMsg(ev) {
-                if (ev.source !== window || !ev.data || !ev.data.aistimFetchResult || ev.data.aistimFetchResult.id !== id) return;
-                clearTimeout(timer);
-                window.removeEventListener('message', onMsg);
-                const r = ev.data.aistimFetchResult;
-                if (r.error) reject(new Error(r.error)); else resolve(r);
-            }
-            window.addEventListener('message', onMsg);
-            window.postMessage({ aistimFetch: { id: id, url: url, opts: {} } }, location.origin);
-        });
-    }
-
-    function ringkasHalaman(html) {
-        return ringkasDoc(new DOMParser().parseFromString(html, 'text/html'));
     }
 
     function ringkasDoc(doc) {
@@ -269,27 +241,6 @@
         return out.join('\n');
     }
 
-    async function intipPartdistro() {
-        const u = prompt('Alamat halaman partdistro.com yang mau diintip (mis. halaman daftar pesanan). Kosongkan = halaman depan:', 'https://partdistro.com/');
-        if (u === null) return;
-        let url;
-        try { url = new URL(u.trim() || 'https://partdistro.com/', 'https://partdistro.com/'); } catch (e) { alert('Alamat tidak valid'); return; }
-        if (!/(^|\.)partdistro\.com$/i.test(url.hostname)) { alert('Hanya partdistro.com yang diizinkan'); return; }
-        btnPd.textContent = '⏳ ...';
-        let teks;
-        try {
-            const r = await xfetch(url.href);
-            teks = ['INTIP PARTDISTRO ' + sensor(url.href), 'Waktu: ' + new Date().toString(),
-                'Status: ' + r.status + (r.url && r.url !== url.href ? ' | dialihkan ke ' + sensor(r.url) : '') + ' | ' + (r.text || '').length + ' char', '',
-                ringkasHalaman(r.text || ''), '',
-                '(Catatan: baris contoh tabel bisa memuat nama pelanggan. Hapus bagian itu bila perlu sebelum dikirim.)'].join('\n');
-        } catch (e) {
-            teks = 'GAGAL mengintip ' + url.href + '\n' + (e && e.message || e);
-        }
-        btnPd.innerHTML = '&#128269; partdistro';
-        tampilModal(teks, 'Hasil intip partdistro.com');
-    }
-    btnPd.addEventListener('click', intipPartdistro);
 
     btn.addEventListener('click', () => {
         if (!merekam) {
