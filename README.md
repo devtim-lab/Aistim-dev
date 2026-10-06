@@ -1,4 +1,4 @@
-# Aistim Tool v2.9.5
+# Aistim Tool v2.9.6
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -127,11 +127,16 @@ Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus s
 
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] ===== Content script v2.9.5 loaded =====` — content script aktif
+- `[Aistim] ===== Content script v2.9.6 loaded =====` — content script aktif
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol Erzap berhasil
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.9.6
+- **Ikon sudut membulat (oval/squircle)**: keempat sudut `icons/icon16|48|128.png` dibuat membulat dengan latar transparan supaya tampil lebih elegan
+- **Logo bulat AISTIM di pojok kiri atas popup** (`icons/logo-round.png`)
+- **Fix link ⬇ Download di popup**: sekarang mengarah ke ZIP release `Aistim-dev-<versi>.zip` (manifest di root), bukan "Source code zip" yang terbungkus folder dan memicu error "File manifes tidak ada"
 
 ## Changelog v2.9.5
 - **Ikon baru tema biru (logo AISTIM)**: `icons/icon16|48|128.png` diganti. Ukuran 16px memakai lambangnya saja (tanpa teks) supaya tetap jelas di toolbar

@@ -7,6 +7,7 @@ body {
   background: #fff;
 }
 .container {
+  position: relative;
   padding: 18px;
   box-shadow: 0 0 24px rgba(220, 38, 38, 0.45), 0 6px 20px rgba(220, 38, 38, 0.15);
   border: 2px solid #dc2626;
@@ -313,3 +314,13 @@ body {
   padding-left: 18px;
 }
 .us-warning li { margin-bottom: 2px; }
+
+.brand-logo {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(13, 90, 168, 0.45);
+}

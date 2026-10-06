@@ -117,7 +117,7 @@ async function checkUpdate(manual) {
     if (compareVersion(latest, CURRENT_VERSION) > 0) {
       // ZIP berversi: Aistim-dev-<versi>.zip
       document.getElementById('update-link').href =
-        'https://github.com/devtim-lab/Aistim-dev/archive/refs/tags/' + tag + '.zip';
+        'https://github.com/devtim-lab/Aistim-dev/releases/download/' + tag + '/Aistim-dev-' + latest + '.zip';
       document.getElementById('update-version').textContent = 'v' + latest;
       document.getElementById('update-bar').style.display = 'flex';
       document.getElementById('update-steps').style.display = 'block';
