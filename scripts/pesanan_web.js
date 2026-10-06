@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
+// @version      1.8.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -148,6 +148,7 @@
     // ---------- Rekap semua: telusuri halaman 1,2,3,... (10 halaman per tahap) ----------
     const HAL_PER_TAHAP = 10;
     let mode = 'hari';         // 'hari' = rekap semua (nama lama dipertahankan), 'halaman' = per halaman
+    let outletPilih = '';      // filter dropdown outlet (rekap semua)
     let hari = null;           // { items, totalBaris, halaman, selesai, waktu, error }
     async function muatHari(lanjut) {
         if (sedangFetch) return;
@@ -230,7 +231,8 @@
         '.tabs{display:flex;border-bottom:1px solid #fecaca}',
         '.tabs button{flex:1;padding:8px;border:none;background:#fff;font-size:13px;color:#666;cursor:pointer;border-bottom:3px solid transparent}',
         '.tabs button.on{color:#dc2626;font-weight:700;border-bottom-color:#dc2626}',
-        '.rk{padding:6px 12px;border-bottom:1px solid #eee;font-size:13px;max-height:30vh;overflow-y:auto}',
+        '.rk{padding:8px 12px;border-bottom:1px solid #eee}',
+        '.sel{width:100%;padding:8px;font-size:14px;border:1px solid #ccc;border-radius:8px;background:#fff;color:#222}',
         '.rkh{font-size:11px;color:#888;text-transform:uppercase;margin-bottom:2px}',
         '.rkr{display:flex;justify-content:space-between;gap:8px;padding:2px 0}',
         '.rkr.tot{border-top:1px solid #ddd;margin-top:3px;padding-top:4px}',
@@ -372,26 +374,32 @@
         else sub.textContent = src.items.length + ' nota web dari ' + src.totalBaris + ' baris · halaman ' + (src.halaman || 1) + ' Data Penjualan · dicek ' + fmtWaktu(src.waktu);
         panel.appendChild(sub);
 
+        let tampil = src ? src.items : [];
         if (mode === 'hari' && src && src.items.length) {
             const per = new Map();
             src.items.forEach((it) => { const k = it.outlet || '(tanpa outlet)'; per.set(k, (per.get(k) || 0) + 1); });
+            if (outletPilih !== '' && !per.has(outletPilih)) outletPilih = '';
             const rk = el('div', 'rk');
-            rk.appendChild(el('div', 'rkh', 'Per outlet'));
+            const sel = el('select', 'sel');
+            const op0 = el('option', '', 'Semua outlet (' + src.items.length + ')');
+            op0.value = '';
+            sel.appendChild(op0);
             Array.from(per.entries()).sort((x, y) => y[1] - x[1]).forEach(([k, n]) => {
-                const r = el('div', 'rkr');
-                r.append(el('span', '', k), el('b', '', String(n)));
-                rk.appendChild(r);
+                const o = el('option', '', k + ' (' + n + ')');
+                o.value = k;
+                sel.appendChild(o);
             });
-            const tot = el('div', 'rkr tot');
-            tot.append(el('span', '', 'Total'), el('b', '', String(src.items.length)));
-            rk.appendChild(tot);
+            sel.value = outletPilih;
+            sel.onchange = () => { outletPilih = sel.value; render(); };
+            rk.appendChild(sel);
             panel.appendChild(rk);
+            if (outletPilih !== '') tampil = src.items.filter((it) => (it.outlet || '(tanpa outlet)') === outletPilih);
         }
 
         const list = el('div', 'list');
         const seen = terakhirDilihat();
-        if (src && src.items.length) {
-            src.items.forEach((it) => {
+        if (src && tampil.length) {
+            tampil.forEach((it) => {
                 const row = el('div', 'it' + (it.ts > seen ? ' baru' : ''));
                 const f = el('div', 'f');
                 if (it.href) {
