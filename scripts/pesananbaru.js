@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Rekap Pesanan Baru per Outlet (Tema Merah)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
-// @description  [v1.3.1] Sembunyikan badge debug 'Aistim: ...' di pojok kanan bawah (dari content.js ekstensi). [v1.3.0] Sekaligus menghapus tombol hijau 'Rekap Pesanan' lama bawaan ekstensi di halaman Erzap mana pun (menggantikan script bersihkan_tombol_lama.js). [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
+// @version      1.4.0
+// @description  [v1.4.0] Rekap Pesanan Baru kini membaca semua halaman daftar pesanan dan menghitung pesanan yang tombol Edit-nya aktif (Edit nonaktif = bukan pesanan baru), per outlet + daftar invoice. [v1.3.1] Sembunyikan badge debug 'Aistim: ...' di pojok kanan bawah (dari content.js ekstensi). [v1.3.0] Sekaligus menghapus tombol hijau 'Rekap Pesanan' lama bawaan ekstensi di halaman Erzap mana pun (menggantikan script bersihkan_tombol_lama.js). [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
 // @author       You
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -179,107 +179,86 @@
     setInterval(pasangTombolRekap, 1500);
     window.addEventListener('load', () => setTimeout(pasangTombolRekap, 800));
 
-    // 3. Fungsi Utama: Pilih Outlet -> Set Status -> Cari -> Baca Pagination -> Simpan
-    async function mulaiRekapPesananBaru() {
-        const outletSelect = document.querySelector('#pencarian_idoutlet_own');
-        // ERZAP sempat mengganti #pencarian_idoutlet_own dari <select> ke widget lain (popup "Daftar Data Outlet"),
-        // sehingga .options bisa undefined -> Array.from melempar error tanpa pesan yang jelas. Cek dulu supaya tidak macet diam-diam.
-        if (!outletSelect || outletSelect.tagName !== 'SELECT' || !outletSelect.options) {
-            alert("Pilihan Outlet (select) tidak ditemukan di halaman ini! (ERZAP mungkin mengganti tampilan filter outlet, rekap per-outlet perlu disesuaikan lagi)");
-            return;
-        }
+    // 3. Fungsi Utama (v1.4.0): baca SEMUA halaman daftar pesanan, hitung baris yang tombol "Edit"-nya AKTIF
+    //    (Edit aktif = pesanan baru; Edit abu-abu/nonaktif = dibatalkan/sudah diproses), dikelompokkan per outlet.
+    function editAktif(tr) {
+        const sel = Array.from(tr.querySelectorAll('a, button, input[type=button], input[type=submit], span')).filter(
+            (x) => (x.textContent || x.value || '').replace(/\s+/g, ' ').trim().toLowerCase() === 'edit');
+        if (!sel.length) return null;                       // baris tanpa tombol Edit sama sekali
+        return sel.some((x) => {
+            if (x.tagName !== 'A') return false;            // <button disabled>/<span> = nonaktif
+            const href = (x.getAttribute('href') || '').trim();
+            if (!href || href === '#' || /^javascript/i.test(href)) return false;
+            if (x.disabled || x.hasAttribute('disabled') || x.getAttribute('aria-disabled') === 'true' || /(^|\s)disabled(\s|$)/i.test(x.className || '')) return false;
+            if (x.closest('[disabled], .disabled')) return false;
+            return true;
+        });
+    }
 
-        let statusParamName = '';
-        let statusBaruValue = '';
-        document.querySelectorAll('select').forEach(sel => {
-            Array.from(sel.options).forEach(opt => {
-                if(opt.text.toLowerCase().trim() === 'pesanan baru') {
-                    statusParamName = sel.name;
-                    statusBaruValue = opt.value;
-                }
+    function bacaHalamanPesanan(doc, hasil) {
+        doc.querySelectorAll('table').forEach((tabel) => {
+            const hr = (tabel.tHead && tabel.tHead.rows[0]) || null;
+            const nama = hr ? Array.from(hr.children).map((t) => (t.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()) : [];
+            const iOutlet = nama.findIndex((n) => /outlet/.test(n));
+            if (iOutlet >= 0) hasil.adaKolomOutlet = true;
+            tabel.querySelectorAll('tbody tr').forEach((tr) => {
+                const aktif = editAktif(tr);
+                if (aktif === null) return;
+                hasil.totalBaris++;
+                if (!aktif) { hasil.nonaktif++; return; }
+                const tds = Array.from(tr.children);
+                const teks = (tr.textContent || '').replace(/\s+/g, ' ');
+                const inv = /Invoice\s*:\s*([A-Za-z0-9-]+)/i.exec(teks);
+                const kode = /\b(SP[0-9]{3,6}-[0-9]+)\b/.exec(teks);
+                const outlet = iOutlet >= 0 && tds[iOutlet] ? (tds[iOutlet].textContent || '').replace(/\s+/g, ' ').trim() : '';
+                hasil.items.push({ invoice: inv ? inv[1] : '', kode: kode ? kode[1] : '', outlet: outlet || '(outlet tidak terbaca)' });
             });
         });
+    }
 
-        const options = Array.from(outletSelect.options).filter(opt => opt.value !== "");
-        const rekapData = [];
-        let totalSemua = 0;
-
-        const searchForm = outletSelect.closest('form');
+    async function mulaiRekapPesananBaru() {
+        const outletSelect = document.querySelector('#pencarian_idoutlet_own');
+        const searchForm = outletSelect ? outletSelect.closest('form') : null;
         const formMethod = searchForm ? (searchForm.method || 'GET').toUpperCase() : 'GET';
         const formAction = searchForm ? searchForm.action : window.location.href;
 
+        const hasil = { items: [], totalBaris: 0, nonaktif: 0, adaKolomOutlet: false };
         tampilkanModalLoadingUI();
 
-        for (let i = 0; i < options.length; i++) {
-            const opt = options[i];
-            updateLoadingStatus(`Proses [${i+1}/${options.length}]: Memeriksa Outlet ${opt.text}...`);
-
-            try {
-                const formData = new FormData(searchForm);
-                formData.set('pencarian[idoutlet_own]', opt.value);
-                if (statusParamName && statusBaruValue) {
-                    formData.set(statusParamName, statusBaruValue);
-                }
-
-                let fetchUrl = formAction;
-                let fetchParams = { method: formMethod };
-
-                if (formMethod === 'GET') {
-                    const searchParams = new URLSearchParams(formData);
-                    fetchUrl = `${formAction}?${searchParams.toString()}`;
-                } else {
-                    fetchParams.body = formData;
-                }
-
-                let currentUrl = fetchUrl;
-                let currentFetchParams = fetchParams;
-                let outletTotal = 0;
-                let hasNextPage = true;
-                let isFirstPage = true;
-
-                while (hasNextPage && currentUrl) {
-                    const response = await fetch(currentUrl, currentFetchParams);
-                    const htmlText = await response.text();
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(htmlText, 'text/html');
-
-                    if (isFirstPage) {
-                        const hasilParse = ekstrakTotalDariTeks(doc);
-                        if (hasilParse.exact) {
-                            outletTotal = hasilParse.total;
-                            break;
-                        } else {
-                            outletTotal += hasilParse.total;
-                        }
-                    } else {
-                        let countHalaman = 0;
-                        doc.querySelectorAll('table tbody tr').forEach(row => {
-                            if (row.querySelectorAll('td').length > 3) countHalaman++;
-                        });
-                        outletTotal += countHalaman;
-                    }
-
-                    let nextLink = cariLinkNext(doc);
-                    if (nextLink) {
-                        currentUrl = nextLink;
-                        currentFetchParams = { method: 'GET' };
-                        isFirstPage = false;
-                        updateLoadingStatus(`Proses [${i+1}/${options.length}]: Menghitung halaman selanjutnya untuk ${opt.text}...`);
-                    } else {
-                        hasNextPage = false;
-                    }
-                }
-
-                if (outletTotal > 0) {
-                    rekapData.push({ nama: opt.text, jumlah: outletTotal });
-                    totalSemua += outletTotal;
-                }
-            } catch (error) {
-                console.error("Gagal memproses data untuk: " + opt.text, error);
+        try {
+            // semua outlet, tanpa filter status: yang menentukan "baru" adalah tombol Edit yang aktif
+            let currentUrl = formAction, params = { method: 'GET' };
+            if (searchForm) {
+                const fd = new FormData(searchForm);
+                fd.set('pencarian[idoutlet_own]', '');
+                document.querySelectorAll('select').forEach((sel) => {
+                    if (sel !== outletSelect && Array.from(sel.options).some((o) => o.text.toLowerCase().trim() === 'pesanan baru')) fd.set(sel.name, '');
+                });
+                if (formMethod === 'GET') currentUrl = formAction + (formAction.includes('?') ? '&' : '?') + new URLSearchParams(fd).toString();
+                else params = { method: formMethod, body: fd };
+            } else {
+                currentUrl = location.href;
             }
+
+            const sudah = new Set();
+            for (let hal = 1; hal <= 200 && currentUrl && !sudah.has(currentUrl); hal++) {
+                sudah.add(currentUrl);
+                updateLoadingStatus('Membaca halaman ' + hal + '... (' + hasil.items.length + ' pesanan baru ditemukan)');
+                const res = await fetch(currentUrl, params);
+                const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+                bacaHalamanPesanan(doc, hasil);
+                currentUrl = cariLinkNext(doc);
+                params = { method: 'GET' };
+            }
+        } catch (error) {
+            console.error('Gagal membaca daftar pesanan', error);
+            hasil.error = (error && error.message) || String(error);
         }
 
-        tampilkanHasilModalUI(rekapData, totalSemua);
+        const per = new Map();
+        hasil.items.forEach((it) => per.set(it.outlet, (per.get(it.outlet) || 0) + 1));
+        const rekapData = Array.from(per.entries()).map(([nama, jumlah]) => ({ nama, jumlah }));
+        tampilkanHasilModalUI(rekapData, hasil.items.length, hasil);
     }
 
     // ==========================================
@@ -351,7 +330,7 @@
         if (statusEl) statusEl.innerText = text;
     }
 
-    function tampilkanHasilModalUI(rekapData, totalSemua) {
+    function tampilkanHasilModalUI(rekapData, totalSemua, hasil) {
         hapusModalUI();
         const modalOverlay = buatOverlayUI();
 
@@ -363,13 +342,13 @@
         });
 
         if (rekapData.length === 0) {
-            tableContent = `<tr><td colspan="2" style="text-align: center; padding: 15px;">Tidak ada <b>Pesanan Baru</b> di semua outlet.</td></tr>`;
+            tableContent = `<tr><td colspan="2" style="text-align: center; padding: 15px;">Tidak ada <b>Pesanan Baru</b> (tombol Edit aktif) di semua outlet.</td></tr>`;
         }
 
         modalOverlay.innerHTML = `
             <div class="rp_box">
                 <div class="rp_head">
-                    <h3>Rekap (Filter: Pesanan Baru)</h3>
+                    <h3>Rekap Pesanan Baru (Edit aktif)</h3>
                     <button id="close-rekap-modal" type="button" aria-label="Tutup">&times;</button>
                 </div>
                 <div class="rp_body">
@@ -385,6 +364,7 @@
                         </tbody>
                     </table>
                     <div class="rp_total">Total Pesanan Baru Keseluruhan: <span>${totalSemua}</span></div>
+                    ${infoHasil(hasil)}
                 </div>
                 <div class="rp_foot">
                     <button id="btn-close-footer" type="button">Tutup</button>
@@ -396,6 +376,19 @@
         document.getElementById('close-rekap-modal').onclick = () => hapusModalUI();
         document.getElementById('btn-close-footer').onclick = () => hapusModalUI();
         modalOverlay.onclick = (e) => { if (e.target === modalOverlay) hapusModalUI(); };
+    }
+
+    function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+    function infoHasil(h) {
+        if (!h) return '';
+        let out = '<div style="margin-top:8px;font-size:12px;color:#888;">Dibaca ' + h.totalBaris + ' pesanan: ' + h.items.length + ' Edit aktif, ' + h.nonaktif + ' Edit nonaktif.' +
+            (h.adaKolomOutlet ? '' : ' Kolom "Outlet" tidak ditemukan di tabel, jadi outlet tidak terbaca.') +
+            (h.error ? ' <span style="color:#b91c1c">Berhenti karena error: ' + esc(h.error) + '</span>' : '') + '</div>';
+        if (h.items.length) {
+            out += '<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:bold">Daftar invoice (' + h.items.length + ')</summary><div style="font-size:13px;margin-top:6px;">' +
+                h.items.map((it) => '<div style="padding:4px 0;border-bottom:1px solid #eee;word-break:break-all">' + esc(it.invoice || '-') + (it.kode ? ' · ' + esc(it.kode) : '') + ' · ' + esc(it.outlet) + '</div>').join('') + '</div></details>';
+        }
+        return out;
     }
 
     function buatOverlayUI() {
