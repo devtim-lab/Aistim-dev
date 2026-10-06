@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.12.0
+// @version      1.13.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -168,6 +168,7 @@
     // ---------- Rekap semua: telusuri halaman 1,2,3,... (50 halaman per tahap) ----------
     const HAL_PER_TAHAP = 50;
     let mode = 'hari';         // 'hari' = rekap semua (nama lama dipertahankan), 'halaman' = per halaman
+    let cariOutlet = '';       // kata pencarian outlet
     let outletPilih = '';      // filter dropdown outlet (rekap semua)
     let hari = null;           // { items, totalBaris, halaman, selesai, waktu, error }
     async function muatHari(lanjut) {
@@ -252,6 +253,7 @@
         '.tabs button{flex:1;padding:8px;border:none;background:#fff;font-size:13px;color:#666;cursor:pointer;border-bottom:3px solid transparent}',
         '.tabs button.on{color:#dc2626;font-weight:700;border-bottom-color:#dc2626}',
         '.rk{padding:8px 12px;border-bottom:1px solid #eee}',
+        '.cari{width:100%;padding:8px;font-size:14px;border:1px solid #ccc;border-radius:8px;background:#fff;color:#222;margin-bottom:6px}',
         '.sel{width:100%;padding:8px;font-size:14px;border:1px solid #ccc;border-radius:8px;background:#fff;color:#222}',
         '.rkh{font-size:11px;color:#888;text-transform:uppercase;margin-bottom:2px}',
         '.rkr{display:flex;justify-content:space-between;gap:8px;padding:2px 0}',
@@ -394,53 +396,76 @@
         else sub.textContent = src.items.length + ' nota web dari ' + src.totalBaris + ' baris · halaman ' + (src.halaman || 1) + ' Data Penjualan · dicek ' + fmtWaktu(src.waktu);
         panel.appendChild(sub);
 
-        let tampil = src ? src.items : [];
-        if (mode === 'hari' && src && src.items.length) {
-            const per = new Map();
-            src.items.forEach((it) => { const k = it.outlet || '(tanpa outlet)'; per.set(k, (per.get(k) || 0) + 1); });
-            if (outletPilih !== '' && !per.has(outletPilih)) outletPilih = '';
-            const rk = el('div', 'rk');
-            const sel = el('select', 'sel');
-            const op0 = el('option', '', 'Semua outlet (' + src.items.length + ')');
-            op0.value = '';
-            sel.appendChild(op0);
-            Array.from(per.entries()).sort((x, y) => y[1] - x[1]).forEach(([k, n]) => {
-                const o = el('option', '', k + ' (' + n + ')');
-                o.value = k;
-                sel.appendChild(o);
-            });
-            sel.value = outletPilih;
-            sel.onchange = () => { outletPilih = sel.value; render(); };
-            rk.appendChild(sel);
-            panel.appendChild(rk);
-            if (outletPilih !== '') tampil = src.items.filter((it) => (it.outlet || '(tanpa outlet)') === outletPilih);
-        }
-
         const list = el('div', 'list');
         const seen = terakhirDilihat();
-        if (src && tampil.length) {
-            tampil.forEach((it) => {
-                const row = el('div', 'it' + (it.ts > seen ? ' baru' : ''));
-                const f = el('div', 'f');
-                if (it.href) {
-                    const a = el('a', '', it.faktur);
-                    a.href = it.href;
-                    f.appendChild(a);
-                } else {
-                    f.appendChild(document.createTextNode(it.faktur));
-                }
-                if (it.ts > seen) f.appendChild(el('span', 'tag', 'BARU'));
-                row.appendChild(f);
-                row.appendChild(el('div', 'm', [fmtWaktu(it.ts), it.kode, it.total ? (/^rp/i.test(it.total) ? it.total : 'Rp ' + it.total) : ''].filter(Boolean).join(' - ')));
-                list.appendChild(row);
-            });
-        } else if (src && !src.error) {
-            list.appendChild(el('div', 'kosong', mode === 'hari'
-                ? 'Belum ada nota web yang ditemukan.'
-                : (src.totalBaris ? 'Tidak ada nota web di ' + src.totalBaris + ' baris di halaman ' + (src.halaman || 1) + '.' : 'Tabel Data Penjualan tidak terbaca (0 baris).')));
-        } else if (!src || sedangFetch) {
-            list.appendChild(el('div', 'kosong', 'Memuat...'));
+        const adaDrop = mode === 'hari' && src && src.items.length;
+        const per = new Map();
+        if (adaDrop) src.items.forEach((it) => { const k = it.outlet || '(tanpa outlet)'; per.set(k, (per.get(k) || 0) + 1); });
+        if (outletPilih !== '' && !per.has(outletPilih)) outletPilih = '';
+
+        const cocokCari = (nama) => !cariOutlet || nama.toLowerCase().indexOf(cariOutlet.toLowerCase()) !== -1;
+        const hitungTampil = () => {
+            if (!src) return [];
+            if (!adaDrop) return src.items;
+            if (outletPilih !== '') return src.items.filter((it) => (it.outlet || '(tanpa outlet)') === outletPilih);
+            return cariOutlet ? src.items.filter((it) => cocokCari(it.outlet || '(tanpa outlet)')) : src.items;
+        };
+
+        let sel = null;
+        const isiOpsi = () => {
+            if (!sel) return;
+            sel.textContent = '';
+            const cocok = Array.from(per.entries()).filter(([k]) => cocokCari(k) || k === outletPilih).sort((x, y) => y[1] - x[1]);
+            const op0 = el('option', '', (cariOutlet ? 'Semua yang cocok (' : 'Semua outlet (') + (cariOutlet ? cocok.reduce((t, e) => t + e[1], 0) : src.items.length) + ')');
+            op0.value = '';
+            sel.appendChild(op0);
+            cocok.forEach(([k, n]) => { const o = el('option', '', k + ' (' + n + ')'); o.value = k; sel.appendChild(o); });
+            sel.value = outletPilih;
+        };
+
+        const isiList = () => {
+            list.textContent = '';
+            const tampil = hitungTampil();
+            if (src && tampil.length) {
+                tampil.forEach((it) => {
+                    const row = el('div', 'it' + (it.ts > seen ? ' baru' : ''));
+                    const f = el('div', 'f');
+                    if (it.href) {
+                        const a = el('a', '', it.faktur);
+                        a.href = it.href;
+                        f.appendChild(a);
+                    } else {
+                        f.appendChild(document.createTextNode(it.faktur));
+                    }
+                    if (it.ts > seen) f.appendChild(el('span', 'tag', 'BARU'));
+                    row.appendChild(f);
+                    row.appendChild(el('div', 'm', [fmtWaktu(it.ts), it.kode, it.total ? (/^rp/i.test(it.total) ? it.total : 'Rp ' + it.total) : ''].filter(Boolean).join(' - ')));
+                    list.appendChild(row);
+                });
+            } else if (src && !src.error) {
+                list.appendChild(el('div', 'kosong', mode === 'hari'
+                    ? (cariOutlet || outletPilih ? 'Tidak ada nota untuk outlet itu.' : 'Belum ada nota web yang ditemukan.')
+                    : (src.totalBaris ? 'Tidak ada nota web di ' + src.totalBaris + ' baris di halaman ' + (src.halaman || 1) + '.' : 'Tabel Data Penjualan tidak terbaca (0 baris).')));
+            } else if (!src || sedangFetch) {
+                list.appendChild(el('div', 'kosong', 'Memuat...'));
+            }
+        };
+
+        if (adaDrop) {
+            const rk = el('div', 'rk');
+            const cari = el('input', 'cari');
+            cari.type = 'search';
+            cari.placeholder = 'Cari outlet...';
+            cari.value = cariOutlet;
+            cari.setAttribute('autocomplete', 'off');
+            sel = el('select', 'sel');
+            isiOpsi();
+            cari.oninput = () => { cariOutlet = cari.value.trim(); outletPilih = ''; isiOpsi(); isiList(); };
+            sel.onchange = () => { outletPilih = sel.value; isiList(); };
+            rk.append(cari, sel);
+            panel.appendChild(rk);
         }
+        isiList();
         panel.appendChild(list);
 
         if (mode === 'hari' && hari && !hari.selesai && !sedangFetch) {
