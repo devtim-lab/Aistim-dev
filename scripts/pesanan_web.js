@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm, badge jumlah nota baru, dan filter "hanya nota web" di halaman Data Penjualan.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -84,7 +84,7 @@
         return null;
     }
 
-    async function muatData(paksa) {
+    async function muatData(paksa, tambah) {
         if (sedangFetch) return;
         if (!paksa) {
             const c = bacaCache();
@@ -93,8 +93,9 @@
         sedangFetch = true;
         render();
         try {
-            // pindai halaman 1-3 Data Penjualan sekaligus, gabungkan & buang duplikat
-            const halaman = await Promise.all([1, 2, 3].map(async (n) => {
+            // pindai halaman 1..jmlHal Data Penjualan (50 baris/halaman), gabungkan & buang duplikat
+            const jmlHal = Math.max(1, (data && data.halaman) || 1) + (tambah ? 1 : 0);
+            const halaman = await Promise.all(Array.from({ length: jmlHal }, (_, i) => i + 1).map(async (n) => {
                 const u = LIST_URL + (n > 1 ? '?page=' + n : '');
                 const res = await fetch(u, { credentials: 'same-origin', cache: 'no-store' });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -105,10 +106,10 @@
             let total = 0;
             halaman.forEach((r) => { total += r.totalBaris; r.items.forEach((it) => { if (!peta.has(it.faktur)) peta.set(it.faktur, it); }); });
             const items = Array.from(peta.values()).sort((a, b) => b.ts - a.ts);
-            data = { items, totalBaris: total, waktu: Date.now(), error: '' };
+            data = { items, totalBaris: total, halaman: jmlHal, waktu: Date.now(), error: '' };
             ls.set(K_CACHE, JSON.stringify(data));
         } catch (e) {
-            data = { items: (data && data.items) || [], totalBaris: (data && data.totalBaris) || 0, waktu: (data && data.waktu) || 0, error: e.message || String(e) };
+            data = { items: (data && data.items) || [], totalBaris: (data && data.totalBaris) || 0, halaman: (data && data.halaman) || 1, waktu: (data && data.waktu) || 0, error: e.message || String(e) };
         }
         sedangFetch = false;
         sesuaikanBadge();
@@ -278,7 +279,7 @@
         if (sedangFetch) sub.textContent = 'Memindai no faktur berawalan 1...';
         else if (!data) sub.textContent = 'Memuat...';
         else if (data.error) sub.textContent = 'Gagal memuat: ' + data.error + (data.waktu ? ' (data lama ' + fmtWaktu(data.waktu) + ')' : '');
-        else sub.textContent = data.items.length + ' nota web dari ' + data.totalBaris + ' baris (3 halaman pertama Data Penjualan) · dicek ' + fmtWaktu(data.waktu);
+        else sub.textContent = data.items.length + ' nota web dari ' + data.totalBaris + ' baris (halaman 1-' + (data.halaman || 1) + ' Data Penjualan, 50/halaman) · dicek ' + fmtWaktu(data.waktu);
         panel.appendChild(sub);
 
         if (halamanDaftar()) {
@@ -311,12 +312,20 @@
             });
         } else if (data && !data.error) {
             list.appendChild(el('div', 'kosong', data.totalBaris
-                ? 'Tidak ada nota dengan pola nomor faktur web di ' + data.totalBaris + ' baris yang dipindai.'
+                ? 'Tidak ada nota dengan pola nomor faktur web di ' + data.totalBaris + ' baris yang dipindai (halaman 1-' + (data.halaman || 1) + ').'
                 : 'Tabel Data Penjualan tidak terbaca (0 baris).'));
         } else if (!data || sedangFetch) {
             list.appendChild(el('div', 'kosong', 'Memuat...'));
         }
         panel.appendChild(list);
+
+        if (data && !sedangFetch) {
+            const more = el('button', 'more', 'Pindai halaman berikutnya (' + ((data.halaman || 1) + 1) + ') ›');
+            more.type = 'button';
+            more.style.cssText = 'margin:6px 10px 10px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#f5f5f5;font-size:13px;cursor:pointer;';
+            more.onclick = () => muatData(true, true);
+            panel.appendChild(more);
+        }
     }
 
     // ---------- Filter "hanya nota web" di halaman Data Penjualan ----------
