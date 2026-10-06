@@ -1,4 +1,4 @@
-# Aistim Tool v2.9.7
+# Aistim Tool v2.9.8
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -127,11 +127,16 @@ Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus s
 
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] ===== Content script v2.9.7 loaded =====` — content script aktif
+- `[Aistim] ===== Content script v2.9.8 loaded =====` — content script aktif
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol Erzap berhasil
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.9.8
+- **ID ekstensi tetap**: `manifest.json` kini memuat `key` (kunci publik) sehingga ID ekstensi selalu sama di setiap pemasangan/update (tidak lagi berubah-ubah mengikuti lokasi file)
+- **Auto-update ekstensi (CRX)**: `manifest.json` punya `update_url` ke `updates.xml` di release terbaru. Workflow `release.yml` membuat `Aistim-dev-<versi>.crx` (ditandatangani) + `updates.xml` otomatis kalau secret `CRX_PRIVATE_KEY` sudah diisi; kalau belum, workflow tetap membuat ZIP seperti biasa
+- **PENTING**: kunci privat TIDAK BOLEH masuk repo. Simpan hanya sebagai GitHub Secret `CRX_PRIVATE_KEY` + cadangan pribadi. Kalau hilang, ID ekstensi harus diganti dan semua pengguna wajib pasang ulang
 
 ## Changelog v2.9.7
 - **Logo bulat di popup diperbaiki**: memakai logo AISTIM lengkap (lambang kecil di tengah + tulisan AISTIM) berbentuk lingkaran 56px, bukan potongan lambang saja

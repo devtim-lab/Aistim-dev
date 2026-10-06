@@ -4,6 +4,8 @@ name: Release
 # ZIP release bernama Aistim-dev-<versi>.zip dengan manifest.json di ROOT zip
 # (siap "Load unpacked/zip" di Chrome/Lemur), dilampirkan sebagai asset release.
 # JANGAN pakai "Source code (zip)" bawaan GitHub — isinya terbungkus folder.
+# Auto-update: kalau secret CRX_PRIVATE_KEY terisi, dibuat juga CRX bertanda tangan + updates.xml
+# (dibaca browser lewat "update_url" di manifest.json).
 
 on:
   push:
@@ -28,17 +30,56 @@ jobs:
           zip -r "$ZIP" manifest.json background content popup icons scripts
           unzip -l "$ZIP" | grep -E ' manifest\.json$' || { echo "manifest.json tidak ada di root zip"; exit 1; }
 
+      - name: Build signed CRX + updates.xml (auto-update)
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+        run: |
+          if [ -z "$CRX_PRIVATE_KEY" ]; then
+            echo "Secret CRX_PRIVATE_KEY belum diisi — lewati CRX/updates.xml (ZIP tetap dibuat)"
+            exit 0
+          fi
+          KEYFILE="$RUNNER_TEMP/crx-key.pem"
+          umask 077
+          printf '%s\n' "$CRX_PRIVATE_KEY" > "$KEYFILE"
+
+          # Pastikan kunci privat cocok dengan "key" di manifest.json, kalau tidak ID ekstensi akan beda
+          ID_MANIFEST=$(python3 - <<'PY'
+          import json,base64,hashlib
+          k=json.load(open('manifest.json'))['key']
+          h=hashlib.sha256(base64.b64decode(k)).hexdigest()[:32]
+          print(h.translate(str.maketrans('0123456789abcdef','abcdefghijklmnop')))
+          PY
+          )
+          ID_SECRET=$(openssl rsa -in "$KEYFILE" -pubout -outform DER 2>/dev/null | sha256sum | cut -c1-32 | tr '0-9a-f' 'a-p')
+          if [ "$ID_MANIFEST" != "$ID_SECRET" ]; then
+            echo "ID dari manifest ($ID_MANIFEST) != ID dari kunci privat ($ID_SECRET) — dibatalkan"
+            rm -f "$KEYFILE"
+            exit 1
+          fi
+
+          CRX="Aistim-dev-$VERSION.crx"
+          npx --yes crx3@2.0.0 -p "$KEYFILE" -o "$CRX" -x updates.xml \
+            --crxURL "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${CRX}" \
+            --appVersion "$VERSION" \
+            manifest.json background content popup icons scripts
+          rm -f "$KEYFILE"
+          grep -q "appid=\"$ID_MANIFEST\"" updates.xml || { echo "appid di updates.xml tidak cocok"; exit 1; }
+          echo "CRX=$CRX" >> "$GITHUB_ENV"
+          echo "CRX_BUILT=1" >> "$GITHUB_ENV"
+
       - name: Create release / upload asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v$VERSION"
-          echo "Version di manifest: $VERSION (tag: $TAG)"
+          ASSETS="$ZIP"
+          if [ "$CRX_BUILT" = "1" ]; then ASSETS="$ASSETS $CRX updates.xml"; fi
+          echo "Version di manifest: $VERSION (tag: $TAG), asset: $ASSETS"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG sudah ada — perbarui ZIP asset saja"
-            gh release upload "$TAG" "$ZIP" --clobber
+            gh release upload "$TAG" $ASSETS --clobber
           else
-            gh release create "$TAG" "$ZIP" \
+            gh release create "$TAG" $ASSETS \
               --title "Aistim Tool v$VERSION" \
               --notes "Download **$ZIP** (bukan Source code zip). Lihat README.md untuk changelog lengkap." \
               --latest
