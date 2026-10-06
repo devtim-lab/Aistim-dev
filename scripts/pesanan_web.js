@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.5.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -21,9 +21,9 @@
     // (tanpa \b: di DOM teks "Kode Pemesanan" bisa menempel langsung setelah nomor faktur)
     const RE_FAKTUR = /(?<![A-Z0-9])(1[A-Z0-9]{9,13})-(\d{10})(?!\d)/;
     const LIST_URL = '/penjualans';
-    const POLL_MS = 3 * 60 * 1000;     // cek tiap 3 menit (hanya saat tab terlihat)
+    const POLL_MS = 60 * 1000;         // cek tiap 1 menit (hanya saat tab terlihat)
     const CACHE_MS = 90 * 1000;        // pindah halaman tidak memicu fetch ulang kalau data masih segar
-    const K_SEEN = 'aistim_pw_seen', K_POS = 'aistim_pw_pos', K_FILTER = 'aistim_pw_filter', K_CACHE = 'aistim_pw_cache';
+    const K_SEEN = 'aistim_pw_seen', K_POS = 'aistim_pw_pos', K_FILTER = 'aistim_pw_filter', K_CACHE = 'aistim_pw_cache', K_BUNYI = 'aistim_pw_bunyi';
 
     const ls = {
         get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -84,6 +84,39 @@
         return null;
     }
 
+    // ---------- Bunyi notifikasi (Web Audio; aktif setelah halaman pernah disentuh/diklik) ----------
+    let audioCtx = null;
+    function siapkanAudio() {
+        try {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        } catch (e) { /* tidak didukung */ }
+    }
+    ['pointerdown', 'touchstart', 'keydown', 'click'].forEach((ev) => document.addEventListener(ev, siapkanAudio, { passive: true }));
+    function bunyi() {
+        try {
+            siapkanAudio();
+            if (!audioCtx || audioCtx.state !== 'running') return;
+            [[880, 0], [1175, 0.18], [880, 0.36]].forEach(([f, t]) => {
+                const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+                o.type = 'sine'; o.frequency.value = f;
+                const m = audioCtx.currentTime + t;
+                g.gain.setValueAtTime(0.0001, m);
+                g.gain.exponentialRampToValueAtTime(0.4, m + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, m + 0.16);
+                o.connect(g); g.connect(audioCtx.destination);
+                o.start(m); o.stop(m + 0.18);
+            });
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        } catch (e) { /* abaikan */ }
+    }
+    function cekBunyi() {
+        const t = data && data.items.length ? data.items[0].ts : 0;
+        const lama = +(ls.get(K_BUNYI) || 0);
+        if (!lama) { if (t) ls.set(K_BUNYI, String(t)); return; }   // pertama kali: jangan bunyi
+        if (t > lama) { ls.set(K_BUNYI, String(t)); bunyi(); }
+    }
+
     let halKini = 1;           // halaman Data Penjualan yang sedang ditampilkan (50 baris/halaman)
 
     async function muatData(paksa, hal) {
@@ -107,6 +140,7 @@
             data = { items: (data && data.items) || [], totalBaris: (data && data.totalBaris) || 0, halaman: (data && data.halaman) || 1, waktu: (data && data.waktu) || 0, error: e.message || String(e) };
         }
         sedangFetch = false;
+        if (halKini === 1 && data && !data.error) cekBunyi();
         sesuaikanBadge();
         render();
     }
