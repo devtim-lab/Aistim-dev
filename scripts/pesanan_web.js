@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
-// @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm, badge jumlah nota baru, dan filter "hanya nota web" di halaman Data Penjualan.
+// @version      1.3.0
+// @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -145,11 +145,6 @@
         '.hd button{background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:6px;padding:4px 10px;font-size:14px;cursor:pointer}',
         '.sub{padding:6px 12px;font-size:12px;color:#555;background:#fef2f2;border-bottom:1px solid #fecaca}',
         '.sub.err{color:#b91c1c}',
-        '.filter{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eee;font-size:13px}',
-        '.filter span{flex:1}',
-        '.sw{width:42px;height:24px;border-radius:12px;background:#ccc;position:relative;cursor:pointer;border:none;padding:0;flex-shrink:0}',
-        '.sw::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}',
-        '.sw.on{background:#dc2626}.sw.on::after{left:20px}',
         '.list{overflow-y:auto;flex:1}',
         '.it{padding:10px 12px;border-bottom:1px solid #eee;font-size:13px;line-height:1.35}',
         '.it.baru{background:#fff7ed;border-left:4px solid #f97316}',
@@ -282,16 +277,6 @@
         else sub.textContent = data.items.length + ' nota web dari ' + data.totalBaris + ' baris (halaman 1-' + (data.halaman || 1) + ' Data Penjualan, 50/halaman) · dicek ' + fmtWaktu(data.waktu);
         panel.appendChild(sub);
 
-        if (halamanDaftar()) {
-            const f = el('div', 'filter');
-            f.appendChild(el('span', '', 'Saring daftar di halaman ini: hanya nota web'));
-            const sw = el('button', 'sw' + (filterAktif() ? ' on' : ''));
-            sw.type = 'button';
-            sw.onclick = () => { setFilter(!filterAktif()); render(); };
-            f.appendChild(sw);
-            panel.appendChild(f);
-        }
-
         const list = el('div', 'list');
         const seen = terakhirDilihat();
         if (data && data.items.length) {
@@ -328,60 +313,8 @@
         }
     }
 
-    // ---------- Filter "hanya nota web" di halaman Data Penjualan ----------
-    function halamanDaftar() { return /^\/penjualans\/?$/.test(location.pathname); }
-    function filterAktif() { return ls.get(K_FILTER) === '1'; }
-    function setFilter(on) {
-        if (on) ls.set(K_FILTER, '1'); else ls.del(K_FILTER);
-        terapkanFilter();
-    }
-
-    function cariTabel() {
-        return Array.from(document.querySelectorAll('table')).find((t) => /no\.?\s*faktur/i.test(rapih((t.tHead || t).textContent)));
-    }
-
-    function terapkanFilter() {
-        if (!halamanDaftar()) return;
-        const tabel = cariTabel();
-        if (!tabel) return;
-        const aktif = filterAktif();
-        const rows = Array.from(tabel.querySelectorAll('tbody tr'));
-        let web = 0;
-        rows.forEach((tr) => {
-            const adaWeb = RE_FAKTUR.test(Array.from(tr.children).map((c) => rapih(c.textContent)).join(' '));
-            if (adaWeb) web++;
-            const sembunyi = aktif && !adaWeb;
-            if (sembunyi) { tr.style.display = 'none'; tr.setAttribute('data-aw-sembunyi', '1'); }
-            else if (tr.getAttribute('data-aw-sembunyi')) { tr.style.display = ''; tr.removeAttribute('data-aw-sembunyi'); }
-        });
-        let info = document.getElementById('aistim_pw_info');
-        if (!aktif) { if (info) info.remove(); return; }
-        if (!info) {
-            info = document.createElement('div');
-            info.id = 'aistim_pw_info';
-            info.style.cssText = 'margin:8px 0;padding:8px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:6px;color:#9a3412;font-size:13px;';
-            tabel.parentNode.insertBefore(info, tabel);
-        }
-        info.textContent = '';
-        info.appendChild(document.createTextNode('Filter nota web aktif: ' + web + ' dari ' + rows.length + ' baris di halaman ini. '));
-        const off = document.createElement('a');
-        off.href = '#';
-        off.textContent = 'Matikan';
-        off.style.cssText = 'font-weight:bold;text-decoration:underline;';
-        off.onclick = (e) => { e.preventDefault(); setFilter(false); render(); };
-        info.appendChild(off);
-    }
-
-    // Terapkan ulang kalau isi tabel berubah (pindah halaman via AJAX/Turbolinks)
-    if (halamanDaftar()) {
-        let tunda = null;
-        new MutationObserver((muts) => {
-            if (muts.every((m) => m.target && m.target.id === 'aistim_pw_info')) return;
-            clearTimeout(tunda);
-            tunda = setTimeout(terapkanFilter, 150);
-        }).observe(document.documentElement, { childList: true, subtree: true });
-        terapkanFilter();
-    }
+    // bersihkan sisa pengaturan filter lama (fitur filter dihapus)
+    ls.del(K_FILTER);
 
     // ---------- Mulai ----------
     function pasang() {
