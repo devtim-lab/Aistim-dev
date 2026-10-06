@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.6.0
+// @version      1.7.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -145,44 +145,51 @@
         render();
     }
 
-    // ---------- Rekap hari ini: telusuri halaman 1,2,... sampai nota lebih lama dari hari ini ----------
-    let mode = 'hari';         // 'hari' = rekap hari ini, 'halaman' = per halaman
-    let hari = null;           // { items, totalBaris, halaman, waktu, error }
-    async function muatHari() {
+    // ---------- Rekap semua: telusuri halaman 1,2,3,... (10 halaman per tahap) ----------
+    const HAL_PER_TAHAP = 10;
+    let mode = 'hari';         // 'hari' = rekap semua (nama lama dipertahankan), 'halaman' = per halaman
+    let hari = null;           // { items, totalBaris, halaman, selesai, waktu, error }
+    async function muatHari(lanjut) {
         if (sedangFetch) return;
         sedangFetch = true;
+        const peta = new Map();
+        let total = 0, hal = 0, selesai = false, p1 = null;
+        if (lanjut && hari) { hari.items.forEach((it) => peta.set(it.faktur, it)); total = hari.totalBaris; hal = hari.halaman; }
+        const simpan = (err) => {
+            hari = { items: Array.from(peta.values()).sort((a, b) => b.ts - a.ts), totalBaris: total, halaman: hal, selesai: selesai, waktu: Date.now(), error: err || '' };
+        };
         render();
         try {
-            const awal = new Date(); awal.setHours(0, 0, 0, 0);
-            const t0 = awal.getTime();
-            const peta = new Map();
-            let total = 0, hal = 0, p1 = null;
-            for (let n = 1; n <= 12; n++) {
+            const mulai = hal + 1;
+            for (let n = mulai; n < mulai + HAL_PER_TAHAP; n++) {
                 const res = await fetch(LIST_URL + (n > 1 ? '?page=' + n : ''), { credentials: 'same-origin', cache: 'no-store' });
-                if (!res.ok) throw new Error('HTTP ' + res.status);
+                if (!res.ok) throw new Error('HTTP ' + res.status + ' (halaman ' + n + ')');
                 const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
                 const r = ekstrakDaftar(doc, location.origin + LIST_URL);
                 if (n === 1) p1 = r;
                 total += r.totalBaris; hal = n;
-                r.items.forEach((it) => { if (it.ts >= t0 && !peta.has(it.faktur)) peta.set(it.faktur, it); });
-                if (r.items.some((it) => it.ts && it.ts < t0) || r.totalBaris < 50) break;
+                r.items.forEach((it) => { if (!peta.has(it.faktur)) peta.set(it.faktur, it); });
+                if (r.totalBaris < 50) { selesai = true; }
+                simpan('');
+                render();           // tampilkan progres tiap halaman
+                if (selesai) break;
             }
-            hari = { items: Array.from(peta.values()).sort((a, b) => b.ts - a.ts), totalBaris: total, halaman: hal, waktu: Date.now(), error: '' };
+            simpan('');
             if (p1) {
                 data = { items: p1.items, totalBaris: p1.totalBaris, halaman: 1, waktu: Date.now(), error: '' };
                 ls.set(K_CACHE, JSON.stringify(data));
             }
         } catch (e) {
-            hari = { items: (hari && hari.items) || [], totalBaris: (hari && hari.totalBaris) || 0, halaman: (hari && hari.halaman) || 0, waktu: (hari && hari.waktu) || 0, error: e.message || String(e) };
+            simpan(e.message || String(e));
         }
         sedangFetch = false;
         halKini = 1;
-        if (data && !hari.error) cekBunyi();
+        if (data && !hari.error && p1) cekBunyi();
         sesuaikanBadge();
         render();
     }
 
-    function muatSesuaiMode() { if (mode === 'hari') muatHari(); else muatData(true, halKini); }
+    function muatSesuaiMode() { if (mode === 'hari') muatHari(false); else muatData(true, halKini); }
 
     // ---------- Status "sudah dilihat" ----------
     const terakhirDilihat = () => +(ls.get(K_SEEN) || 0);
@@ -303,7 +310,7 @@
         terbuka = !terbuka;
         panel.classList.toggle('buka', terbuka);
         if (terbuka) {
-            if (mode === 'hari') muatHari(); else muatData(true, 1);
+            if (mode === 'hari') muatHari(false); else muatData(true, 1);
             render();
         } else {
             if (data && data.halaman === 1) tandaiDilihat();
@@ -348,24 +355,24 @@
         panel.appendChild(hd);
 
         const tabs = el('div', 'tabs');
-        [['hari', 'Hari ini'], ['halaman', 'Per halaman']].forEach(([m, t]) => {
+        [['hari', 'Semua'], ['halaman', 'Per halaman']].forEach(([m, t]) => {
             const bt = el('button', m === mode ? 'on' : '', t);
             bt.type = 'button';
-            bt.onclick = () => { if (mode === m) return; mode = m; if (m === 'hari') { if (!hari) muatHari(); else render(); } else if (!data) muatData(true, 1); else render(); };
+            bt.onclick = () => { if (mode === m) return; mode = m; if (m === 'hari') { if (!hari) muatHari(false); else render(); } else if (!data) muatData(true, 1); else render(); };
             tabs.appendChild(bt);
         });
         panel.appendChild(tabs);
 
         const src = mode === 'hari' ? hari : data;
         const sub = el('div', 'sub' + (src && src.error ? ' err' : ''));
-        if (sedangFetch) sub.textContent = 'Memindai no faktur berawalan 1...';
+        if (sedangFetch) sub.textContent = 'Memindai no faktur berawalan 1' + (mode === 'hari' && hari ? ' · halaman ' + hari.halaman + '...' : '...');
         else if (!src) sub.textContent = 'Memuat...';
         else if (src.error) sub.textContent = 'Gagal memuat: ' + src.error + (src.waktu ? ' (data lama ' + fmtWaktu(src.waktu) + ')' : '');
-        else if (mode === 'hari') sub.textContent = 'Rekap hari ini: ' + src.items.length + ' nota web (dipindai ' + src.totalBaris + ' baris, halaman 1-' + src.halaman + ') · dicek ' + fmtWaktu(src.waktu);
+        else if (mode === 'hari') sub.textContent = 'Rekap semua: ' + src.items.length + ' nota web (dipindai ' + src.totalBaris + ' baris, halaman 1-' + src.halaman + (src.selesai ? ', semua halaman' : ', masih ada halaman lain') + ') · dicek ' + fmtWaktu(src.waktu);
         else sub.textContent = src.items.length + ' nota web dari ' + src.totalBaris + ' baris · halaman ' + (src.halaman || 1) + ' Data Penjualan · dicek ' + fmtWaktu(src.waktu);
         panel.appendChild(sub);
 
-        if (mode === 'hari' && src && !src.error && src.items.length) {
+        if (mode === 'hari' && src && src.items.length) {
             const per = new Map();
             src.items.forEach((it) => { const k = it.outlet || '(tanpa outlet)'; per.set(k, (per.get(k) || 0) + 1); });
             const rk = el('div', 'rk');
@@ -376,7 +383,7 @@
                 rk.appendChild(r);
             });
             const tot = el('div', 'rkr tot');
-            tot.append(el('span', '', 'Total hari ini'), el('b', '', String(src.items.length)));
+            tot.append(el('span', '', 'Total'), el('b', '', String(src.items.length)));
             rk.appendChild(tot);
             panel.appendChild(rk);
         }
@@ -401,12 +408,20 @@
             });
         } else if (src && !src.error) {
             list.appendChild(el('div', 'kosong', mode === 'hari'
-                ? 'Belum ada nota web hari ini.'
+                ? 'Belum ada nota web yang ditemukan.'
                 : (src.totalBaris ? 'Tidak ada nota dengan pola nomor faktur web di ' + src.totalBaris + ' baris di halaman ' + (src.halaman || 1) + '.' : 'Tabel Data Penjualan tidak terbaca (0 baris).')));
         } else if (!src || sedangFetch) {
             list.appendChild(el('div', 'kosong', 'Memuat...'));
         }
         panel.appendChild(list);
+
+        if (mode === 'hari' && hari && !hari.selesai && !sedangFetch) {
+            const lg = el('button', '', 'Pindai ' + HAL_PER_TAHAP + ' halaman berikutnya ›');
+            lg.type = 'button';
+            lg.style.cssText = 'margin:8px 10px 10px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#f5f5f5;font-size:13px;cursor:pointer;';
+            lg.onclick = () => muatHari(true);
+            panel.appendChild(lg);
+        }
 
         if (mode === 'halaman' && data) {
             const nav = el('div', 'nav');
