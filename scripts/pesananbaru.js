@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Rekap Pesanan Baru per Outlet (Tema Merah)
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  [v1.3.0] Sekaligus menghapus tombol hijau 'Rekap Pesanan' lama bawaan ekstensi di halaman Erzap mana pun (menggantikan script bersihkan_tombol_lama.js). [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
+// @version      1.3.1
+// @description  [v1.3.1] Sembunyikan badge debug 'Aistim: ...' di pojok kanan bawah (dari content.js ekstensi). [v1.3.0] Sekaligus menghapus tombol hijau 'Rekap Pesanan' lama bawaan ekstensi di halaman Erzap mana pun (menggantikan script bersihkan_tombol_lama.js). [v1.2.6] Fix: cegah error tak jelas kalau elemen outlet bukan <select> lagi (perubahan tampilan filter outlet ERZAP)
 // @author       You
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -20,6 +20,15 @@
             // tombol lama: tanpa penanda data-aistim dan persis berteks "Rekap Pesanan"
             if (!b.hasAttribute('data-aistim') && teks === 'rekap pesanan') b.remove();
         });
+    }
+
+    // Badge debug "Aistim: ..." di pojok kanan bawah (dibuat content.js ekstensi <= v2.9.8): sembunyikan lewat CSS
+    // supaya tetap tersembunyi walau dibuat ulang belakangan.
+    if (!document.getElementById('aistim_sembunyi_badge')) {
+        const sb = document.createElement('style');
+        sb.id = 'aistim_sembunyi_badge';
+        sb.textContent = '#aistim-debug { display: none !important; }';
+        (document.head || document.documentElement).appendChild(sb);
     }
 
     // @match mencakup semua halaman Erzap karena tombol lama bisa muncul di halaman mana pun.
