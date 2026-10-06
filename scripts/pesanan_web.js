@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.10.0
+// @version      1.11.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -472,15 +472,17 @@
     // bersihkan sisa pengaturan filter lama (fitur filter dihapus)
     ls.del(K_FILTER);
 
-    // ---------- Tombol lonceng sebaris di halaman Data Pesanan Penjualan (di kiri "Rekap Pesanan Baru") ----------
+    // ---------- Tombol lonceng sebaris di halaman Data Pesanan Penjualan (sebelum tombol "Cari Pesanan Marketplace Online") ----------
     var tombolInline = null;
     if (/^\/pesanan_penjualans\/?$/.test(location.pathname)) {
         let sejak = Date.now();
         const pasangInline = () => {
             if (tombolInline && document.contains(tombolInline)) return;
-            const rekap = document.getElementById('btn-rekap-pesanan');
+            const terlihat = (e) => !!e && e.offsetParent !== null;
+            let rekap = document.getElementById('btn_cari_pesanan_marketplace_online');
+            if (!terlihat(rekap)) rekap = Array.from(document.querySelectorAll('a, button')).find((e) => /marketplace/i.test(e.textContent || '') && terlihat(e) && e.id !== 'aistim_pw_inline');
             if (!rekap || !rekap.parentNode) {
-                if (Date.now() - sejak > 90000) fab.style.display = '';   // tombol Rekap tak muncul: pakai FAB saja
+                if (Date.now() - sejak > 90000) fab.style.display = '';   // jangkar tak ketemu: pakai FAB saja
                 return;
             }
             tombolInline = document.createElement('button');
