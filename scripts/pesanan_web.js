@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.8.0
+// @version      1.9.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -145,8 +145,8 @@
         render();
     }
 
-    // ---------- Rekap semua: telusuri halaman 1,2,3,... (10 halaman per tahap) ----------
-    const HAL_PER_TAHAP = 10;
+    // ---------- Rekap semua: telusuri halaman 1,2,3,... (50 halaman per tahap) ----------
+    const HAL_PER_TAHAP = 50;
     let mode = 'hari';         // 'hari' = rekap semua (nama lama dipertahankan), 'halaman' = per halaman
     let outletPilih = '';      // filter dropdown outlet (rekap semua)
     let hari = null;           // { items, totalBaris, halaman, selesai, waktu, error }
@@ -367,7 +367,7 @@
 
         const src = mode === 'hari' ? hari : data;
         const sub = el('div', 'sub' + (src && src.error ? ' err' : ''));
-        if (sedangFetch) sub.textContent = 'Memindai no faktur berawalan 1' + (mode === 'hari' && hari ? ' · halaman ' + hari.halaman + '...' : '...');
+        if (sedangFetch) sub.textContent = 'Memindai' + (mode === 'hari' && hari ? ' · halaman ' + hari.halaman + '...' : '...');
         else if (!src) sub.textContent = 'Memuat...';
         else if (src.error) sub.textContent = 'Gagal memuat: ' + src.error + (src.waktu ? ' (data lama ' + fmtWaktu(src.waktu) + ')' : '');
         else if (mode === 'hari') sub.textContent = 'Rekap semua: ' + src.items.length + ' nota web (dipindai ' + src.totalBaris + ' baris, halaman 1-' + src.halaman + (src.selesai ? ', semua halaman' : ', masih ada halaman lain') + ') · dicek ' + fmtWaktu(src.waktu);
@@ -417,7 +417,7 @@
         } else if (src && !src.error) {
             list.appendChild(el('div', 'kosong', mode === 'hari'
                 ? 'Belum ada nota web yang ditemukan.'
-                : (src.totalBaris ? 'Tidak ada nota dengan pola nomor faktur web di ' + src.totalBaris + ' baris di halaman ' + (src.halaman || 1) + '.' : 'Tabel Data Penjualan tidak terbaca (0 baris).')));
+                : (src.totalBaris ? 'Tidak ada nota web di ' + src.totalBaris + ' baris di halaman ' + (src.halaman || 1) + '.' : 'Tabel Data Penjualan tidak terbaca (0 baris).')));
         } else if (!src || sedangFetch) {
             list.appendChild(el('div', 'kosong', 'Memuat...'));
         }
