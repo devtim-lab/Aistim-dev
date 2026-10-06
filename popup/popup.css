@@ -317,10 +317,10 @@ body {
 
 .brand-logo {
   position: absolute;
-  top: 12px;
+  top: 10px;
   left: 14px;
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   box-shadow: 0 2px 8px rgba(13, 90, 168, 0.45);
 }

@@ -1,4 +1,4 @@
-# Aistim Tool v2.9.6
+# Aistim Tool v2.9.7
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -127,11 +127,14 @@ Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus s
 
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] ===== Content script v2.9.6 loaded =====` — content script aktif
+- `[Aistim] ===== Content script v2.9.7 loaded =====` — content script aktif
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
 - `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol Erzap berhasil
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.9.7
+- **Logo bulat di popup diperbaiki**: memakai logo AISTIM lengkap (lambang kecil di tengah + tulisan AISTIM) berbentuk lingkaran 56px, bukan potongan lambang saja
 
 ## Changelog v2.9.6
 - **Ikon sudut membulat (oval/squircle)**: keempat sudut `icons/icon16|48|128.png` dibuat membulat dengan latar transparan supaya tampil lebih elegan
