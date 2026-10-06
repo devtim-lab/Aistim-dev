@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.14.0
+// @version      1.15.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -321,8 +321,13 @@
         '.tabs{display:flex;border-bottom:1px solid #fecaca}',
         '.tabs button{flex:1;padding:8px;border:none;background:#fff;font-size:13px;color:#666;cursor:pointer;border-bottom:3px solid transparent}',
         '.tabs button.on{color:#dc2626;font-weight:700;border-bottom-color:#dc2626}',
-        '.rk{padding:8px 12px;border-bottom:1px solid #eee}',
-        '.cari{width:100%;padding:8px;font-size:14px;border:1px solid #ccc;border-radius:8px;background:#fff;color:#222;margin-bottom:6px}',
+        '.rk{padding:8px 12px;border-bottom:1px solid #eee;position:relative}',
+        '.panah{position:absolute;right:22px;top:16px;font-size:14px;color:#666;cursor:pointer;padding:0 4px}',
+        '.opts{display:none;position:absolute;left:12px;right:12px;top:calc(100% - 4px);max-height:36vh;overflow-y:auto;background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.3);z-index:10}',
+        '.opts.buka{display:block}',
+        '.opt{display:flex;justify-content:space-between;gap:8px;padding:10px 12px;font-size:14px;border-bottom:1px solid #eee;cursor:pointer}',
+        '.opt.on{background:#fef2f2;font-weight:700}',
+        '.cari{width:100%;padding:8px 28px 8px 8px;font-size:14px;border:1px solid #ccc;border-radius:8px;background:#fff;color:#222}',
         '.sel{width:100%;padding:8px;font-size:14px;border:1px solid #ccc;border-radius:8px;background:#fff;color:#222}',
         '.rkh{font-size:11px;color:#888;text-transform:uppercase;margin-bottom:2px}',
         '.rkr{display:flex;justify-content:space-between;gap:8px;padding:2px 0}',
@@ -481,18 +486,6 @@
             return cariOutlet ? src.items.filter((it) => cocokCari(it.outlet || '(tanpa outlet)')) : src.items;
         };
 
-        let sel = null;
-        const isiOpsi = () => {
-            if (!sel) return;
-            sel.textContent = '';
-            const cocok = Array.from(per.entries()).filter(([k]) => cocokCari(k) || k === outletPilih).sort((x, y) => y[1] - x[1]);
-            const op0 = el('option', '', (cariOutlet ? 'Semua yang cocok (' : 'Semua outlet (') + (cariOutlet ? cocok.reduce((t, e) => t + e[1], 0) : src.items.length) + ')');
-            op0.value = '';
-            sel.appendChild(op0);
-            cocok.forEach(([k, n]) => { const o = el('option', '', k + ' (' + n + ')'); o.value = k; sel.appendChild(o); });
-            sel.value = outletPilih;
-        };
-
         const isiList = () => {
             list.textContent = '';
             const tampil = hitungTampil();
@@ -524,17 +517,38 @@
         };
 
         if (adaDrop) {
+            // combobox outlet: satu kotak, ketik untuk mencari, ketuk pilihan untuk memilih
             const rk = el('div', 'rk');
-            const cari = el('input', 'cari');
-            cari.type = 'search';
-            cari.placeholder = 'Cari outlet...';
-            cari.value = cariOutlet;
-            cari.setAttribute('autocomplete', 'off');
-            sel = el('select', 'sel');
-            isiOpsi();
-            cari.oninput = () => { cariOutlet = cari.value.trim(); outletPilih = ''; isiOpsi(); isiList(); };
-            sel.onchange = () => { outletPilih = sel.value; isiList(); };
-            rk.append(cari, sel);
+            const inp = el('input', 'cari');
+            inp.type = 'text';
+            inp.setAttribute('autocomplete', 'off');
+            inp.placeholder = 'Semua outlet (' + src.items.length + ') - ketik untuk cari';
+            inp.value = outletPilih || cariOutlet;
+            const panah = el('span', 'panah', '▾');
+            const opts = el('div', 'opts');
+            const isiOpsi = () => {
+                opts.textContent = '';
+                const q = outletPilih ? '' : cariOutlet;
+                const cocok = Array.from(per.entries()).filter(([k]) => !q || k.toLowerCase().indexOf(q.toLowerCase()) !== -1).sort((x, y) => y[1] - x[1]);
+                const semua = el('div', 'opt' + (!outletPilih && !cariOutlet ? ' on' : ''));
+                semua.append(el('span', '', q ? 'Semua yang cocok' : 'Semua outlet'), el('b', '', String(cocok.reduce((t, e) => t + e[1], 0))));
+                semua.onclick = () => { if (q) { outletPilih = ''; opts.classList.remove('buka'); isiList(); } else { outletPilih = ''; cariOutlet = ''; inp.value = ''; opts.classList.remove('buka'); isiList(); } };
+                opts.appendChild(semua);
+                cocok.forEach(([k, n]) => {
+                    const o = el('div', 'opt' + (k === outletPilih ? ' on' : ''));
+                    o.append(el('span', '', k), el('b', '', String(n)));
+                    o.onclick = () => { outletPilih = k; cariOutlet = ''; inp.value = k; opts.classList.remove('buka'); isiList(); };
+                    opts.appendChild(o);
+                });
+                if (!cocok.length) opts.appendChild(el('div', 'opt', 'Outlet tidak ditemukan'));
+            };
+            opts.addEventListener('mousedown', (e) => e.preventDefault());
+            opts.addEventListener('pointerdown', (e) => e.preventDefault());
+            inp.onfocus = () => { if (outletPilih) inp.select(); isiOpsi(); opts.classList.add('buka'); };
+            inp.oninput = () => { outletPilih = ''; cariOutlet = inp.value.trim(); isiOpsi(); opts.classList.add('buka'); isiList(); };
+            inp.onblur = () => setTimeout(() => opts.classList.remove('buka'), 150);
+            panah.onclick = () => { if (opts.classList.contains('buka')) opts.classList.remove('buka'); else { isiOpsi(); opts.classList.add('buka'); inp.focus(); } };
+            rk.append(inp, panah, opts);
             panel.appendChild(rk);
         }
         isiList();
