@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.11.0
+// @version      1.12.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -496,7 +496,8 @@
             sesuaikanBadge();
         };
         fab.style.display = 'none';
-        setInterval(pasangInline, 1000);
+        setInterval(pasangInline, 1000);    } else {
+        fab.style.display = 'none';   // di halaman lain lonceng disembunyikan (pengecekan & bunyi tetap jalan di latar)
     }
 
     // ---------- Mulai ----------
