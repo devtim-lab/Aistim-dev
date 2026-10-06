@@ -1,4 +1,4 @@
-# Aistim Tool v2.9.8
+# Aistim Tool v2.9.9
 
 **AI Multi Userscript Manager** — script dibundel di folder `scripts/` + auto-sync dari GitHub. Engine `chrome.userScripts` — **CSP-safe** (jalan di Erzap).
 
@@ -127,11 +127,14 @@ Script tampil dengan badge **AUTO** di popup, bisa di-toggle ON/OFF. Menghapus s
 
 ## Debug
 Buka DevTools (F12) -> Console:
-- `[Aistim] ===== Content script v2.9.8 loaded =====` — content script aktif
+- `[Aistim] ===== Content script v2.9.9 loaded =====` — content script aktif
 - `[Aistim] Engine: userScripts API (CSP-safe)` — engine utama aktif
 - `[Aistim] ✅ registered: Nama v1.x (bundled/remote)` — script terdaftar (background)
-- `[Aistim] ✅ Tombol Rekap Pesanan berhasil dibuat!` — tombol Erzap berhasil
 - `[Aistim] ❌ Nama diblokir CSP` — fallback diblokir CSP (aktifkan userScripts)
+
+## Changelog v2.9.9
+- **Tombol hijau "Rekap Pesanan" bawaan `content.js` dihapus** (tidak berfungsi di halaman `penjualans`, dan menghalangi tombol merah milik `pesananbaru.js` karena ID sama `btn-rekap-pesanan`). Rekap pesanan kini hanya dari script `pesananbaru.js`. Badge debug "Aistim: Tombol dibuat!" ikut hilang.
+- `content.js` sekarang hanya berisi jembatan fetch lintas domain (`x-fetch`) + fallback script-tag
 
 ## Changelog v2.9.8
 - **ID ekstensi tetap**: `manifest.json` kini memuat `key` (kunci publik) sehingga ID ekstensi selalu sama di setiap pemasangan/update (tidak lagi berubah-ubah mengikuti lokasi file)
