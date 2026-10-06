@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.13.0
+// @version      1.14.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -163,6 +163,69 @@
         if (halKini === 1 && data && !data.error) cekBunyi();
         sesuaikanBadge();
         render();
+        if (terbuka && mode === 'halaman' && data && !data.error) muatStatus(data.items);
+    }
+
+    // ---------- Status pesanan (cocokkan Kode Pemesanan SP... dengan daftar Data Pesanan Penjualan) ----------
+    //   Edit aktif = pesanan baru (oranye) | Edit nonaktif & "Dibatalkan" = batal | Edit nonaktif lainnya = sudah diproses (hijau)
+    const PESANAN_URL = '/pesanan_penjualans';
+    const statusMap = {};
+    let sedangStatus = false;
+    function editAktif(tr) {
+        const sel = Array.from(tr.querySelectorAll('a, button, input[type=button], input[type=submit], span')).filter(
+            (x) => rapih(x.textContent || x.value).toLowerCase() === 'edit');
+        if (!sel.length) return null;
+        return sel.some((x) => {
+            if (x.tagName !== 'A') return false;
+            const href = (x.getAttribute('href') || '').trim();
+            if (!href || href === '#' || /^javascript/i.test(href)) return false;
+            if (x.hasAttribute('disabled') || x.getAttribute('aria-disabled') === 'true' || /(^|\s)disabled(\s|$)/i.test(x.className || '')) return false;
+            if (x.closest('[disabled], .disabled')) return false;
+            return true;
+        });
+    }
+    function linkBerikut(doc) {
+        let path = null;
+        const rel = doc.querySelector('a[rel="next"]');
+        if (rel) path = rel.getAttribute('href');
+        if (!path) {
+            for (const a of doc.querySelectorAll('.pagination a, div[class*="pagin"] a, .pager a')) {
+                const t = rapih(a.textContent).toLowerCase();
+                if (t === '>' || t === 'next' || t === 'selanjutnya' || t === '›' || t === '»') { path = a.getAttribute('href'); break; }
+            }
+        }
+        if (!path || path === '#' || /^javascript/i.test(path)) return null;
+        try { return new URL(path, location.origin + PESANAN_URL).href; } catch (e) { return null; }
+    }
+    async function muatStatus(items) {
+        if (sedangStatus || !items || !items.length) return;
+        const perlu = new Set(items.map((i) => i.kode).filter(Boolean));
+        if (!perlu.size) return;
+        sedangStatus = true;
+        render();
+        try {
+            let url = location.origin + PESANAN_URL;
+            const sudah = new Set();
+            for (let n = 1; n <= 30 && url && !sudah.has(url); n++) {
+                sudah.add(url);
+                const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+                if (!res.ok) break;
+                const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+                doc.querySelectorAll('table tbody tr').forEach((tr) => {
+                    const t = rapih(Array.from(tr.children).map((c) => c.textContent).join(' '));
+                    const m = /(?<![A-Za-z0-9])SP\d{3,6}-\d+(?!\d)/.exec(t);
+                    if (!m) return;
+                    const a = editAktif(tr);
+                    if (a === null) return;
+                    statusMap[m[0]] = a ? 'baru' : (/dibatalkan/i.test(t) ? 'batal' : 'proses');
+                    perlu.delete(m[0]);
+                });
+                if (!perlu.size) break;
+                url = linkBerikut(doc);
+            }
+        } catch (e) { /* status tidak wajib */ }
+        sedangStatus = false;
+        render();
     }
 
     // ---------- Rekap semua: telusuri halaman 1,2,3,... (50 halaman per tahap) ----------
@@ -209,6 +272,7 @@
         if (data && !hari.error && p1) cekBunyi();
         sesuaikanBadge();
         render();
+        if (terbuka && !hari.error) muatStatus(hari.items);
     }
 
     function muatSesuaiMode() { if (mode === 'hari') muatHari(false); else muatData(true, halKini); }
@@ -244,7 +308,12 @@
         '.sub.err{color:#b91c1c}',
         '.list{overflow-y:auto;flex:1}',
         '.it{padding:10px 12px;border-bottom:1px solid #eee;font-size:13px;line-height:1.35}',
-        '.it.baru{background:#fff7ed;border-left:4px solid #f97316}',
+        '.it.st-baru{background:#fff7ed;border-left:5px solid #f97316}',
+        '.it.st-proses{background:#ecfdf5;border-left:5px solid #16a34a}',
+        '.it.st-batal{background:#f3f4f6;border-left:5px solid #9ca3af;color:#888}',
+        '.stl{font-size:11px;font-weight:700;margin-top:2px}',
+        '.st-baru .stl{color:#c2410c}.st-proses .stl{color:#15803d}.st-batal .stl{color:#6b7280}',
+        '.leg{padding:5px 12px;font-size:12px;color:#555;border-bottom:1px solid #eee}',
         '.it .f{font-weight:700;word-break:break-all}',
         '.it .f a{color:#1d4ed8;text-decoration:none}',
         '.it .m{color:#666;font-size:12px;margin-top:2px}',
@@ -395,6 +464,7 @@
         else if (mode === 'hari') sub.textContent = 'Rekap semua: ' + src.items.length + ' nota web (dipindai ' + src.totalBaris + ' baris, halaman 1-' + src.halaman + (src.selesai ? ', semua halaman' : ', masih ada halaman lain') + ') · dicek ' + fmtWaktu(src.waktu);
         else sub.textContent = src.items.length + ' nota web dari ' + src.totalBaris + ' baris · halaman ' + (src.halaman || 1) + ' Data Penjualan · dicek ' + fmtWaktu(src.waktu);
         panel.appendChild(sub);
+        panel.appendChild(el('div', 'leg', (sedangStatus ? 'Mengecek status pesanan... · ' : '') + '🟧 pesanan baru · 🟩 sudah diproses · ⬜ dibatalkan'));
 
         const list = el('div', 'list');
         const seen = terakhirDilihat();
@@ -428,7 +498,8 @@
             const tampil = hitungTampil();
             if (src && tampil.length) {
                 tampil.forEach((it) => {
-                    const row = el('div', 'it' + (it.ts > seen ? ' baru' : ''));
+                    const st = statusMap[it.kode] || '';
+                    const row = el('div', 'it' + (st ? ' st-' + st : ''));
                     const f = el('div', 'f');
                     if (it.href) {
                         const a = el('a', '', it.faktur);
@@ -440,6 +511,7 @@
                     if (it.ts > seen) f.appendChild(el('span', 'tag', 'BARU'));
                     row.appendChild(f);
                     row.appendChild(el('div', 'm', [fmtWaktu(it.ts), it.kode, it.total ? (/^rp/i.test(it.total) ? it.total : 'Rp ' + it.total) : ''].filter(Boolean).join(' - ')));
+                    if (st) row.appendChild(el('div', 'stl', st === 'baru' ? 'Pesanan baru' : st === 'proses' ? 'Sudah diproses' : 'Dibatalkan'));
                     list.appendChild(row);
                 });
             } else if (src && !src.error) {
