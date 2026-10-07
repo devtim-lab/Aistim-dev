@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.15.0
+// @version      1.16.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -197,35 +197,43 @@
         if (!path || path === '#' || /^javascript/i.test(path)) return null;
         try { return new URL(path, location.origin + PESANAN_URL).href; } catch (e) { return null; }
     }
+    let statusAntri = null;
     async function muatStatus(items) {
-        if (sedangStatus || !items || !items.length) return;
-        const perlu = new Set(items.map((i) => i.kode).filter(Boolean));
-        if (!perlu.size) return;
+        if (!items || !items.length) return;
+        statusAntri = items;
+        if (sedangStatus) return;
         sedangStatus = true;
-        render();
+        perbaruiLegenda();
         try {
-            let url = location.origin + PESANAN_URL;
-            const sudah = new Set();
-            for (let n = 1; n <= 30 && url && !sudah.has(url); n++) {
-                sudah.add(url);
-                const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
-                if (!res.ok) break;
-                const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
-                doc.querySelectorAll('table tbody tr').forEach((tr) => {
-                    const t = rapih(Array.from(tr.children).map((c) => c.textContent).join(' '));
-                    const m = /(?<![A-Za-z0-9])SP\d{3,6}-\d+(?!\d)/.exec(t);
-                    if (!m) return;
-                    const a = editAktif(tr);
-                    if (a === null) return;
-                    statusMap[m[0]] = a ? 'baru' : (/dibatalkan/i.test(t) ? 'batal' : 'proses');
-                    perlu.delete(m[0]);
-                });
-                if (!perlu.size) break;
-                url = linkBerikut(doc);
+            while (statusAntri) {
+                const its = statusAntri;
+                statusAntri = null;
+                const perlu = new Set(its.map((i) => i.kode).filter((k) => k && !statusMap[k]));
+                if (!perlu.size) continue;
+                let url = location.origin + PESANAN_URL;
+                const sudah = new Set();
+                for (let n = 1; n <= 30 && url && !sudah.has(url); n++) {
+                    sudah.add(url);
+                    const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+                    if (!res.ok) break;
+                    const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+                    doc.querySelectorAll('table tbody tr').forEach((tr) => {
+                        const t = rapih(Array.from(tr.children).map((c) => c.textContent).join(' '));
+                        const m = /(?<![A-Za-z0-9])SP\d{3,6}-\d+(?!\d)/.exec(t);
+                        if (!m) return;
+                        const a = editAktif(tr);
+                        if (a === null) return;
+                        statusMap[m[0]] = a ? 'baru' : (/dibatalkan/i.test(t) ? 'batal' : 'proses');
+                        perlu.delete(m[0]);
+                    });
+                    perbaruiWarna();
+                    if (!perlu.size) break;
+                    url = linkBerikut(doc);
+                }
             }
         } catch (e) { /* status tidak wajib */ }
         sedangStatus = false;
-        render();
+        perbaruiWarna();
     }
 
     // ---------- Rekap semua: telusuri halaman 1,2,3,... (50 halaman per tahap) ----------
@@ -256,7 +264,8 @@
                 r.items.forEach((it) => { if (!peta.has(it.faktur)) peta.set(it.faktur, it); });
                 if (r.totalBaris < 50) { selesai = true; }
                 simpan('');
-                render();           // tampilkan progres tiap halaman
+                if (terbuka && (n === 1 || n % 10 === 0)) muatStatus(hari.items);   // status mulai dicek lebih awal, tanpa menunggu semua halaman
+                if (n <= 2 || n % 3 === 0) render();           // tampilkan progres
                 if (selesai) break;
             }
             simpan('');
@@ -310,9 +319,9 @@
         '.it{padding:10px 12px;border-bottom:1px solid #eee;font-size:13px;line-height:1.35}',
         '.it.st-baru{background:#fff7ed;border-left:5px solid #f97316}',
         '.it.st-proses{background:#ecfdf5;border-left:5px solid #16a34a}',
-        '.it.st-batal{background:#f3f4f6;border-left:5px solid #9ca3af;color:#888}',
+        '.it.st-batal{background:#fef2f2;border-left:5px solid #dc2626}',
         '.stl{font-size:11px;font-weight:700;margin-top:2px}',
-        '.st-baru .stl{color:#c2410c}.st-proses .stl{color:#15803d}.st-batal .stl{color:#6b7280}',
+        '.st-baru .stl{color:#c2410c}.st-proses .stl{color:#15803d}.st-batal .stl{color:#b91c1c}',
         '.leg{padding:5px 12px;font-size:12px;color:#555;border-bottom:1px solid #eee}',
         '.it .f{font-weight:700;word-break:break-all}',
         '.it .f a{color:#1d4ed8;text-decoration:none}',
@@ -408,6 +417,7 @@
         terbuka = !terbuka;
         panel.classList.toggle('buka', terbuka);
         if (terbuka) {
+            Object.keys(statusMap).forEach((k) => delete statusMap[k]);   // status dicek ulang tiap lonceng dibuka
             if (mode === 'hari') muatHari(false); else muatData(true, 1);
             render();
         } else {
@@ -436,9 +446,119 @@
         return e;
     }
 
+    // Kerangka panel TETAP (tidak dibuat ulang tiap render) supaya kotak cari outlet tidak kehilangan fokus/ketikan
+    const zTop = el('div'), rkBox = el('div', 'rk'), list = el('div', 'list'), zBottom = el('div');
+    zTop.style.cssText = 'flex:0 0 auto';
+    zBottom.style.cssText = 'flex:0 0 auto';
+    const inp = el('input', 'cari');
+    inp.type = 'text';
+    inp.setAttribute('autocomplete', 'off');
+    inp.setAttribute('autocapitalize', 'off');
+    inp.setAttribute('spellcheck', 'false');
+    const panah = el('span', 'panah', '▾');
+    const opts = el('div', 'opts');
+    rkBox.append(inp, panah, opts);
+    panel.append(zTop, rkBox, list, zBottom);
+    const ctx = { src: null, per: new Map(), adaDrop: false };
+
+    const cocokCari = (nama) => !cariOutlet || nama.toLowerCase().indexOf(cariOutlet.toLowerCase()) !== -1;
+    const outletItem = (it) => it.outlet || '(tanpa outlet)';
+    function hitungTampil() {
+        const src = ctx.src;
+        if (!src) return [];
+        if (!ctx.adaDrop) return src.items;
+        if (outletPilih !== '') return src.items.filter((it) => outletItem(it) === outletPilih);
+        return cariOutlet ? src.items.filter((it) => cocokCari(outletItem(it))) : src.items;
+    }
+    const LABEL_ST = { baru: 'Pesanan baru', proses: 'Sudah diproses', batal: 'Dibatalkan' };
+    function terapkanStatusRow(row, st) {
+        row.className = 'it' + (st ? ' st-' + st : '');
+        let l = row.querySelector('.stl');
+        if (!st) { if (l) l.remove(); return; }
+        if (!l) { l = el('div', 'stl'); row.appendChild(l); }
+        l.textContent = LABEL_ST[st];
+    }
+    // perbarui warna baris yang sudah tampil tanpa menggambar ulang (tidak mengganggu ketikan/gulir)
+    function perbaruiWarna() {
+        Array.from(list.children).forEach((row) => {
+            const k = row.getAttribute('data-kode');
+            if (k && statusMap[k]) terapkanStatusRow(row, statusMap[k]);
+        });
+        perbaruiLegenda();
+    }
+    let legEl = null;
+    function perbaruiLegenda() {
+        if (!legEl) return;
+        const src = ctx.src;
+        const kodes = src ? src.items.map((i) => i.kode).filter(Boolean) : [];
+        const tahu = kodes.filter((k) => statusMap[k]).length;
+        legEl.textContent = (sedangStatus ? 'Mengecek status pesanan... · ' : '') + '🟧 pesanan baru · 🟩 sudah diproses · 🟥 dibatalkan' +
+            (!sedangStatus && kodes.length ? ' · status terbaca ' + tahu + '/' + kodes.length : '');
+    }
+
+    function isiList() {
+        const st0 = list.scrollTop;
+        list.textContent = '';
+        const src = ctx.src;
+        const seen = terakhirDilihat();
+        const tampil = hitungTampil();
+        if (src && tampil.length) {
+            tampil.forEach((it) => {
+                const row = el('div', 'it');
+                row.setAttribute('data-kode', it.kode || '');
+                const f = el('div', 'f');
+                if (it.href) {
+                    const a = el('a', '', it.faktur);
+                    a.href = it.href;
+                    f.appendChild(a);
+                } else {
+                    f.appendChild(document.createTextNode(it.faktur));
+                }
+                if (it.ts > seen) f.appendChild(el('span', 'tag', 'BARU'));
+                row.appendChild(f);
+                row.appendChild(el('div', 'm', [fmtWaktu(it.ts), it.kode, it.total ? (/^rp/i.test(it.total) ? it.total : 'Rp ' + it.total) : ''].filter(Boolean).join(' - ')));
+                terapkanStatusRow(row, statusMap[it.kode] || '');
+                list.appendChild(row);
+            });
+        } else if (src && !src.error) {
+            list.appendChild(el('div', 'kosong', mode === 'hari'
+                ? (cariOutlet || outletPilih ? 'Tidak ada nota untuk outlet itu.' : 'Belum ada nota web yang ditemukan.')
+                : (src.totalBaris ? 'Tidak ada nota web di ' + src.totalBaris + ' baris di halaman ' + (src.halaman || 1) + '.' : 'Tabel Data Penjualan tidak terbaca (0 baris).')));
+        } else if (!src || sedangFetch) {
+            list.appendChild(el('div', 'kosong', 'Memuat...'));
+        }
+        list.scrollTop = st0;
+    }
+
+    function isiOpsi() {
+        opts.textContent = '';
+        const q = outletPilih ? '' : cariOutlet;
+        const cocok = Array.from(ctx.per.entries()).filter(([k]) => !q || k.toLowerCase().indexOf(q.toLowerCase()) !== -1).sort((x, y) => y[1] - x[1]);
+        const semua = el('div', 'opt' + (!outletPilih && !cariOutlet ? ' on' : ''));
+        semua.append(el('span', '', q ? 'Semua yang cocok' : 'Semua outlet'), el('b', '', String(cocok.reduce((t, e) => t + e[1], 0))));
+        semua.onclick = () => { if (!q) { outletPilih = ''; cariOutlet = ''; inp.value = ''; } else { outletPilih = ''; } opts.classList.remove('buka'); isiList(); };
+        opts.appendChild(semua);
+        cocok.forEach(([k, n]) => {
+            const o = el('div', 'opt' + (k === outletPilih ? ' on' : ''));
+            o.append(el('span', '', k), el('b', '', String(n)));
+            o.onclick = () => { outletPilih = k; cariOutlet = ''; inp.value = k; opts.classList.remove('buka'); isiList(); };
+            opts.appendChild(o);
+        });
+        if (!cocok.length) opts.appendChild(el('div', 'opt', 'Outlet tidak ditemukan'));
+    }
+    opts.addEventListener('mousedown', (e) => e.preventDefault());
+    opts.addEventListener('pointerdown', (e) => e.preventDefault());
+    inp.addEventListener('focus', () => { if (outletPilih) inp.select(); isiOpsi(); opts.classList.add('buka'); });
+    // pakai nilai apa adanya (tanpa trim) supaya spasi/hapus bekerja normal
+    inp.addEventListener('input', () => { outletPilih = ''; cariOutlet = inp.value; isiOpsi(); opts.classList.add('buka'); isiList(); });
+    inp.addEventListener('blur', () => setTimeout(() => opts.classList.remove('buka'), 150));
+    // jangan biarkan skrip/halaman Erzap menelan tombol keyboard (mis. Backspace) dari kotak ini
+    ['keydown', 'keyup', 'keypress'].forEach((ev) => inp.addEventListener(ev, (e) => e.stopPropagation()));
+    panah.addEventListener('click', () => { if (opts.classList.contains('buka')) opts.classList.remove('buka'); else { isiOpsi(); opts.classList.add('buka'); inp.focus(); } });
+
     function render() {
         if (!terbuka) return;
-        panel.textContent = '';
+        zTop.textContent = '';
 
         const hd = el('div', 'hd');
         hd.appendChild(el('b', '', '🔔 Pesanan Web'));
@@ -450,7 +570,7 @@
         bTutup.type = 'button';
         bTutup.onclick = togglePanel;
         hd.append(bRef, bTutup);
-        panel.appendChild(hd);
+        zTop.appendChild(hd);
 
         const tabs = el('div', 'tabs');
         [['hari', 'Semua'], ['halaman', 'Per halaman']].forEach(([m, t]) => {
@@ -459,7 +579,7 @@
             bt.onclick = () => { if (mode === m) return; mode = m; if (m === 'hari') { if (!hari) muatHari(false); else render(); } else if (!data) muatData(true, 1); else render(); };
             tabs.appendChild(bt);
         });
-        panel.appendChild(tabs);
+        zTop.appendChild(tabs);
 
         const src = mode === 'hari' ? hari : data;
         const sub = el('div', 'sub' + (src && src.error ? ' err' : ''));
@@ -468,98 +588,31 @@
         else if (src.error) sub.textContent = 'Gagal memuat: ' + src.error + (src.waktu ? ' (data lama ' + fmtWaktu(src.waktu) + ')' : '');
         else if (mode === 'hari') sub.textContent = 'Rekap semua: ' + src.items.length + ' nota web (dipindai ' + src.totalBaris + ' baris, halaman 1-' + src.halaman + (src.selesai ? ', semua halaman' : ', masih ada halaman lain') + ') · dicek ' + fmtWaktu(src.waktu);
         else sub.textContent = src.items.length + ' nota web dari ' + src.totalBaris + ' baris · halaman ' + (src.halaman || 1) + ' Data Penjualan · dicek ' + fmtWaktu(src.waktu);
-        panel.appendChild(sub);
-        panel.appendChild(el('div', 'leg', (sedangStatus ? 'Mengecek status pesanan... · ' : '') + '🟧 pesanan baru · 🟩 sudah diproses · ⬜ dibatalkan'));
+        zTop.appendChild(sub);
+        legEl = el('div', 'leg');
+        zTop.appendChild(legEl);
 
-        const list = el('div', 'list');
-        const seen = terakhirDilihat();
-        const adaDrop = mode === 'hari' && src && src.items.length;
-        const per = new Map();
-        if (adaDrop) src.items.forEach((it) => { const k = it.outlet || '(tanpa outlet)'; per.set(k, (per.get(k) || 0) + 1); });
-        if (outletPilih !== '' && !per.has(outletPilih)) outletPilih = '';
-
-        const cocokCari = (nama) => !cariOutlet || nama.toLowerCase().indexOf(cariOutlet.toLowerCase()) !== -1;
-        const hitungTampil = () => {
-            if (!src) return [];
-            if (!adaDrop) return src.items;
-            if (outletPilih !== '') return src.items.filter((it) => (it.outlet || '(tanpa outlet)') === outletPilih);
-            return cariOutlet ? src.items.filter((it) => cocokCari(it.outlet || '(tanpa outlet)')) : src.items;
-        };
-
-        const isiList = () => {
-            list.textContent = '';
-            const tampil = hitungTampil();
-            if (src && tampil.length) {
-                tampil.forEach((it) => {
-                    const st = statusMap[it.kode] || '';
-                    const row = el('div', 'it' + (st ? ' st-' + st : ''));
-                    const f = el('div', 'f');
-                    if (it.href) {
-                        const a = el('a', '', it.faktur);
-                        a.href = it.href;
-                        f.appendChild(a);
-                    } else {
-                        f.appendChild(document.createTextNode(it.faktur));
-                    }
-                    if (it.ts > seen) f.appendChild(el('span', 'tag', 'BARU'));
-                    row.appendChild(f);
-                    row.appendChild(el('div', 'm', [fmtWaktu(it.ts), it.kode, it.total ? (/^rp/i.test(it.total) ? it.total : 'Rp ' + it.total) : ''].filter(Boolean).join(' - ')));
-                    if (st) row.appendChild(el('div', 'stl', st === 'baru' ? 'Pesanan baru' : st === 'proses' ? 'Sudah diproses' : 'Dibatalkan'));
-                    list.appendChild(row);
-                });
-            } else if (src && !src.error) {
-                list.appendChild(el('div', 'kosong', mode === 'hari'
-                    ? (cariOutlet || outletPilih ? 'Tidak ada nota untuk outlet itu.' : 'Belum ada nota web yang ditemukan.')
-                    : (src.totalBaris ? 'Tidak ada nota web di ' + src.totalBaris + ' baris di halaman ' + (src.halaman || 1) + '.' : 'Tabel Data Penjualan tidak terbaca (0 baris).')));
-            } else if (!src || sedangFetch) {
-                list.appendChild(el('div', 'kosong', 'Memuat...'));
-            }
-        };
-
-        if (adaDrop) {
-            // combobox outlet: satu kotak, ketik untuk mencari, ketuk pilihan untuk memilih
-            const rk = el('div', 'rk');
-            const inp = el('input', 'cari');
-            inp.type = 'text';
-            inp.setAttribute('autocomplete', 'off');
+        ctx.src = src;
+        ctx.adaDrop = !!(mode === 'hari' && src && src.items.length);
+        ctx.per = new Map();
+        if (ctx.adaDrop) src.items.forEach((it) => { const k = outletItem(it); ctx.per.set(k, (ctx.per.get(k) || 0) + 1); });
+        if (outletPilih !== '' && !ctx.per.has(outletPilih)) { outletPilih = ''; if (root.activeElement !== inp) inp.value = cariOutlet; }
+        rkBox.style.display = ctx.adaDrop ? '' : 'none';
+        if (ctx.adaDrop) {
             inp.placeholder = 'Semua outlet (' + src.items.length + ') - ketik untuk cari';
-            inp.value = outletPilih || cariOutlet;
-            const panah = el('span', 'panah', '▾');
-            const opts = el('div', 'opts');
-            const isiOpsi = () => {
-                opts.textContent = '';
-                const q = outletPilih ? '' : cariOutlet;
-                const cocok = Array.from(per.entries()).filter(([k]) => !q || k.toLowerCase().indexOf(q.toLowerCase()) !== -1).sort((x, y) => y[1] - x[1]);
-                const semua = el('div', 'opt' + (!outletPilih && !cariOutlet ? ' on' : ''));
-                semua.append(el('span', '', q ? 'Semua yang cocok' : 'Semua outlet'), el('b', '', String(cocok.reduce((t, e) => t + e[1], 0))));
-                semua.onclick = () => { if (q) { outletPilih = ''; opts.classList.remove('buka'); isiList(); } else { outletPilih = ''; cariOutlet = ''; inp.value = ''; opts.classList.remove('buka'); isiList(); } };
-                opts.appendChild(semua);
-                cocok.forEach(([k, n]) => {
-                    const o = el('div', 'opt' + (k === outletPilih ? ' on' : ''));
-                    o.append(el('span', '', k), el('b', '', String(n)));
-                    o.onclick = () => { outletPilih = k; cariOutlet = ''; inp.value = k; opts.classList.remove('buka'); isiList(); };
-                    opts.appendChild(o);
-                });
-                if (!cocok.length) opts.appendChild(el('div', 'opt', 'Outlet tidak ditemukan'));
-            };
-            opts.addEventListener('mousedown', (e) => e.preventDefault());
-            opts.addEventListener('pointerdown', (e) => e.preventDefault());
-            inp.onfocus = () => { if (outletPilih) inp.select(); isiOpsi(); opts.classList.add('buka'); };
-            inp.oninput = () => { outletPilih = ''; cariOutlet = inp.value.trim(); isiOpsi(); opts.classList.add('buka'); isiList(); };
-            inp.onblur = () => setTimeout(() => opts.classList.remove('buka'), 150);
-            panah.onclick = () => { if (opts.classList.contains('buka')) opts.classList.remove('buka'); else { isiOpsi(); opts.classList.add('buka'); inp.focus(); } };
-            rk.append(inp, panah, opts);
-            panel.appendChild(rk);
+            if (root.activeElement !== inp) inp.value = outletPilih || cariOutlet;
+            if (opts.classList.contains('buka')) isiOpsi();
         }
         isiList();
-        panel.appendChild(list);
+        perbaruiLegenda();
 
+        zBottom.textContent = '';
         if (mode === 'hari' && hari && !hari.selesai && !sedangFetch) {
             const lg = el('button', '', 'Pindai ' + HAL_PER_TAHAP + ' halaman berikutnya ›');
             lg.type = 'button';
-            lg.style.cssText = 'margin:8px 10px 10px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#f5f5f5;font-size:13px;cursor:pointer;';
+            lg.style.cssText = 'display:block;width:calc(100% - 20px);margin:8px 10px 10px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#f5f5f5;font-size:13px;cursor:pointer;';
             lg.onclick = () => muatHari(true);
-            panel.appendChild(lg);
+            zBottom.appendChild(lg);
         }
 
         if (mode === 'halaman' && data) {
@@ -576,7 +629,7 @@
             const h = data.halaman || 1;
             nav.appendChild(mk('‹ Kembali', sedangFetch || h <= 1, () => { tandaiDilihat(); muatData(true, h - 1); }));
             nav.appendChild(mk('Berikutnya ›', sedangFetch || data.totalBaris < 50, () => { tandaiDilihat(); muatData(true, h + 1); }));
-            panel.appendChild(nav);
+            zBottom.appendChild(nav);
         }
     }
 
