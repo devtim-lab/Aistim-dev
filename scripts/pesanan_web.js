@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.16.0
+// @version      1.17.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -321,6 +321,11 @@
         '.it.st-proses{background:#ecfdf5;border-left:5px solid #16a34a}',
         '.it.st-batal{background:#fef2f2;border-left:5px solid #dc2626}',
         '.stl{font-size:11px;font-weight:700;margin-top:2px}',
+        '.it .f{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}',
+        '.it .fl{flex:1;min-width:0}',
+        '.ck{flex:0 0 auto;width:24px;height:24px;border-radius:50%;color:#fff;font-size:14px;line-height:24px;text-align:center;font-weight:700}',
+        '.ck:empty{display:none}',
+        '.st-baru .ck{background:#f97316}.st-proses .ck{background:#16a34a}.st-batal .ck{background:#dc2626}',
         '.st-baru .stl{color:#c2410c}.st-proses .stl{color:#15803d}.st-batal .stl{color:#b91c1c}',
         '.leg{padding:5px 12px;font-size:12px;color:#555;border-bottom:1px solid #eee}',
         '.it .f{font-weight:700;word-break:break-all}',
@@ -473,6 +478,8 @@
     const LABEL_ST = { baru: 'Pesanan baru', proses: 'Sudah diproses', batal: 'Dibatalkan' };
     function terapkanStatusRow(row, st) {
         row.className = 'it' + (st ? ' st-' + st : '');
+        const ck = row.querySelector('.ck');
+        if (ck) { ck.textContent = st === 'batal' ? '✕' : (st ? '✔' : ''); ck.title = st ? LABEL_ST[st] : ''; }
         let l = row.querySelector('.stl');
         if (!st) { if (l) l.remove(); return; }
         if (!l) { l = el('div', 'stl'); row.appendChild(l); }
@@ -507,14 +514,17 @@
                 const row = el('div', 'it');
                 row.setAttribute('data-kode', it.kode || '');
                 const f = el('div', 'f');
+                const fl = el('span', 'fl');
                 if (it.href) {
                     const a = el('a', '', it.faktur);
                     a.href = it.href;
-                    f.appendChild(a);
+                    fl.appendChild(a);
                 } else {
-                    f.appendChild(document.createTextNode(it.faktur));
+                    fl.appendChild(document.createTextNode(it.faktur));
                 }
-                if (it.ts > seen) f.appendChild(el('span', 'tag', 'BARU'));
+                if (it.ts > seen) fl.appendChild(el('span', 'tag', 'BARU'));
+                f.appendChild(fl);
+                f.appendChild(el('span', 'ck'));       // tanda status di kanan no faktur
                 row.appendChild(f);
                 row.appendChild(el('div', 'm', [fmtWaktu(it.ts), it.kode, it.total ? (/^rp/i.test(it.total) ? it.total : 'Rp ' + it.total) : ''].filter(Boolean).join(' - ')));
                 terapkanStatusRow(row, statusMap[it.kode] || '');
