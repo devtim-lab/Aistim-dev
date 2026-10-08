@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Kolom Outlet di Kelola Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.0.39
-// @description  [v1.0.39] Daftar Kelola Servis: kolom Outlet (kiri Status), Tipe HP (kanan Pelanggan), teknisi di bawah kode servis dari halaman detail servis, nomor HP jadi ikon WhatsApp. Halaman berikutnya lewat paginasi biasa (muat otomatis saat scroll dihapus)
+// @version      1.0.41
+// @description  [v1.0.41] Daftar Kelola Servis: kolom Outlet (kiri Status), Tipe HP (kanan Pelanggan), teknisi di bawah kode servis, nomor HP jadi ikon WhatsApp. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi. Servis baru: Rawat Inap default, Quick Servis dimatikan (dulu smart_repair.js)
 // @author       You
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -432,3 +432,217 @@
     proses();
     new MutationObserver(jadwalkanProses).observe(document.body, { childList: true, subtree: true });
 })();
+
+// ===== Halaman detail servis: validasi tombol "Tutup Servis" (#bt_ok) =====
+// Dipisah dari bagian daftar di atas dan dibungkus try/catch, supaya error di satu fitur tidak mematikan yang lain.
+try {
+    (function() {
+        'use strict';
+
+        const STATUS_BOLEH = /^(servis selesai|dibatalkan oleh teknisi|dibatalkan oleh pelanggan)$/i;
+        const TANDA = 'ts_terkunci';
+        const ID_PESAN = 'ts_pesan';
+
+        function bersih(t) { return String(t || '').replace(/\s+/g, ' ').trim(); }
+
+        // Tombol Tutup Servis: <div id="bt_ok" class="button_action" title="Tutup Servis"> berisi overlay #ok (klik) dan #ok_disable (kunci)
+        function cariTombol() {
+            return document.querySelector('#bt_ok') || document.querySelector('.button_action[title="Tutup Servis"]');
+        }
+
+        // Status Servis tiap unit: servis_elektronik_detail1_status_servis, detail2, ...
+        function cariStatus() {
+            return Array.from(document.querySelectorAll('select[id$="_status_servis"]'));
+        }
+
+        // "Disetujui Oleh": cari label bertuliskan itu, ambil select/input di kotak field yang sama
+        function cariDisetujui() {
+            for (const l of document.querySelectorAll('label')) {
+                if (!/^\s*\*?\s*disetujui\s+oleh/i.test(bersih(l.textContent))) continue;
+                const wadah = l.closest('.field, .form-group, div') || l.parentElement;
+                const ctl = (l.htmlFor && document.getElementById(l.htmlFor)) ||
+                            (wadah && wadah.querySelector('select, input:not([type="hidden"]), textarea'));
+                if (ctl) return ctl;
+            }
+            return null;
+        }
+
+        function terisi(ctl) {
+            if (!ctl) return false;
+            if (!bersih(ctl.value)) return false;
+            if (ctl.tagName === 'SELECT') {
+                const o = ctl.options[ctl.selectedIndex];
+                if (!o || !o.value || /^please select/i.test(bersih(o.textContent))) return false;
+            }
+            return true;
+        }
+
+        // null = form belum ada (jangan mengunci apa pun); [] = semua syarat terpenuhi; selain itu daftar alasan
+        function alasanTerkunci() {
+            const status = cariStatus();
+            if (!status.length) return null;
+            const alasan = [];
+            const statusSalah = status.some(s => {
+                const o = s.options[s.selectedIndex];
+                return !o || !STATUS_BOLEH.test(bersih(o.textContent));
+            });
+            if (statusSalah) alasan.push('Status Servis harus Servis Selesai, Dibatalkan oleh Teknisi, atau Dibatalkan oleh Pelanggan');
+            const disetujui = cariDisetujui();
+            if (disetujui && !terisi(disetujui)) alasan.push('"Disetujui Oleh" harus diisi');
+            return alasan;
+        }
+
+        // Klik pada tombol terkunci dihentikan di fase capture, sebelum sampai ke #ok (handler bawaan Erzap)
+        function blokirKlik(e) {
+            if (!e.currentTarget.classList.contains(TANDA)) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            tampilPesanSebentar();
+        }
+
+        function kunci(el, alasan) {
+            if (!el.dataset.tsPasang) {
+                el.addEventListener('click', blokirKlik, true);
+                el.addEventListener('mouseenter', () => { if (el.classList.contains(TANDA)) tampilPesan(true); });
+                el.addEventListener('mouseleave', () => tampilPesan(false));
+                el.dataset.tsPasang = '1';
+            }
+            if (!el.classList.contains(TANDA)) el.dataset.tsJudulAsli = el.getAttribute('title') || '';
+            el.classList.add(TANDA);
+            el.title = ''; // tooltip bawaan dimatikan saat terkunci supaya info hanya muncul satu kali (kotak kuning)
+            const od = el.querySelector('#ok_disable');
+            if (od) { od.style.display = 'block'; od.style.cursor = 'not-allowed'; }
+            else { el.style.opacity = '0.45'; el.style.cursor = 'not-allowed'; } // cadangan kalau overlay bawaan tidak ada
+            isiPesan(el, alasan);
+        }
+
+        function buka(el) {
+            if (!el.classList.contains(TANDA)) return; // jangan ganggu overlay "sibuk" milik Erzap kalau bukan kita yang menyalakan
+            el.classList.remove(TANDA);
+            el.title = el.dataset.tsJudulAsli || 'Tutup Servis';
+            const od = el.querySelector('#ok_disable');
+            if (od) { od.style.display = 'none'; od.style.cursor = ''; }
+            else { el.style.opacity = ''; el.style.cursor = ''; }
+            const p = document.getElementById(ID_PESAN);
+            if (p) p.remove();
+        }
+
+        // Kotak alasan melayang di bawah tombol (absolute di dalam #bt_ok yang position:relative), tidak menggeser layout toolbar
+        function isiPesan(tombol, alasan) {
+            let p = document.getElementById(ID_PESAN);
+            const kunciIsi = alasan.join('|');
+            if (p && p.dataset.kunci === kunciIsi && p.parentElement === tombol) return; // isi sama -> jangan bangun ulang (mencegah loop MutationObserver)
+            if (!p) {
+                p = document.createElement('div');
+                p.id = ID_PESAN;
+                p.style.cssText = 'display:none;position:absolute;top:100%;left:0;margin-top:6px;z-index:2000;width:300px;padding:8px 10px;border-radius:4px;' +
+                    'background:#fff3cd;color:#664d03;border:1px solid #ffe69c;font-size:12px;line-height:1.4;text-align:left;box-shadow:0 2px 8px rgba(0,0,0,.2);cursor:default';
+            }
+            p.dataset.kunci = kunciIsi;
+            p.textContent = '';
+            const judul = document.createElement('strong');
+            judul.textContent = 'Tutup Servis belum bisa:';
+            p.appendChild(judul);
+            const ul = document.createElement('ul');
+            ul.style.cssText = 'margin:4px 0 0 16px;padding:0';
+            alasan.forEach(a => { const li = document.createElement('li'); li.textContent = a; ul.appendChild(li); });
+            p.appendChild(ul);
+            if (p.parentElement !== tombol) tombol.appendChild(p);
+        }
+
+        function tampilPesan(tampil) {
+            const p = document.getElementById(ID_PESAN);
+            if (p) p.style.display = tampil ? 'block' : 'none';
+        }
+
+        let timerPesan = null;
+        function tampilPesanSebentar() {
+            tampilPesan(true);
+            clearTimeout(timerPesan);
+            timerPesan = setTimeout(() => tampilPesan(false), 4000);
+        }
+
+        let adaPeringatan = false;
+        function periksa() {
+            const tombol = cariTombol();
+            if (!tombol) {
+                if (!adaPeringatan && cariStatus().length) { console.warn('[tutupservis] tombol #bt_ok (Tutup Servis) tidak ditemukan di halaman ini'); adaPeringatan = true; }
+                return;
+            }
+            const alasan = alasanTerkunci();
+            if (alasan === null) return;
+            if (alasan.length) kunci(tombol, alasan); else buka(tombol);
+        }
+
+        let timer = null;
+        function jadwalkan() { clearTimeout(timer); timer = setTimeout(periksa, 80); }
+
+        document.addEventListener('change', jadwalkan, true);
+        document.addEventListener('input', jadwalkan, true);
+        new MutationObserver(jadwalkan).observe(document.body, { childList: true, subtree: true });
+        setInterval(periksa, 1500); // cadangan: nilai diubah lewat script halaman tanpa event, atau Erzap menyembunyikan overlay kita
+        periksa();
+    })();
+} catch (e) {
+    console.error('[kelolaservis] validasi Tutup Servis gagal dipasang:', e);
+}
+
+// ===== Halaman Servis Elektronik baru (/servis_elektroniks/new): Rawat Inap default, Quick Servis dimatikan =====
+// (dulu smart_repair.js) Dipisah dari bagian lain dan dibungkus try/catch, supaya error di satu fitur tidak mematikan yang lain.
+try {
+    (function() {
+        'use strict';
+
+        // Radio "Jenis Servis" (Quick Servis / Rawat Inap / Klaim Garansi Servis):
+        // bawaan Erzap yang tercentang default = Quick Servis (value "false").
+        // - Rawat Inap (value "true"): dicentang sekali di awal kalau belum aktif.
+        //   Sesudah itu user tetap bebas ganti ke "Klaim Garansi Servis" manual --
+        //   yang TIDAK boleh dipilih cuma Quick Servis (lihat di bawah).
+        // - Quick Servis (value "false"): dinonaktifkan (disabled) + dibikin pudar,
+        //   jadi tidak bisa diklik sama sekali (baik radio-nya maupun label-nya).
+        function jalankan() {
+            if (document.getElementById('smartRepairSudahJalan')) return;
+
+            const radioRawatInap = document.getElementById('servis_elektronik_is_rawat_inap_true');
+            const radioQuick = document.getElementById('servis_elektronik_is_rawat_inap_false');
+            if (!radioRawatInap || !radioQuick) return false;
+
+            const tanda = document.createElement('meta');
+            tanda.id = 'smartRepairSudahJalan';
+            document.head.appendChild(tanda);
+
+            if (!radioRawatInap.checked) {
+                radioRawatInap.checked = true;
+                // Dispatch native change/click (bubbles:true) -- ini juga kepick
+                // sama handler yang di-bind lewat jQuery (jQuery >=1.7 dengarnya
+                // lewat event native, bukan sistemnya sendiri), jadi field lain
+                // yang nampil/hilang tergantung Jenis Servis ikut ke-update.
+                radioRawatInap.dispatchEvent(new Event('click', { bubbles: true }));
+                radioRawatInap.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+
+            // disabled=true bikin klik radio DAN klik label-nya (lewat atribut for=)
+            // sama-sama tidak mempan -- browser sendiri yang jaga, bukan cuma CSS.
+            radioQuick.disabled = true;
+            radioQuick.checked = false;
+            const wrapQuick = radioQuick.closest('div') || radioQuick.parentElement;
+            if (wrapQuick) {
+                wrapQuick.style.opacity = '0.4';
+                wrapQuick.style.cursor = 'not-allowed';
+            }
+            const labelQuick = document.querySelector('label[for="servis_elektronik_is_rawat_inap_false"]');
+            if (labelQuick) labelQuick.style.cursor = 'not-allowed';
+
+            return true;
+        }
+
+        if (!jalankan()) {
+            // Form belum ke-render saat script diinject -- coba lagi habis DOM siap,
+            // dan sekali lagi habis window 'load' buat jaga-jaga widget lambat render.
+            document.addEventListener('DOMContentLoaded', jalankan);
+            window.addEventListener('load', () => setTimeout(jalankan, 300));
+        }
+    })();
+} catch (e) {
+    console.error('[kelolaservis] Smart Repair (Rawat Inap default) gagal dipasang:', e);
+}
