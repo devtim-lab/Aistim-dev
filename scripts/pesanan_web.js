@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.17.0
+// @version      1.21.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -648,7 +648,7 @@
 
     // ---------- Tombol lonceng sebaris di halaman Data Pesanan Penjualan (sebelum tombol "Cari Pesanan Marketplace Online") ----------
     var tombolInline = null;
-    if (/^\/pesanan_penjualans\/?$/.test(location.pathname)) {
+    if (/^\/pesanan_penjualans(\/index\/new)?\/?$/.test(location.pathname)) {
         let sejak = Date.now();
         const pasangInline = () => {
             if (tombolInline && document.contains(tombolInline)) return;
@@ -656,7 +656,7 @@
             let rekap = document.getElementById('btn_cari_pesanan_marketplace_online');
             if (!terlihat(rekap)) rekap = Array.from(document.querySelectorAll('a, button')).find((e) => /marketplace/i.test(e.textContent || '') && terlihat(e) && e.id !== 'aistim_pw_inline');
             if (!rekap || !rekap.parentNode) {
-                if (Date.now() - sejak > 90000) fab.style.display = '';   // jangkar tak ketemu: pakai FAB saja
+                if (Date.now() - sejak > 5000) fab.style.display = '';   // jangkar tak ketemu: pakai FAB saja
                 return;
             }
             tombolInline = document.createElement('button');
@@ -670,8 +670,367 @@
             sesuaikanBadge();
         };
         fab.style.display = 'none';
-        setInterval(pasangInline, 1000);    } else {
+        setInterval(pasangInline, 1000);
+    } else {
         fab.style.display = 'none';   // di halaman lain lonceng disembunyikan (pengecekan & bunyi tetap jalan di latar)
+    }
+
+    // ---------- Kolom "Outlet" di tabel Data Pesanan Penjualan (di samping kolom "Pemesan") ----------
+    // ID pesanan dari link /pesanan_penjualans/<id> di baris; outlet dibaca dari dropdown outlet halaman detailnya.
+    if (/^\/pesanan_penjualans(\/index\/new)?\/?$/.test(location.pathname)) {
+        const K_OUTLET = 'aistim_pw_outlet';
+        let cacheOutlet = {};
+        try { cacheOutlet = JSON.parse(ls.get(K_OUTLET) || '{}') || {}; } catch (e) { cacheOutlet = {}; }
+        const antriOutlet = [];
+        let jalanOutlet = 0;
+
+        const bacaOutlet = (html) => {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const sel = doc.querySelector('#pesanan_penjualan_idoutlet_own');
+            if (!sel) return '';
+            const op = sel.querySelector('option[selected]') || sel.options[sel.selectedIndex];
+            return op && op.value ? rapih(op.textContent) : '';
+        };
+        const idBaris = (tr) => {
+            const a = Array.from(tr.querySelectorAll('a[href]')).find((x) => /\/pesanan_penjualans\/\d+(?:[\/?#]|$)/.test(x.getAttribute('href') || ''));
+            const m = a && /\/pesanan_penjualans\/(\d+)/.exec(a.getAttribute('href'));
+            return m ? m[1] : '';
+        };
+        const isiOutlet = (td, teks) => { td.textContent = teks; };
+        function prosesAntriOutlet() {
+            while (jalanOutlet < 4 && antriOutlet.length) {
+                const it = antriOutlet.shift();
+                if (cacheOutlet[it.id]) { isiOutlet(it.td, cacheOutlet[it.id]); continue; }
+                jalanOutlet++;
+                fetch('/pesanan_penjualans/' + it.id, { credentials: 'same-origin', cache: 'no-store' })
+                    .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                    .then((h) => {
+                        const nama = bacaOutlet(h);
+                        if (nama) { cacheOutlet[it.id] = nama; ls.set(K_OUTLET, JSON.stringify(cacheOutlet)); }
+                        isiOutlet(it.td, nama || '(tidak terbaca)');
+                    })
+                    .catch(() => { isiOutlet(it.td, '(gagal)'); })
+                    .then(() => { jalanOutlet--; prosesAntriOutlet(); });
+            }
+        }
+        function tambahKolomOutlet() {
+            let headBerubah = false;
+            document.querySelectorAll('table').forEach((tabel) => {
+                const hrow = tabel.tHead && tabel.tHead.rows[0];
+                if (!hrow) return;
+                const ths = Array.from(hrow.children);
+                const idx = ths.findIndex((t) => /^pemesan$/i.test(rapih(t.textContent)));
+                if (idx < 0) return;
+                if (!hrow.querySelector('th.aistim_pw_outlet_th')) {
+                    // salin th "Pemesan" (header DataTables: header terpisah + thead tersembunyi di tabel isi), ganti teksnya
+                    const th = ths[idx].cloneNode(true);
+                    th.className = (th.className || '').replace(/\bsorting\w*\b/g, '').trim() + ' aistim_pw_outlet_th';
+                    th.removeAttribute('aria-sort');
+                    th.removeAttribute('aria-label');
+                    th.removeAttribute('tabindex');
+                    th.style.width = '';
+                    th.style.cursor = 'default';
+                    setThText(th, 'Outlet');
+                    ths[idx].insertAdjacentElement('afterend', th);
+                    headBerubah = true;
+                }
+                tabel.querySelectorAll('tbody tr').forEach((tr) => {
+                    if (tr.querySelector('td.aistim_pw_outlet_td')) return;
+                    const tds = Array.from(tr.children).filter((c) => /^td$/i.test(c.tagName));
+                    if (tds.length <= idx || tds.length < 3) return;   // baris pesan kosong ("tidak ada data")
+                    const id = idBaris(tr);
+                    const td = document.createElement('td');
+                    td.className = 'aistim_pw_outlet_td';
+                    td.textContent = id ? '...' : '-';
+                    tds[idx].after(td);
+                    if (id) antriOutlet.push({ id: id, td: td });
+                });
+            });
+            // header ganda: baris header di badan tabel (pengukur lebar) harus tersembunyi, hanya header terpisah yang tampak
+            document.querySelectorAll('#data_table td.aistim_pw_outlet_td').forEach((td) => {
+                const t = td.closest('table');
+                const w = t && t.closest('.dataTables_wrapper');
+                if (t && w && !t.classList.contains('aistim_pw_body_tbl') && Array.from(w.querySelectorAll('table')).some((x) => x !== t && x.querySelector('th.aistim_pw_outlet_th'))) {
+                    t.classList.add('aistim_pw_body_tbl');
+                }
+            });
+            prosesAntriOutlet();
+            if (headBerubah) {
+                window.dispatchEvent(new Event('resize'));   // tabel menghitung ulang header yang tersembunyi
+                [60, 300, 800].forEach((ms) => setTimeout(sinkronLebar, ms));
+            }
+            sinkronLebar();
+        }
+        function setThText(th, txt) {
+            const w = document.createTreeWalker(th, NodeFilter.SHOW_TEXT);
+            let first = null, n;
+            const rest = [];
+            while ((n = w.nextNode())) {
+                if (!n.nodeValue.trim()) continue;
+                if (!first) first = n; else rest.push(n);
+            }
+            if (first) { first.nodeValue = txt; rest.forEach((x) => (x.nodeValue = '')); }
+            else th.textContent = txt;
+        }
+        // Header terpisah mengikuti lebar kolom header tabel isi (sama seperti kolom Rak di Lihat Stok)
+        function sinkronLebar() {
+            const badan = document.querySelector('#data_table td.aistim_pw_outlet_td');
+            const table = badan && badan.closest('table');
+            const wrapper = table && table.closest('.dataTables_wrapper');
+            if (!wrapper) return;
+            const bodyThs = table.querySelectorAll('thead tr:first-child th');
+            if (!bodyThs.length) return;
+            const widths = Array.from(bodyThs).map((t) => t.getBoundingClientRect().width);
+            if (!widths.some((w) => w > 0)) return;   // kolom tersembunyi (display:none) berlebar 0: dilewati, bukan membatalkan semua
+            const total = table.getBoundingClientRect().width;
+            wrapper.querySelectorAll('table').forEach((t) => {
+                if (t === table || t.closest('#aistim_pw_hasil')) return;   // tabel hasil Pesanan Web mengatur lebarnya sendiri
+                const ths = t.querySelectorAll('thead tr:first-child th');
+                if (ths.length !== widths.length) return;
+                t.style.width = total + 'px';
+                const inner = t.closest('.dataTables_scrollHeadInner');
+                if (inner) inner.style.width = total + 'px';
+                ths.forEach((th, i) => {
+                    if (!widths[i]) return;
+                    th.style.boxSizing = 'border-box';
+                    th.style.width = th.style.minWidth = th.style.maxWidth = widths[i] + 'px';
+                });
+            });
+        }
+        // lebar kolom Outlet dikunci supaya header & isi selalu sejajar
+        const stOutlet = document.createElement('style');
+        stOutlet.textContent = '.aistim_pw_outlet_th,.aistim_pw_outlet_td{min-width:150px;box-sizing:border-box}' +
+            '.aistim_pw_outlet_td{white-space:normal;word-break:break-word}' +
+            '@media (max-width:768px){.aistim_pw_outlet_th,.aistim_pw_outlet_td{min-width:120px;font-size:12px}}' +
+            '.aistim_pw_body_tbl thead th{height:0!important;padding-top:0!important;padding-bottom:0!important;border-top-width:0!important;border-bottom-width:0!important;line-height:0!important;font-size:0!important;overflow:hidden!important;background-image:none!important}' +
+            '.aistim_pw_body_tbl thead th *{height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;font-size:0!important;line-height:0!important}' +
+            '.aistim_pw_outlet_th{white-space:nowrap;pointer-events:none;cursor:default;background-image:none!important}';   // bukan kolom data tabel: tanpa panah/klik urut
+        document.head.appendChild(stOutlet);
+        // lebar header disamakan lagi tiap ukuran jendela/tabel berubah (satu kali per frame)
+        let rafSinkron = 0;
+        const jadwalSinkron = () => { if (rafSinkron) return; rafSinkron = requestAnimationFrame(() => { rafSinkron = 0; sinkronLebar(); }); };
+        window.addEventListener('resize', jadwalSinkron);
+        window.addEventListener('orientationchange', jadwalSinkron);
+        if (window.ResizeObserver) {
+            const ro = new ResizeObserver(jadwalSinkron);
+            let diamati = null;
+            setInterval(() => {
+                const t = document.querySelector('#data_table td.aistim_pw_outlet_td');
+                const tb = t && t.closest('table');
+                if (tb && tb !== diamati) { diamati = tb; ro.observe(tb); }
+            }, 1000);
+        }
+        setInterval(tambahKolomOutlet, 1500);   // tabel bisa digambar ulang (pencarian/halaman berikut): kolom dipasang lagi
+        tambahKolomOutlet();
+
+    // ---------- Filter "Pesanan Web" (di bawah Status Pemesanan, form pencarian Data Pesanan Penjualan) ----------
+    // Berdiri sendiri (tanpa name: tidak ikut terkirim ke server). Seperti filter Status Rak: saat dipilih, skrip
+    // menelusuri halaman berikutnya (fetch tombol "Berikutnya" milik situs), mengumpulkan baris yang cocok, lalu
+    // menampilkannya di tabel hasil. Pesanan web = kolom Pemesan memuat nomor faktur web (pola RE_FAKTUR).
+        const K_FWEB = 'aistim_pw_fweb';
+        const MAKS_HAL_WEB = 40;   // batas pengaman jumlah halaman situs yang dipindai
+        const pilihWeb = () => ls.get(K_FWEB) || '';
+        const cocokStatus = (teks, v) => (v === 'baru' ? /^Pesanan Baru\b/i.test(teks) : /^Pesanan Diproses\b/i.test(teks));
+        const scan = { aktif: false, sesi: 0, baris: [], kunci: new Set(), sigSelesai: null, ringkas: '' };
+
+        const idxPemesan = (tabel) => {
+            const hrow = tabel && tabel.tHead && tabel.tHead.rows[0];
+            return hrow ? Array.from(hrow.children).findIndex((t) => /^pemesan$/i.test(rapih(t.textContent))) : -1;
+        };
+        const barisCocok = (tr, idx, v) => {
+            const td = tr.children[idx];
+            if (!td) return false;
+            const teks = rapih(td.textContent);
+            return RE_FAKTUR.test(teks) && cocokStatus(teks, v);
+        };
+        const tabelUtama = () => document.getElementById('data_table');
+        const sigTabelWeb = () => {
+            const t = tabelUtama();
+            return t ? Array.from(t.querySelectorAll('tbody tr')).map((tr) => idBaris(tr)).join(';') : '';
+        };
+
+        const CSS_WEB = '#aistim_pw_hasil{margin:0 0 8px}' +
+            '#aistim_pw_hasil .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:#fef2f2;border:1px solid #fecaca;font-size:13px;flex-wrap:wrap}' +
+            '#aistim_pw_hasil .bar b{flex:1;font-weight:600}' +
+            '#aistim_pw_hasil .bar button{border:1px solid #ccc;border-radius:6px;background:#f5f5f5;padding:3px 10px;cursor:pointer}' +
+            '#aistim_pw_hasil .gulir{overflow:auto;max-height:70vh}' +
+            '#aistim_pw_hasil thead th{position:sticky;top:0;z-index:2;background:#eef0f4}' +
+            '.aistim_pw_mode_hasil .dataTables_scroll{display:none!important}';
+        const stWeb = document.createElement('style');
+        stWeb.textContent = CSS_WEB;
+        document.head.appendChild(stWeb);
+
+        function setBarWeb(teks, berjalan) {
+            const box = document.getElementById('aistim_pw_hasil');
+            if (!box) return;
+            const b = box.querySelector('b');
+            if (b && b.textContent !== teks) b.textContent = teks;
+            const st = box.querySelector('.stop');
+            if (st) st.style.display = berjalan ? '' : 'none';
+        }
+        function siapkanHasilWeb(tabel) {
+            const wrap = tabel.closest('.dataTables_wrapper') || tabel.parentElement;
+            if (!wrap) return null;
+            let box = document.getElementById('aistim_pw_hasil');
+            if (box) return box;
+            box = document.createElement('div');
+            box.id = 'aistim_pw_hasil';
+            const bar = document.createElement('div');
+            bar.className = 'bar';
+            const tx = document.createElement('b');
+            const stop = document.createElement('button');
+            stop.type = 'button'; stop.className = 'stop'; stop.textContent = 'Berhenti';
+            stop.addEventListener('click', () => { scan.sesi++; scan.aktif = false; scan.ringkas = 'Dihentikan: ' + scan.baris.length + ' pesanan web'; setBarWeb(scan.ringkas, false); });
+            const tutup = document.createElement('button');
+            tutup.type = 'button'; tutup.textContent = 'Tutup hasil';
+            tutup.addEventListener('click', () => {
+                const s = document.getElementById('aistim_pw_fweb');
+                if (s) { s.value = ''; s.dispatchEvent(new Event('change')); }
+            });
+            bar.append(tx, stop, tutup);
+            const gulir = document.createElement('div');
+            gulir.className = 'gulir';
+            const tb = tabel.cloneNode(false);
+            tb.removeAttribute('id');
+            tb.removeAttribute('style');
+            tb.className = (tb.className || '').replace(/\baistim_pw_body_tbl\b/g, '').trim();
+            const srcHead = wrap.querySelector('.dataTables_scrollHead thead') || tabel.querySelector('thead');
+            if (srcHead) {
+                const th = srcHead.cloneNode(true);
+                th.querySelectorAll('th').forEach((x) => {
+                    x.style.width = x.style.minWidth = x.style.maxWidth = '';
+                    x.removeAttribute('aria-sort'); x.removeAttribute('aria-controls'); x.removeAttribute('tabindex');
+                    x.className = (x.className || '').replace(/\bsorting\w*\b/g, '').trim();
+                });
+                tb.appendChild(th);
+            }
+            tb.appendChild(document.createElement('tbody'));
+            gulir.appendChild(tb);
+            box.append(bar, gulir);
+            const ref = wrap.querySelector('.dataTables_scroll') || tabel;
+            ref.insertAdjacentElement('beforebegin', box);
+            wrap.classList.add('aistim_pw_mode_hasil');
+            return box;
+        }
+        function hapusHasilWeb(tabel) {
+            const box = document.getElementById('aistim_pw_hasil');
+            if (box) box.remove();
+            const wrap = tabel && (tabel.closest('.dataTables_wrapper') || tabel.parentElement);
+            if (wrap) wrap.classList.remove('aistim_pw_mode_hasil');
+        }
+        function tambahBarisWeb(tr, tabel) {
+            const k = idBaris(tr) || tr.outerHTML.length + ':' + rapih(tr.textContent).slice(0, 60);
+            if (scan.kunci.has(k)) return;
+            scan.kunci.add(k);
+            const salin = document.importNode(tr, true);
+            salin.querySelectorAll('td.aistim_pw_outlet_td').forEach((x) => x.remove());   // kolom Outlet dipasang ulang oleh skrip
+            // Halaman hasil fetch (hal. 2 dst) belum diolah script tabel situs: tanpa kolom Lihat/Edit di depan, dan
+            // "Show"/"Edit" tampil di ujung. Samakan dengan baris tabel asli: No | Lihat | Edit | ... | (Show, Edit tersembunyi)
+            const hrow0 = tabel.tHead && tabel.tHead.rows[0];
+            const kolom = hrow0 ? Array.from(hrow0.children).filter((c) => !c.classList.contains('aistim_pw_outlet_th')).length : 0;
+            const sel = Array.from(salin.children).filter((c) => /^td$/i.test(c.tagName));
+            const aShow = sel.length > 2 && sel[sel.length - 2].querySelector('a');
+            if (aShow && /^show$/i.test(rapih(aShow.textContent)) && sel[sel.length - 2].style.display !== 'none' && (!kolom || sel.length < kolom)) {
+                const show = sel[sel.length - 2], edit = sel[sel.length - 1];
+                const lihat = show.cloneNode(true), edit2 = edit.cloneNode(true);
+                lihat.className = edit2.className = 'textCenter undefined';
+                const aL = lihat.querySelector('a');
+                if (aL) aL.textContent = 'Lihat';
+                sel[0].after(lihat);
+                lihat.after(edit2);
+                show.style.display = 'none';
+                edit.style.display = 'none';
+            }
+            salin.style.display = '';
+            delete salin.dataset.aistimPwHide;
+            scan.baris.push(salin);
+            const hb = document.querySelector('#aistim_pw_hasil tbody');
+            if (hb) hb.appendChild(salin);
+        }
+        const linkBerikutWeb = (doc) => {
+            const a = Array.from(doc.querySelectorAll('a.pagination_next[href], a[rel="next"][href]')).find((x) => {
+                const h = (x.getAttribute('href') || '').trim();
+                return h && h !== '#' && !/^javascript/i.test(h) && !x.classList.contains('disabled');
+            });
+            if (!a) return null;
+            try { return new URL(a.getAttribute('href'), location.origin + '/pesanan_penjualans').href; } catch (e) { return null; }
+        };
+
+        async function mulaiScanWeb() {
+            const tabel = tabelUtama();
+            const v = pilihWeb();
+            if (!tabel || !v) return;
+            const sesi = ++scan.sesi;
+            scan.aktif = true;
+            scan.baris = [];
+            scan.kunci = new Set();
+            scan.ringkas = '';
+            const sig = sigTabelWeb();
+            siapkanHasilWeb(tabel);
+            const batal = () => sesi !== scan.sesi;
+            const idx0 = idxPemesan(tabel);
+            let hal = 1, url = linkBerikutWeb(document);
+            try {
+                // halaman yang sedang tampil
+                tabel.querySelectorAll('tbody tr').forEach((tr) => { if (idx0 >= 0 && barisCocok(tr, idx0, v)) tambahBarisWeb(tr, tabel); });
+                setBarWeb('Pesanan Web: halaman 1, ditemukan ' + scan.baris.length, true);
+                const sudah = new Set();
+                while (!batal() && url && hal < MAKS_HAL_WEB && !sudah.has(url)) {
+                    sudah.add(url);
+                    const res = await fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'text/html' } });
+                    if (batal()) return;
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+                    const t = doc.getElementById('data_table');
+                    if (!t) throw new Error('respons tidak berisi tabel');
+                    const idx = idxPemesan(t);
+                    hal++;
+                    t.querySelectorAll('tbody tr').forEach((tr) => { if (idx >= 0 && barisCocok(tr, idx, v)) tambahBarisWeb(tr, tabel); });
+                    setBarWeb('Pesanan Web: halaman ' + hal + ', ditemukan ' + scan.baris.length, true);
+                    url = linkBerikutWeb(doc);
+                    tambahKolomOutlet();
+                }
+                if (batal()) return;
+                scan.ringkas = 'Pesanan Web: ' + scan.baris.length + ' pesanan' + (v === 'baru' ? ' baru' : ' diproses') + ' (dipindai ' + hal + ' halaman' +
+                    (!url ? ', halaman terakhir' : (hal >= MAKS_HAL_WEB ? ', batas ' + MAKS_HAL_WEB + ' halaman' : '')) + ')';
+            } catch (e) {
+                if (batal()) return;
+                scan.ringkas = 'Pesanan Web: berhenti (' + (e.message || e) + '), ' + scan.baris.length + ' pesanan ditemukan';
+            }
+            scan.aktif = false;
+            scan.sigSelesai = sig;
+            setBarWeb(scan.ringkas, false);
+            tambahKolomOutlet();
+        }
+
+        function pasangFilterWeb() {
+            const sel = document.getElementById('pencarian_status_pesanan');
+            const baris = sel && sel.closest('.field2');
+            if (!baris) return;
+            if (!document.getElementById('aistim_pw_fweb')) {
+                const f = document.createElement('div');
+                f.className = 'field2';
+                f.innerHTML = '<label for="aistim_pw_fweb">Pesanan Web</label>' +
+                    '<select id="aistim_pw_fweb"><option value="">-- Semua --</option>' +
+                    '<option value="baru">Pesanan Baru</option><option value="proses">Pesanan Diproses</option></select>';
+                baris.after(f);
+                const s = f.querySelector('select');
+                s.value = pilihWeb();
+                s.addEventListener('change', () => {
+                    if (s.value) ls.set(K_FWEB, s.value); else ls.del(K_FWEB);
+                    scan.sesi++; scan.aktif = false; scan.sigSelesai = null;
+                    if (!s.value) hapusHasilWeb(tabelUtama()); else { hapusHasilWeb(tabelUtama()); mulaiScanWeb(); }
+                });
+            }
+            const tabel = tabelUtama();
+            if (!tabel) return;
+            if (!pilihWeb()) { if (document.getElementById('aistim_pw_hasil')) hapusHasilWeb(tabel); return; }
+            const sig = sigTabelWeb();
+            // tabel baru dari situs (cari ulang / reload): telusuri lagi
+            if (!scan.aktif && sig && sig !== scan.sigSelesai) { hapusHasilWeb(tabel); mulaiScanWeb(); }
+        }
+        setInterval(pasangFilterWeb, 1500);
+        pasangFilterWeb();
     }
 
     // ---------- Mulai ----------
