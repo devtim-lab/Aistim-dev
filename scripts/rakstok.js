@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.5.8
-// @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
+// @version      1.10.5
+// @description  Lihat Stok: kolom Rak (tulisan "Lihat rak", klik untuk popup daftar rak per toko/gudang dari Penempatan Rak), ikon logo PartDistro di kolom Nama (gambar produk baru dimuat & tampil di popup saat ikon diklik), tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
@@ -15,7 +15,6 @@
     const CACHE_KEY = 'aistim_rak_cache_v3';
     const CACHE_TTL = 60 * 60 * 1000; // 1 jam
     const MAKS_GUDANG = 8;            // batas request aktifitas per produk
-    const CONCURRENCY = 3;
 
     // ---------- cache (localStorage, aman kalau diblokir) ----------
     let cache = {};
@@ -34,65 +33,59 @@
         }, 500);
     }
 
+    // logo PartDistro sebagai ikon gambar produk (sebelum foto termuat / bila tanpa foto)
+    const LOGO_IKON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAAPFBMVEVHcEztHCT////sAATtHCTtHCTtHCTtHCTtHCTtHCTtEhzwTVH4ubruNDn6y8zzf4H83t/+8vLyaGz1m50cRTncAAAACnRSTlMA////pHz73ii9DsDuxAAAAnVJREFUWIXNl9uaoyAMgJW0ajkf3v9dN1i/kQhB3LnYzcWMRfMTIAnJNB2yvT/rPCjr571NVLZh5UOWlSBeD9V3eZ36T6c/ZB3Qlyi3BMZ+CQBSoUB+aH+zr2Jj1E2y4hCbDIPYmAVIcF4Q8a6JWNsGQAyikhChacK7Mb2t1bPo2ojlPX0qfdOY/jDCVIRPtQXScOpZKsI6PdJvEK4AYO0/VnHdyQsAdF8/72QPIOOdvhBRdgCXBeiY3ThSqy6LIABw1NjvuWNQEISTPKD0XwcM2QMHIEfoyGeEQI6yBEDiN7tcRQIOUMRA5bPyfGdZQGANICYEFnBOEmsLChdhAOUetpJHexdLgGrPUdun/g3gt0sY2cQuYOAYb5ZwvuQcqQsovZRz5R6ABBN5MwSQZZjx4cwApISZ3DSRSygEcIpx9KLybEorAR1RbFIdA3TS+hDAdy6WEUCYO1fbAKBxPT8C+EbF9QTQKDCeALxqJYlhgI1MnTYCCNbNXKVYFRhXMWbO/sx/cAeozv0x4E7+A8BS/ir3Cwv9vUz/DpzbSM9jIYUmJGv13iKgcozKWuvAm/w7me+wnC3JSCspdcF7F/TszKyM8jaKpEXUUjl0EWdMlMbJGEhW/5BiG3wC64UVmEN1CAkzm9fC4YAW+IBPXhhHIvJNyv29yIo4rUZVq9X+F2k2gTDaZ76nEbVspOHIr/EGUDj9AZhx1ugSDhlrcQgCuVX2rmmjAJntzBbgxDmIABEh4N2uLWCwBOqZW6PpAvNdJOTskU8VMzt8Dw9vCBoVr2bbJ3/8//r/KiONY09+9H/f+v5F8z2vVf+O7f9yr5dlKdv/P98nJyMLRjJkAAAAAElFTkSuQmCC';
+
     const style = document.createElement('style');
     style.textContent = `
-        /* Desktop: kolom melebar mengikuti isi, tiap "TOKO: RAK" satu baris utuh (tidak terpotong) */
-        .rk_th, .rk_cell { min-width: 120px; box-sizing: border-box; }
+        /* Kolom Rak sempit: lebar hanya sebesar tulisan "Lihat rak" */
+        /* lebar dikunci hanya di tabel isi; header mengikuti lebar kolom isi lewat syncWidths supaya selalu sejajar */
+        #data_table_produk .rk_th, #data_table_produk .rk_cell { width: 76px !important; min-width: 76px !important; max-width: 76px !important; white-space: nowrap; box-sizing: border-box; }
+        .rk_th { white-space: nowrap; }
         .rk_cell { cursor: pointer; font-size: 12px; }
-        .rk_cell .rk_item { display: block; white-space: nowrap; }
-        .rk_cell .rk_lanjut { padding-left: 12px; }
-        /* Layar sempit (HP): lebar dibatasi, teks boleh turun baris */
+        /* Layar sempit (HP): lebar dibatasi */
         @media (max-width: 768px) {
-            .rk_th, .rk_cell { width: 130px; max-width: 200px; }
-            .rk_cell .rk_item { white-space: normal; word-break: break-word; }
+            #data_table_produk .rk_th, #data_table_produk .rk_cell { width: 76px !important; max-width: 76px !important; }
         }
-        .rk_cell .rk_val { font-weight: 600; color: #0d6efd; }
-        .rk_cell .rk_g { color: #777; font-weight: 400; }
         .rk_cell .rk_muted { color: #aaa; }
-        .rk_cell .rk_err { color: #dc3545; }
+        .rk_cell .rk_lihat { color: #0d6efd; text-decoration: underline; white-space: nowrap; }
+        /* Popup rak: melayang di area tabel, mirip popup detail stok */
+        #gs_rak_pop { position: absolute; z-index: 99995; box-sizing: border-box; min-width: 150px; max-width: min(280px, 94vw);
+                      display: flex; flex-direction: column; background: #fff; border: 1px solid #ccc; border-radius: 4px;
+                      box-shadow: 0 4px 16px rgba(0,0,0,.25); font-size: 12px; text-align: left; }
+        #gs_rak_pop .rk_head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 5px 8px; border-bottom: 1px solid #ddd; }
+        #gs_rak_pop .rk_judul { font-size: 11px; font-weight: 600; color: #555; word-break: break-word; }
+        #gs_rak_pop .rk_x { border: none; background: none; font-size: 16px; line-height: 1; cursor: pointer; color: #666; padding: 0 2px; }
+        #gs_rak_pop .rk_isi { padding: 5px 8px; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+        #gs_rak_pop .rk_baris { padding: 3px 0; border-bottom: 1px solid #ddd; }
+        #gs_rak_pop .rk_baris:first-child { padding-top: 0; }
+        #gs_rak_pop .rk_baris:last-of-type { border-bottom: 0; }
+        #gs_rak_pop .rk_gn { font-weight: 700; color: #444; }
+        #gs_rak_pop .rk_rv { font-weight: 600; color: #0d9bdb; padding-left: 0; }
+        #gs_rak_pop .rk_info { color: #777; font-size: 11px; padding: 4px 0; }
+        #gs_rak_pop .rk_info.rk_err { color: #dc3545; }
+        #gs_rak_pop .rk_tutup { display: block; padding: 3px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; font-size: 11px; color: #444; }
+        #gs_rak_pop .rk_tutup:hover { background: #f0f0f0; }
+        #gs_rak_pop .rk_foot { flex: none; padding: 5px 8px; border-top: 1px solid #ddd; background: #fff; border-radius: 0 0 4px 4px; }
+        #gs_rak_pop.rk_gambar { max-width: min(340px, 94vw); }
+        #gs_rak_pop.rk_gambar .rk_isi img { display: block; max-width: 100%; margin: 0 auto 6px; border: 1px solid #eee; border-radius: 4px; background: #fafafa;
+                                            pointer-events: none; -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none; }
 
+        /* Ikon gambar (logo PartDistro) di kolom Nama */
         .gs_ikon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
                    margin: 0 5px 2px 0; border: 1px solid #ccd; border-radius: 4px; background: #f4f6ff;
                    cursor: pointer; font-size: 11px; line-height: 1; vertical-align: middle; user-select: none;
-                   overflow: hidden; box-sizing: border-box; }
+                   overflow: hidden; box-sizing: border-box; flex: none; max-width: 20px; max-height: 20px; }
         .gs_ikon:hover { background: #e3e8ff; }
-        .gs_ikon.gs_kosong { opacity: .45; }
-        /* Gambar panjang/lebar dipotong (crop) dari atas, ukuran dikunci sama untuk semua baris */
-        .gs_ikon { flex: none; max-width: 20px; max-height: 20px; }
-        .gs_ikon.gs_foto { background-color: #fff; background-repeat: no-repeat;
-                           background-size: cover; background-position: 50% 0; }
+        .gs_ikon.gs_logo { background: #fff url("${LOGO_IKON}") no-repeat 50% 50% / contain; border-color: #e3e3e8; }
 
-        /* Tombol panah harga jual per pelanggan */
-        /* Tombol selalu di pojok kanan atas sel Harga Jual: ukuran & posisi sama di semua baris, tidak ikut pindah saat teks turun baris */
-        .hj_td { position: relative; padding-right: 40px !important; cursor: pointer; }
-        .hj_btn { position: absolute; top: 6px; right: 6px; margin: 0; width: 26px; height: 26px; min-width: 26px;
-                  box-sizing: border-box; display: flex; align-items: center; justify-content: center;
-                  border: 1px solid #ccd; border-radius: 6px; background: #f4f6ff; color: #0d6efd;
-                  cursor: pointer; font-size: 14px; line-height: 1; user-select: none; -webkit-tap-highlight-color: transparent; }
-        .hj_btn:hover { background: #e3e8ff; }
-        .hj_btn.hj_buka { background: #0d6efd; color: #fff; }
-        .hj_list { display: block; margin-top: 6px; padding: 6px 8px; border: 1px solid #dde; border-radius: 6px;
-                   background: #fafbff; font-size: 12px; font-weight: 400; text-align: left; min-width: 150px; }
-        .hj_list .hj_row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; border-bottom: 1px dashed #e5e7f0; }
-        .hj_list .hj_row:last-child { border-bottom: 0; }
-        .hj_list .hj_nm { color: #555; }
-        .hj_list .hj_hg { font-weight: 600; color: #0d6efd; white-space: nowrap; }
-        .hj_list .hj_info { color: #888; }
-        .hj_list .hj_info.hj_err { color: #dc3545; }
-        #gs_modal_bd { position: fixed; inset: 0; z-index: 99996; background: rgba(0,0,0,.55);
-                       display: flex; align-items: center; justify-content: center; }
-        #gs_modal { background: #fff; border-radius: 10px; width: 94%; max-width: 560px; max-height: 88vh;
-                    display: flex; flex-direction: column; box-shadow: 0 6px 24px rgba(0,0,0,.35); font-family: inherit; }
-        #gs_modal .gs_head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
-                             padding: 12px 14px; border-bottom: 1px solid #eee; }
-        #gs_modal .gs_judul { font-weight: 600; font-size: 14px; word-break: break-word; }
-        #gs_modal .gs_tutup { border: none; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: #666; }
-        #gs_modal .gs_isi { padding: 12px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; align-items: center; }
-        #gs_modal .gs_isi img { max-width: 100%; max-height: 70vh; object-fit: contain; border: 1px solid #eee; border-radius: 6px; background: #fafafa;
-                                pointer-events: none; -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none; }
-        #gs_modal, #gs_modal * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-        #gs_modal .gs_info { color: #777; font-size: 13px; padding: 20px 0; text-align: center; }
-        #gs_modal .gs_info.gs_err { color: #dc3545; }
+        /* Harga jual per pelanggan: dibuka lewat panah merah bawaan situs (fa-angle-double-down) di sel Harga Jual */
+        .hj_td i.fa-angle-double-down, .hj_td .hj_btn { cursor: pointer; padding: 0 4px; }
+        .hj_td .hj_btn { color: red; font-style: normal; }
+        #gs_rak_pop .hj_row { display: flex; justify-content: space-between; gap: 14px; padding: 3px 0; border-bottom: 1px solid #ddd; }
+        #gs_rak_pop .hj_row:last-of-type { border-bottom: 0; }
+        #gs_rak_pop .hj_nm { font-weight: 700; color: #444; }
+        #gs_rak_pop .hj_hg { font-weight: 600; color: #0d9bdb; white-space: nowrap; }
 
         /* Kolom Nama responsif: teks panjang turun ke bawah, tidak terpotong */
         .rs_nama_th, .rs_nama { min-width: 220px; }
@@ -276,111 +269,30 @@
         return hasil;
     }
 
-    // ---------- sinkron lebar header (dipanggil setelah isi sel berubah) ----------
-    let syncTimer = null;
-    function jadwalSync() {
-        clearTimeout(syncTimer);
-        syncTimer = setTimeout(() => {
-            const t = document.querySelector(TABLE_SEL);
-            if (t) syncWidths(t);
-        }, 200);
-    }
-
     // ---------- tampilan sel ----------
-    function renderCell(td, data) {
-        td.textContent = '';
-        const ada = (data || []).filter((x) => x.r);
-        if (!ada.length) {
-            const s = document.createElement('span');
-            s.className = 'rk_muted';
-            s.textContent = '-';
-            td.appendChild(s);
-            return;
-        }
-        ada.forEach((x) => {
-            // maksimal 1 nama rak per baris, sisanya turun ke baris berikutnya
-            const names = x.r.split(/\s*,\s*/).filter(Boolean);
-            const chunks = [];
-            for (let i = 0; i < names.length; i += 1) chunks.push(names.slice(i, i + 1).join(', '));
-            chunks.forEach((teks, idx) => {
-                const baris = document.createElement('span');
-                baris.className = 'rk_item' + (idx > 0 && x.g ? ' rk_lanjut' : '');
-                if (idx === 0 && x.g) {
-                    const g = document.createElement('span');
-                    g.className = 'rk_g';
-                    g.textContent = x.g + ': ';
-                    baris.appendChild(g);
-                }
-                const v = document.createElement('span');
-                v.className = 'rk_val';
-                v.textContent = teks;
-                baris.appendChild(v);
-                td.appendChild(baris);
-            });
-        });
-        jadwalSync();
-    }
-
-    function renderStatus(td, teks, cls) {
+    // Sel Rak hanya berisi tulisan "Lihat rak"; daftar rak tampil di popup saat diklik.
+    function renderLihat(td) {
         td.textContent = '';
         const s = document.createElement('span');
-        s.className = cls;
-        s.textContent = teks;
+        s.className = 'rk_lihat';
+        s.textContent = 'Lihat rak';
         td.appendChild(s);
     }
 
-    // ---------- antrean (maks CONCURRENCY sekaligus) ----------
-    const queue = [];
-    let running = 0;
-
-    function pump() {
-        while (running < CONCURRENCY && queue.length) {
-            const job = queue.shift();
-            running++;
-            job().finally(() => {
-                running--;
-                jadwalSync();
-                pump();
-            });
-        }
-    }
-
-    function muat(td, paksa) {
+    // data rak per gudang/toko untuk satu sel: dari cache (1 jam) atau diambil dari server
+    function dataRak(td) {
         const idproduk = td.dataset.prd;
         const idoutlet = td.dataset.otl || '';
-        if (!idproduk) { renderStatus(td, '-', 'rk_muted'); return; }
+        if (!idproduk) return Promise.resolve([]);
         const key = idproduk + '|' + idoutlet;
         const c = cache[key];
-        if (!paksa && c && Date.now() - c.t < CACHE_TTL) { renderCell(td, c.v); return; }
-
-        renderStatus(td, '...', 'rk_muted');
-        queue.push(async () => {
-            try {
-                const v = await ambilRakProduk(idproduk, idoutlet, td.dataset.gdn);
-                cache[key] = { t: Date.now(), v: v };
-                saveCache();
-                // semua sel dengan produk yang sama
-                document.querySelectorAll('.rk_cell').forEach((x) => {
-                    if (x.dataset.prd === idproduk && (x.dataset.otl || '') === idoutlet) renderCell(x, v);
-                });
-            } catch (e) {
-                console.error('[Rak] gagal produk=', idproduk, e);
-                renderStatus(td, 'gagal: ' + (e && e.message ? e.message : e) + ' (klik)', 'rk_err');
-            }
+        if (c && Date.now() - c.t < CACHE_TTL) return Promise.resolve(c.v);
+        return ambilRakProduk(idproduk, idoutlet, td.dataset.gdn).then((v) => {
+            cache[key] = { t: Date.now(), v: v };
+            saveCache();
+            return v;
         });
-        pump();
     }
-
-    // muat hanya saat sel terlihat di layar
-    const io = 'IntersectionObserver' in window
-        ? new IntersectionObserver((entries) => {
-            entries.forEach((en) => {
-                if (!en.isIntersecting) return;
-                io.unobserve(en.target);
-                muat(en.target, false);
-            });
-        }, { rootMargin: '300px' })
-        : null;
 
     const GCACHE = {}; // id -> [url,...] selama halaman terbuka
     const HDIAG = {}; // id -> keterangan bila tab harga ditemukan tapi tabelnya kosong
@@ -494,121 +406,152 @@
         return urls;
     }
 
-    // ---------- thumbnail kecil (seukuran favicon) di kolom Nama ----------
-    // Dimuat bertahap: hanya saat ikon terlihat di layar, maks 3 permintaan sekaligus.
-    const ANTRI = [];
-    let jalan = 0;
-    const MAKS_PARALEL = 3;
-
-    function pasangThumb(ikon, urls) {
-        if (!urls.length) { ikon.classList.add('gs_kosong'); return; }
-        // Pakai background-image (bukan <img>) supaya gambar panjang selalu terpotong
-        // di dalam kotak 20x20 dan CSS situs tidak bisa memanjangkannya.
-        const u = urls[0];
-        const probe = new Image();
-        probe.onload = () => {
-            ikon.textContent = '';
-            ikon.classList.add('gs_foto');
-            ikon.style.backgroundImage = 'url("' + u.replace(/"/g, '%22') + '")';
-        };
-        probe.onerror = () => { ikon.classList.add('gs_kosong'); };
-        probe.src = u;
-    }
-
-    function pompaThumb() {
-        while (jalan < MAKS_PARALEL && ANTRI.length) {
-            const ikon = ANTRI.shift();
-            if (!document.body.contains(ikon)) continue;
-            jalan++;
-            ambilGambar(ikon.dataset.prd)
-                .then((urls) => pasangThumb(ikon, urls))
-                .catch(() => { ikon.classList.add('gs_kosong'); })
-                .finally(() => { jalan--; pompaThumb(); });
-        }
-    }
-
-    const ioThumb = 'IntersectionObserver' in window
-        ? new IntersectionObserver((entries) => {
-            entries.forEach((en) => {
-                if (!en.isIntersecting) return;
-                ioThumb.unobserve(en.target);
-                ANTRI.push(en.target);
-            });
-            pompaThumb();
-        }, { rootMargin: '200px' })
-        : null;
-
-    // ---------- popup ----------
+    // ---------- popup (melayang di area tabel, dekat elemen yang diklik) ----------
     function tutupModal() {
-        const bd = document.getElementById('gs_modal_bd');
-        if (bd) bd.remove();
+        const rp = document.getElementById('gs_rak_pop');
+        if (rp) rp.remove();
     }
 
-    function bukaModal(id, judul) {
+    // kerangka popup: judul + tombol x + isi yang bisa di-scroll. 'anchor' = elemen yang diklik.
+    function bukaPop(anchor, judul, kelas) {
         tutupModal();
-        const bd = document.createElement('div');
-        bd.id = 'gs_modal_bd';
-        const modal = document.createElement('div');
-        modal.id = 'gs_modal';
-        // blokir menu klik-kanan / tekan-lama & seret gambar di popup
-        ['contextmenu', 'dragstart', 'selectstart'].forEach((ev) => {
-            modal.addEventListener(ev, (e) => e.preventDefault());
-        });
+        const pop = document.createElement('div');
+        pop.id = 'gs_rak_pop';
+        if (kelas) pop.className = kelas;
+        // blokir seret/seleksi (menu klik-kanan dibiarkan)
+        ['dragstart', 'selectstart'].forEach((ev) => pop.addEventListener(ev, (e) => e.preventDefault()));
 
         const head = document.createElement('div');
-        head.className = 'gs_head';
+        head.className = 'rk_head';
         const j = document.createElement('div');
-        j.className = 'gs_judul';
-        j.textContent = judul || ('Produk ' + id);
+        j.className = 'rk_judul';
+        j.textContent = judul;
         const x = document.createElement('button');
         x.type = 'button';
-        x.className = 'gs_tutup';
+        x.className = 'rk_x';
         x.innerHTML = '&times;';
         x.addEventListener('click', tutupModal);
         head.appendChild(j);
         head.appendChild(x);
 
         const isi = document.createElement('div');
-        isi.className = 'gs_isi';
-        const info = document.createElement('div');
-        info.className = 'gs_info';
-        info.textContent = 'Memuat gambar...';
-        isi.appendChild(info);
+        isi.className = 'rk_isi';
+        pop.appendChild(head);
+        pop.appendChild(isi);
+        document.body.appendChild(pop);
 
-        modal.appendChild(head);
-        modal.appendChild(isi);
-        bd.appendChild(modal);
-        bd.addEventListener('click', (e) => { if (e.target === bd) tutupModal(); });
-        document.body.appendChild(bd);
+        // posisi: di dalam area tabel (wrapper DataTables), mulai dari elemen yang diklik
+        const area = () => (anchor.closest('.dataTables_wrapper') || anchor.closest('table') || document.body).getBoundingClientRect();
+        const taruh = () => {
+            if (!document.body.contains(pop)) return;
+            const a = area();
+            const c = anchor.getBoundingClientRect();
+            const sx = window.pageXOffset, sy = window.pageYOffset;
+            const maxH = Math.max(160, Math.min(a.height - 8, window.innerHeight * 0.7));
+            pop.style.maxHeight = maxH + 'px';
+            const w = pop.offsetWidth, h = pop.offsetHeight;
+            let left = c.left;
+            if (left + w > a.right - 4) left = a.right - 4 - w;
+            if (left < a.left + 4) left = a.left + 4;
+            let top = c.top;
+            if (top + h > a.bottom - 4) top = a.bottom - 4 - h;
+            if (top < a.top + 4) top = a.top + 4;
+            pop.style.left = (left + sx) + 'px';
+            pop.style.top = (top + sy) + 'px';
+        };
+        // tombol Tutup di footer (di luar area scroll, jadi tidak ikut tergulung); dipasang sekali
+        const tombolTutup = () => {
+            if (pop.querySelector('.rk_foot')) return;
+            const foot = document.createElement('div');
+            foot.className = 'rk_foot';
+            const tb = document.createElement('button');
+            tb.type = 'button';
+            tb.className = 'rk_tutup';
+            tb.textContent = '\u2716 Tutup';
+            tb.addEventListener('click', tutupModal);
+            foot.appendChild(tb);
+            pop.appendChild(foot);
+        };
+        tombolTutup();
+        const info = (teks, err) => {
+            isi.textContent = '';
+            const t = document.createElement('div');
+            t.className = 'rk_info' + (err ? ' rk_err' : '');
+            t.textContent = teks;
+            isi.appendChild(t);
+            tombolTutup();
+            taruh();
+        };
+        return { pop: pop, isi: isi, taruh: taruh, tombolTutup: tombolTutup, info: info };
+    }
+
+    // popup gambar produk (klik ikon logo di kolom Nama)
+    function bukaModal(ikon, id, judul) {
+        const m = bukaPop(ikon, judul || ('Produk ' + id), 'rk_gambar');
+        m.info('Memuat gambar...');
 
         ambilGambar(id).then((urls) => {
-            if (!document.body.contains(bd)) return; // popup sudah ditutup
-            isi.textContent = '';
-            if (!urls.length) {
-                const t = document.createElement('div');
-                t.className = 'gs_info';
-                t.textContent = 'Produk ini belum punya gambar.';
-                isi.appendChild(t);
-                return;
-            }
+            if (!document.body.contains(m.pop)) return; // popup sudah ditutup
+            if (!urls.length) return m.info('Produk ini belum punya gambar.');
+            m.isi.textContent = '';
             urls.forEach((u) => {
                 const img = document.createElement('img');
                 img.alt = '';
                 img.draggable = false;
+                img.addEventListener('load', m.taruh);
+                img.addEventListener('error', () => { img.alt = 'Gambar gagal dimuat'; m.taruh(); });
                 img.src = u;
-                img.addEventListener('error', () => { img.alt = 'Gambar gagal dimuat'; });
-                isi.appendChild(img);
+                m.isi.appendChild(img);
             });
+            m.tombolTutup();
+            m.taruh();
         }).catch((e) => {
             console.error('[Gambar] gagal produk=', id, e);
             catatLog('produk ' + id + ' gagal: ' + e.message);
-            isi.textContent = '';
-            const t = document.createElement('div');
-            t.className = 'gs_info gs_err';
-            t.textContent = 'Gagal memuat gambar (' + e.message + ').';
-            isi.appendChild(t);
+            if (document.body.contains(m.pop)) m.info('Gagal memuat gambar (' + e.message + ').', true);
         });
     }
+
+    // popup daftar rak: toko/gudang tebal, nama rak di bawahnya, dipisah garis (klik "Lihat rak")
+    function bukaModalRak(td, judul) {
+        const m = bukaPop(td, judul || 'Rak produk');
+        m.info('Memuat rak...');
+
+        dataRak(td).then((data) => {
+            if (!document.body.contains(m.pop)) return; // popup sudah ditutup
+            data = data || [];
+            if (!data.some((x) => x.r)) return m.info('Produk ini belum punya penempatan rak.');
+            m.isi.textContent = '';
+            // hanya toko/gudang yang punya rak; yang kosong tidak ditampilkan
+            data.filter((x) => x.r).forEach((x) => {
+                const baris = document.createElement('div');
+                baris.className = 'rk_baris';
+                const g = document.createElement('div');
+                g.className = 'rk_gn';
+                g.textContent = x.g || 'GUDANG';
+                baris.appendChild(g);
+                x.r.split(/\s*,\s*/).filter(Boolean).forEach((nama) => {
+                    const r = document.createElement('div');
+                    r.className = 'rk_rv';
+                    r.textContent = nama;
+                    baris.appendChild(r);
+                });
+                m.isi.appendChild(baris);
+            });
+            m.tombolTutup();
+            m.taruh();
+        }).catch((e) => {
+            console.error('[Rak] gagal produk=', td.dataset.prd, e);
+            if (document.body.contains(m.pop)) m.info('Gagal memuat rak (' + (e && e.message ? e.message : e) + ').', true);
+        });
+    }
+
+    // klik di luar popup (bukan "Lihat rak"/ikon gambar) menutupnya
+    document.addEventListener('mousedown', (e) => {
+        if (!document.getElementById('gs_rak_pop')) return;
+        if (e.target.closest && (e.target.closest('#gs_rak_pop') || e.target.closest('.rk_cell') || e.target.closest('.gs_ikon') || e.target.closest('.hj_td i'))) return;
+        tutupModal();
+    }, true);
 
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') tutupModal(); });
 
@@ -634,25 +577,24 @@
             const stokCell = tr.querySelector('td.bt_dialog_aktifitas_stok');
             const td = document.createElement('td');
             td.className = 'rk_cell';
+            td.dataset.bc = tds[barcodeIdx].textContent.trim();
             if (stokCell) {
                 td.dataset.prd = stokCell.dataset.prd || '';
                 td.dataset.otl = stokCell.dataset.otl || '';
                 td.dataset.gdn = stokCell.dataset.gdn || '';
             }
-            renderStatus(td, '...', 'rk_muted');
+            renderLihat(td);
             const namaTd = tds[namaIdx];
             namaTd.classList.add('rs_nama');
             if (stokCell && stokCell.dataset.prd && !namaTd.querySelector('.gs_ikon')) {
                 const ikon = document.createElement('span');
                 ikon.className = 'gs_ikon';
                 ikon.title = 'Lihat gambar produk';
-                ikon.textContent = '\uD83D\uDDBC\uFE0F'; // ikon gambar
+                ikon.classList.add('gs_logo'); // logo PartDistro sebagai ikon awal
                 ikon.dataset.prd = stokCell.dataset.prd;
                 namaTd.insertBefore(ikon, namaTd.firstChild);
-                if (ioThumb) ioThumb.observe(ikon); else { ANTRI.push(ikon); pompaThumb(); }
             }
             namaTd.insertAdjacentElement('afterend', td);
-            if (io) io.observe(td); else muat(td, false);
         });
 
         // Tombol panah Harga Jual: dipasang ulang tiap pass (situs bisa menulis ulang isi sel setelah tabel digambar)
@@ -665,12 +607,11 @@
                 if (!stok || !stok.dataset.prd || !hd || hd.classList.contains('rk_cell')) return;
                 hd.classList.add('hj_td');
                 hd.dataset.hjprd = stok.dataset.prd;
-                if (hd.querySelector('.hj_btn')) return;
-                const b = document.createElement('span');
-                b.className = 'hj_btn';
+                // pemicu = panah merah bawaan situs; kalau sel tidak punya, pasang panah merah serupa
+                if (hd.querySelector('i.fa-angle-double-down, .hj_btn')) return;
+                const b = document.createElement('i');
+                b.className = 'fa fa-angle-double-down hj_btn';
                 b.title = 'Harga jual per pelanggan';
-                b.textContent = '\u25BE'; // panah bawah
-                b.dataset.prd = stok.dataset.prd;
                 hd.appendChild(b);
             });
         }
@@ -682,46 +623,29 @@
         syncWidths(table);
     }
 
-    // klik panah harga -> tampilkan/sembunyikan daftar harga per pelanggan di bawah angka harga
-    document.addEventListener('click', (e) => {
-        const trg = e.target.closest && e.target.closest('.hj_btn, .hj_td');
-        if (!trg) return;
-        if (e.target.closest('.hj_list')) return; // klik di dalam daftar: biarkan
-        const td = trg.closest('td');
-        if (!td) return;
-        const b = td.querySelector('.hj_btn');
-        if (!b) return;
-        const langsungTombol = !!e.target.closest('.hj_btn');
-        // klik pada kontrol bawaan situs (panah merah, link, tombol) di sel ini: jangan dicampuri
-        if (!langsungTombol && e.target.closest('a, button, i, svg, [onclick], [data-bs-toggle]')) return;
-        if (langsungTombol) { e.preventDefault(); e.stopPropagation(); }
-        const ada = td.querySelector('.hj_list');
-        if (ada) { ada.remove(); b.classList.remove('hj_buka'); b.textContent = '▾'; return; }
+    // judul popup untuk satu baris tabel: "barcode - nama"
+    function judulBaris(td) {
+        const namaTd = td.previousElementSibling;
+        const ikon = namaTd && namaTd.querySelector('.gs_ikon');
+        const nama = namaTd ? namaTd.textContent.replace(ikon ? ikon.textContent : '', '').replace(/\s+/g, ' ').trim() : '';
+        return [td.dataset.bc, nama].filter(Boolean).join(' - ');
+    }
 
-        const box = document.createElement('div');
-        box.className = 'hj_list';
-        const info = (teks, err) => {
-            box.textContent = '';
-            const d = document.createElement('div');
-            d.className = 'hj_info' + (err ? ' hj_err' : '');
-            d.textContent = teks;
-            box.appendChild(d);
-        };
-        info('Memuat harga...');
-        td.appendChild(box);
-        b.classList.add('hj_buka');
-        b.textContent = '▴'; // panah atas
+    // popup harga jual per jenis pelanggan (klik panah merah di sel Harga Jual)
+    function bukaModalHarga(panah, id, judul) {
+        const m = bukaPop(panah, judul || ('Produk ' + id));
+        m.info('Memuat harga...');
 
-        ambilGambar(b.dataset.prd).then(() => {
-            if (!td.contains(box)) return;
-            const data = HCACHE[b.dataset.prd];
-            if (data === null || data === undefined) return info('Tab harga tidak ditemukan.', true);
-            if (!data.length) return info('Tabel jenis pelanggan tidak terbaca. ' + (HDIAG[b.dataset.prd] || ''), true);
-            box.textContent = '';
+        ambilGambar(id).then(() => {
+            if (!document.body.contains(m.pop)) return; // popup sudah ditutup
+            const data = HCACHE[id];
+            if (data === null || data === undefined) return m.info('Tab harga tidak ditemukan.', true);
+            if (!data.length) return m.info('Tabel jenis pelanggan tidak terbaca. ' + (HDIAG[id] || ''), true);
+            m.isi.textContent = '';
             const jd = document.createElement('div');
-            jd.className = 'hj_info';
+            jd.className = 'rk_info';
             jd.textContent = 'Harga jual per jenis pelanggan';
-            box.appendChild(jd);
+            m.isi.appendChild(jd);
             data.forEach((r) => {
                 const row = document.createElement('div');
                 row.className = 'hj_row';
@@ -733,12 +657,29 @@
                 h.textContent = r.harga;
                 row.appendChild(n);
                 row.appendChild(h);
-                box.appendChild(row);
+                m.isi.appendChild(row);
             });
+            m.tombolTutup();
+            m.taruh();
         }).catch((err) => {
-            catatLog('harga produk ' + b.dataset.prd + ' gagal: ' + err.message);
-            if (td.contains(box)) info('Gagal memuat harga (' + err.message + ').', true);
+            catatLog('harga produk ' + id + ' gagal: ' + err.message);
+            if (document.body.contains(m.pop)) m.info('Gagal memuat harga (' + err.message + ').', true);
         });
+    }
+
+    document.addEventListener('click', (e) => {
+        const panah = e.target.closest && e.target.closest('i.fa-angle-double-down, .hj_btn');
+        if (!panah) return;
+        const td = panah.closest('td.hj_td');
+        if (!td || !td.dataset.hjprd) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            const rk = td.parentElement && td.parentElement.querySelector('.rk_cell');
+            bukaModalHarga(panah, td.dataset.hjprd, rk ? judulBaris(rk) : '');
+        } catch (err) {
+            console.error('[Harga] gagal membuka popup', err);
+        }
     }, true);
 
     // klik ikon gambar -> ambil & tampilkan gambar di popup
@@ -749,14 +690,22 @@
         e.stopPropagation();
         const td = ikon.closest('td');
         const judul = td ? td.textContent.replace(ikon.textContent, '').replace(/\s+/g, ' ').trim() : '';
-        bukaModal(ikon.dataset.prd, judul);
+        bukaModal(ikon, ikon.dataset.prd, judul);
     }, true);
 
-    // klik sel Rak -> muat ulang dari server
+    // klik "Lihat rak" -> popup daftar rak (capture + stopPropagation: tidak sampai ke handler situs)
     document.addEventListener('click', (e) => {
         const td = e.target.closest && e.target.closest('.rk_cell');
-        if (td) muat(td, true);
-    });
+        if (!td) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            catatLog('klik Lihat rak produk=' + (td.dataset.prd || '?'));
+            bukaModalRak(td, judulBaris(td));
+        } catch (err) {
+            console.error('[Rak] gagal membuka popup', err);
+        }
+    }, true);
 
     let timer = null;
     function schedule() {
