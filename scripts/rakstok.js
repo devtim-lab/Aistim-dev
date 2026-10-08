@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.10.5
+// @version      1.11.2
 // @description  Lihat Stok: kolom Rak (tulisan "Lihat rak", klik untuk popup daftar rak per toko/gudang dari Penempatan Rak), ikon logo PartDistro di kolom Nama (gambar produk baru dimuat & tampil di popup saat ikon diklik), tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -621,6 +621,108 @@
             [60, 300, 800].forEach((ms) => setTimeout(() => syncWidths(table), ms));
         }
         syncWidths(table);
+        terapkanFilterRak();
+    }
+
+    // ---------- filter "Status Rak" (combobox di panel filter; menyaring baris tabel di halaman ini) ----------
+    // '' = semua, 'ada' = sudah ada rak, 'kosong' = belum ada rak.
+    // Disimpan di sessionStorage supaya tetap terpilih saat pindah halaman / halaman dimuat ulang.
+    const FILTER_KEY = 'aistim_rak_filter';
+    let filterRak = '';
+    try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong') filterRak = f; } catch (e) { /* abaikan */ }
+    const antreFilter = [];
+    let jalanFilter = 0;
+    const MAKS_FILTER = 3; // maks permintaan rak bersamaan saat memeriksa baris
+
+    // 'ada' | 'kosong' | 'gagal' | null (belum diketahui)
+    function statusRak(td) {
+        if (!td.dataset.prd) return 'kosong';
+        const c = cache[td.dataset.prd + '|' + (td.dataset.otl || '')];
+        if (c && Date.now() - c.t < CACHE_TTL) return (c.v || []).some((x) => x.r) ? 'ada' : 'kosong';
+        return td.dataset.rkgagal ? 'gagal' : null;
+    }
+
+    function pompaFilter() {
+        while (jalanFilter < MAKS_FILTER && antreFilter.length) {
+            const td = antreFilter.shift();
+            jalanFilter++;
+            dataRak(td)
+                .catch((e) => { td.dataset.rkgagal = '1'; console.error('[Rak] filter gagal produk=', td.dataset.prd, e); })
+                .finally(() => { jalanFilter--; delete td.dataset.rkantri; terapkanFilterRak(); pompaFilter(); });
+        }
+    }
+
+    function terapkanFilterRak() {
+        const table = document.querySelector(TABLE_SEL);
+        if (!table) return;
+        let total = 0, tampil = 0, menunggu = 0, gagal = 0;
+        table.querySelectorAll('tbody tr').forEach((tr) => {
+            const td = tr.querySelector('.rk_cell');
+            if (!td) return;
+            total++;
+            if (!filterRak) { tr.style.display = ''; tampil++; return; }
+            const st = statusRak(td);
+            if (st === null) {
+                // belum diketahui: sembunyikan dulu, periksa rak-nya, lalu saring ulang
+                menunggu++;
+                tr.style.display = 'none';
+                if (!td.dataset.rkantri) { td.dataset.rkantri = '1'; antreFilter.push(td); }
+                return;
+            }
+            if (st === 'gagal') gagal++;
+            const cocok = st === 'gagal' || st === filterRak; // yang gagal diperiksa tetap ditampilkan
+            tr.style.display = cocok ? '' : 'none';
+            if (cocok) tampil++;
+        });
+        pompaFilter();
+        const info = document.getElementById('rk_filter_info');
+        if (!info) return;
+        let teks = '';
+        if (filterRak && menunggu) teks = 'Memeriksa rak... ' + (total - menunggu) + '/' + total;
+        else if (filterRak) teks = 'Tampil ' + tampil + ' dari ' + total + ' baris di halaman ini' + (gagal ? ' (' + gagal + ' gagal diperiksa)' : '');
+        // hanya tulis bila berubah: menulis ulang memicu MutationObserver dan membuat putaran tak berujung
+        if (info.textContent !== teks) info.textContent = teks;
+    }
+
+    // pasang combobox tepat di bawah kolom Barcode/Nama Produk/Kode Ref pada panel filter (sekali; dipasang ulang bila panel digambar ulang)
+    function pasangFilterRak() {
+        const cari = document.getElementById('pencarian_nama');
+        const field = cari && cari.closest('.field2');
+        if (!field) return;
+        const ada = document.getElementById('rk_filter_box');
+        if (ada) {
+            if (field.nextElementSibling !== ada) field.insertAdjacentElement('afterend', ada); // pindahkan bila posisinya belum benar
+            return;
+        }
+        const box = document.createElement('div');
+        box.className = 'field2';
+        box.id = 'rk_filter_box';
+        const lb = document.createElement('label');
+        lb.htmlFor = 'rk_filter_status';
+        lb.textContent = 'Status Rak';
+        const sel = document.createElement('select');
+        sel.id = 'rk_filter_status'; // tanpa atribut name: tidak ikut terkirim ke server
+        [['', '-- Semua --'], ['ada', 'Sudah ada rak'], ['kosong', 'Belum ada rak']].forEach((o) => {
+            const op = document.createElement('option');
+            op.value = o[0];
+            op.textContent = o[1];
+            sel.appendChild(op);
+        });
+        sel.value = filterRak;
+        sel.addEventListener('change', () => {
+            filterRak = sel.value;
+            try { sessionStorage.setItem(FILTER_KEY, filterRak); } catch (e) { /* abaikan */ }
+            terapkanFilterRak();
+        });
+        const info = document.createElement('div');
+        info.id = 'rk_filter_info';
+        info.style.cssText = 'font-size:11px;color:#777;margin-top:3px';
+        box.appendChild(lb);
+        box.appendChild(document.createElement('br'));
+        box.appendChild(sel);
+        box.appendChild(info);
+        field.insertAdjacentElement('afterend', box);
+        terapkanFilterRak();
     }
 
     // judul popup untuk satu baris tabel: "barcode - nama"
@@ -711,6 +813,7 @@
     function schedule() {
         clearTimeout(timer);
         timer = setTimeout(() => {
+            pasangFilterRak();
             const table = document.querySelector(TABLE_SEL);
             if (table) enhance(table);
         }, 150);
