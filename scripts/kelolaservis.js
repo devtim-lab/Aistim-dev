@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Kolom Outlet di Kelola Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.0.56
-// @description  [v1.0.56] Daftar Kelola Servis: kolom Outlet (dengan "Status: ..." di bawahnya, kolom Status asli disembunyikan), Tipe HP (kanan Pelanggan), teknisi di bawah kode servis, nomor HP jadi ikon WhatsApp, filter teknisi (combobox + pencarian) menggantikan kotak Teknisi di panel Pencarian dan memfilter lewat server (isi nama + ID teknisi lalu tombol Filter); kalau nama tidak ada di daftar, beralih ke filter bawaan Erzap. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi. Servis baru: Rawat Inap default, Quick Servis dimatikan (dulu smart_repair.js)
+// @version      1.0.61
+// @description  [v1.0.61] Daftar Kelola Servis: kolom Outlet (dengan "Status: ..." di bawahnya, kolom Status asli disembunyikan), Tipe HP (kanan Pelanggan), teknisi di bawah kode servis, nomor HP jadi ikon WhatsApp, filter teknisi (combobox + pencarian) menggantikan kotak Teknisi di panel Pencarian dan memfilter lewat server (isi nama + ID teknisi lalu tombol Filter); kalau nama tidak ada di daftar, beralih ke filter bawaan Erzap. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi. Servis baru: Rawat Inap default, Quick Servis dimatikan (dulu smart_repair.js)
 // @author       You
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -18,10 +18,15 @@
     const TANDA_TIPE = 'ks_tipe_td';
     const HP_LAYAR = window.matchMedia('(max-width: 768px)'); // layar HP/tablet kecil
     const lebarTipe = () => HP_LAYAR.matches ? 170 : 240; // lebar kolom Tipe HP (px): sempit di HP, lega di desktop
-    // Kolom tambahan: Outlet di kiri Status, Tipe HP di kanan Pelanggan (dicari dari judul header)
+    // Istilah mengikuti nama toko (bagian depan alamat Erzap): ototech.erzap.com -> "Tipe Motor" dan "Mekanik", selain itu "Tipe HP" dan "Teknisi"
+    const OTOTECH = /(^|[.-])ototech([.-]|$)/i.test(location.hostname.replace(/\.erzap\.com$/i, ''));
+    const JUDUL_TIPE = OTOTECH ? 'Tipe Motor' : 'Tipe HP';
+    const IST_TEKNISI = OTOTECH ? 'Mekanik' : 'Teknisi';        // label di bawah kode servis, filter, dst.
+    const IST_KECIL = IST_TEKNISI.toLowerCase();
+    // Kolom tambahan: Outlet di kiri Status, tipe unit di kanan Pelanggan (dicari dari judul header)
     const KOLOM = [
         { kelas: TANDA, judul: 'Outlet', acuan: 'status', setelah: false },
-        { kelas: TANDA_TIPE, judul: 'Tipe HP', acuan: 'pelanggan', setelah: true }
+        { kelas: TANDA_TIPE, judul: JUDUL_TIPE, acuan: 'pelanggan', setelah: true }
     ];
     const TEKS_BELUM = 'Nota proses'; // ditampilkan saat Outlet belum ada (sebelumnya "-")
 
@@ -174,7 +179,7 @@
                     isiOutlet(td, (d.outlet && d.outlet !== '-') ? d.outlet : TEKS_BELUM);
                     tdTipe.textContent = d.tipe || '-';
                     tdTipe.style.whiteSpace = 'pre-line'; // unit kedua dst tampil di bawahnya
-                    if (elTeknisi) elTeknisi.textContent = 'Teknisi: ' + (d.teknisi || '-');
+                    if (elTeknisi) elTeknisi.textContent = IST_TEKNISI + ' : ' + (d.teknisi || '-');
                     const tr = td.closest('tr');
                     if (tr) tr.dataset.ksTeknisi = d.teknisi || ''; // dipakai filter teknisi
                     simpanPeta(d.peta);
@@ -182,7 +187,7 @@
                 .catch(e => {
                     isiOutlet(td, '?'); td.title = String(e && e.message || e);
                     tdTipe.textContent = '?'; tdTipe.title = td.title;
-                    if (elTeknisi) elTeknisi.textContent = 'Teknisi: ?';
+                    if (elTeknisi) elTeknisi.textContent = IST_TEKNISI + ' : ?';
                     const tr = td.closest('tr');
                     if (tr) tr.dataset.ksTeknisi = ''; // gagal dimuat: dianggap tanpa teknisi
                 })
@@ -227,6 +232,10 @@
         st.id = 'ks_style';
         st.textContent = `
             .ks_kolom_status, .ks_kolom_proses { display: none !important; }
+            /* Satu ukuran huruf untuk SEMUA isi tabel (kolom asli + kolom tambahan) dan judul kolom yang kelihatan.
+               Variabel --ks-fs dihitung dari ukuran kode servis, maksimal 13px di layar kecil (lihat aturFs). */
+            html.ks_fs_aktif table#data_table tbody td, html.ks_fs_aktif table#data_table tbody td *, html.ks_fs_aktif .dataTables_scrollHead th { font-size: var(--ks-fs, 13px) !important; }
+            .ks_wa svg { width: max(20px, calc(var(--ks-fs, 13px) * 1.6)) !important; height: max(20px, calc(var(--ks-fs, 13px) * 1.6)) !important; }
             /* Kolom Aksi: semua tombol rata kiri, tersusun ke bawah, tepi kiri ikon sejajar */
             th.ks_aksi_head, td.ks_aksi_sel { text-align: left !important; vertical-align: middle; }
             td.ks_aksi_sel > *, td.ks_aksi_sel .ks_aksi_proses { text-align: left !important; margin-left: 0 !important; padding-left: 0 !important; float: none !important; }
@@ -243,7 +252,6 @@
             .paginate_lite_wrap .pagination_links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
             @media (max-width: 768px) {
                 .dataTables_scrollBody::-webkit-scrollbar { width: 8px !important; height: 8px !important; } /* lebih mudah disentuh */
-                .dataTables_scrollBody td, .dataTables_scrollBody th { font-size: 12px; }
                 .ks_wa { display: inline-block; padding: 3px 0; } /* area sentuh WA lebih besar */
                 .ks_wa svg { width: 24px; height: 24px; }
                 .paginate_lite_wrap { justify-content: center; text-align: center; }
@@ -359,7 +367,7 @@
             const teksStatus = teksBersih(acuStatus) || '-';
             const sumberWarna = acuStatus.querySelector('a, span, b, strong, font') || acuStatus;
             const gayaAsli = getComputedStyle(sumberWarna); // ukuran huruf asli kolom Status dipakai lagi
-            barisStatus.style.cssText = 'font-size:' + gayaAsli.fontSize + ';margin-top:2px;color:#000'; // tulisan "Status:" hitam
+            barisStatus.style.cssText = 'margin-top:2px;color:#000'; // tulisan "Status:" hitam (ukuran huruf: lihat .ks_fs di CSS)
             const nilaiStatus = document.createElement('span');
             nilaiStatus.className = 'ks_status_nilai';
             nilaiStatus.style.color = gayaAsli.color; // hanya nilainya yang berwarna (warna asli kolom Status)
@@ -395,13 +403,13 @@
             if (selKode) {
                 elTeknisi = document.createElement('div');
                 elTeknisi.className = 'ks_teknisi';
-                const linkKodeEl = selKode.querySelector('a') || selKode; // ukuran huruf = ukuran kode servis
-                elTeknisi.style.cssText = 'font-size:' + getComputedStyle(linkKodeEl).fontSize + ';color:#333;margin-top:3px;line-height:1.3';
-                elTeknisi.textContent = 'Teknisi: ...';
+                elTeknisi.style.cssText = 'color:#333;margin-top:3px;line-height:1.3'; // ukuran huruf: lihat .ks_fs di CSS
+                elTeknisi.textContent = IST_TEKNISI + ' : ...';
                 selKode.appendChild(elTeknisi);
             }
             antrian.push({ url, td, tdTipe, elTeknisi });
         });
+        aturFs(tabel);
         gabungAksi(tabel);
         telpJadiWA(tabel);
         perbaruiFilterTeknisi();
@@ -474,12 +482,12 @@
     }
 
     // Combobox pencarian: kotak teks + daftar saran yang tersaring saat mengetik (panah atas/bawah, Enter, Esc didukung)
-    let opsiTeknisi = [{ v: SEMUA, t: 'Semua teknisi' }];
+    let opsiTeknisi = [{ v: SEMUA, t: 'Semua ' + IST_KECIL }];
     let sorot = 0; // indeks opsi yang disorot di daftar
 
     function labelPilihan() {
         const o = opsiTeknisi.find(x => x.v === teknisiTerpilih);
-        return o ? o.t : (teknisiTerpilih === TANPA ? '(Tanpa teknisi)' : teknisiTerpilih);
+        return o ? o.t : (teknisiTerpilih === TANPA ? '(Tanpa ' + IST_KECIL + ')' : teknisiTerpilih);
     }
 
     function bangunFilterTeknisi(tabel) {
@@ -490,7 +498,7 @@
         wrap.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:6px 0;font-size:13px';
 
         const lab = document.createElement('label');
-        lab.textContent = 'Filter Teknisi:';
+        lab.textContent = 'Filter ' + IST_TEKNISI + ':';
         lab.htmlFor = 'ks_filter_teknisi';
         lab.style.cssText = 'margin:0;font-weight:600';
 
@@ -501,7 +509,7 @@
         inp.type = 'text';
         inp.id = 'ks_filter_teknisi';
         inp.autocomplete = 'off';
-        inp.placeholder = 'Cari teknisi...';
+        inp.placeholder = 'Cari ' + IST_KECIL + '...';
         inp.setAttribute('role', 'combobox');
         inp.setAttribute('aria-expanded', 'false');
         inp.setAttribute('aria-controls', 'ks_filter_teknisi_list');
@@ -532,7 +540,7 @@
             daftar.textContent = '';
             if (!hasil.length) {
                 const kosong = document.createElement('div');
-                kosong.textContent = 'Tidak ada teknisi yang cocok';
+                kosong.textContent = 'Tidak ada ' + IST_KECIL + ' yang cocok';
                 kosong.style.cssText = 'padding:6px 10px;color:#888';
                 daftar.appendChild(kosong);
                 // Tidak ada di daftar kita -> tawarkan pencarian dengan filter Teknisi bawaan Erzap (seluruh pegawai)
@@ -737,15 +745,15 @@
         const kunciBaru = urut.join('|') + '#' + tanpa + '#' + teknisiTerpilih;
         if (kunciBaru !== kunciOpsi) { // daftar hanya dibangun ulang bila berubah (menjaga posisi sorot / ketikan user)
             kunciOpsi = kunciBaru;
-            const opsi = [{ v: SEMUA, t: 'Semua teknisi' }];
+            const opsi = [{ v: SEMUA, t: 'Semua ' + IST_KECIL }];
             urut.forEach(n => opsi.push({ v: n, t: n }));
-            if (tanpa || teknisiTerpilih === TANPA) opsi.push({ v: TANPA, t: '(Tanpa teknisi)' });
+            if (tanpa || teknisiTerpilih === TANPA) opsi.push({ v: TANPA, t: '(Tanpa ' + IST_KECIL + ')' });
             // pilihan tetap ada walau barisnya (belum) termuat
             if (teknisiTerpilih !== SEMUA && !opsi.some(o => o.v === teknisiTerpilih)) opsi.push({ v: teknisiTerpilih, t: teknisiTerpilih });
             opsiTeknisi = opsi;
             if (wrap.gambarUlang) wrap.gambarUlang();
         }
-        wrap.querySelector('#ks_filter_teknisi_info').textContent = belum ? 'memuat teknisi ' + belum + ' baris...' : '';
+        wrap.querySelector('#ks_filter_teknisi_info').textContent = belum ? 'memuat ' + IST_KECIL + ' ' + belum + ' baris...' : '';
         terapkanFilterTeknisi();
     }
 
@@ -765,6 +773,29 @@
             const mau = tampil ? '' : 'none';
             if (tr.style.display !== mau) tr.style.display = mau;
         });
+    }
+
+    // ===== Ukuran huruf seragam =====
+    // Acuan: ukuran huruf kode servis (link SRxxxx-xxxx) di tabel, DIUKUR SEKALI sebelum aturan seragam aktif (kelas html.ks_fs_aktif),
+    // supaya yang terukur ukuran aslinya, bukan hasil aturan kita sendiri. Di layar kecil dibatasi maksimal 13px.
+    // Hasilnya disimpan di variabel CSS --ks-fs yang dipakai seluruh isi tabel (lihat pasangStyle).
+    let fsAsli = 0, fsTerakhir = '';
+    function aturFs(tabel) {
+        if (!fsAsli) {
+            const kode = Array.from(tabel.querySelectorAll('tbody a')).find(a => /[A-Z]{2}\d{3,}-\d+/.test(a.textContent));
+            const acuan = kode || tabel.querySelector('tbody td');
+            if (!acuan) return; // tabel belum berisi -> coba lagi nanti
+            const px0 = parseFloat(getComputedStyle(acuan).fontSize);
+            if (!isFinite(px0) || px0 <= 0) return;
+            fsAsli = px0;
+        }
+        let px = fsAsli;
+        if (HP_LAYAR.matches) px = Math.min(px, 13);
+        const nilai = (Math.round(px * 10) / 10) + 'px';
+        if (nilai === fsTerakhir) return;
+        fsTerakhir = nilai;
+        document.documentElement.style.setProperty('--ks-fs', nilai);
+        document.documentElement.classList.add('ks_fs_aktif');
     }
 
     // ===== Kolom "Edit Penerimaan" + "Proses Servis" digabung jadi satu kolom "Aksi" =====
@@ -911,7 +942,7 @@
         });
         sinkronLebar();
     }
-    window.addEventListener('resize', terapkanLebarTipe);
+    window.addEventListener('resize', () => { const t = document.querySelector('table#data_table'); if (t) aturFs(t); terapkanLebarTipe(); });
     let timerProses = null;
     function jadwalkanProses() {
         clearTimeout(timerProses);
