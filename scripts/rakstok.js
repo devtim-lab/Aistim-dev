@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.11.2
+// @version      1.16.1
 // @description  Lihat Stok: kolom Rak (tulisan "Lihat rak", klik untuk popup daftar rak per toko/gudang dari Penempatan Rak), ikon logo PartDistro di kolom Nama (gambar produk baru dimuat & tampil di popup saat ikon diklik), tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -49,6 +49,21 @@
         }
         .rk_cell .rk_muted { color: #aaa; }
         .rk_cell .rk_lihat { color: #0d6efd; text-decoration: underline; white-space: nowrap; }
+        /* Hasil filter Status Rak: tabel sementara berisi baris yang sudah ketemu; tabel asli situs disembunyikan */
+        .dataTables_wrapper.rk_mode_hasil .dataTables_scroll, .dataTables_wrapper.rk_mode_hasil #data_table_produk { display: none !important; }
+        #rk_hasil .rk_hasil_bar { display: flex; align-items: center; gap: 10px; padding: 6px 8px; font-size: 13px; color: #555;
+                                  background: #f7f9ff; border: 1px solid #e3e8f5; border-bottom: 0; }
+        #rk_hasil .rk_hasil_bar .fa { color: #0d6efd; }
+        #rk_hasil .rk_hasil_teks { flex: 1; }
+        #rk_hasil .rk_hasil_tutup { font-size: 12px; padding: 2px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
+        #rk_hasil .rk_hasil_pager { display: none; align-items: center; justify-content: center; gap: 12px; padding: 6px; font-size: 13px; color: #555;
+                                    background: #f7f9ff; border: 1px solid #e3e8f5; border-top: 0; }
+        #rk_hasil .rk_hasil_pager button { font-size: 12px; padding: 3px 12px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
+        #rk_hasil .rk_hasil_pager button:disabled { opacity: .45; cursor: not-allowed; }
+        #rk_hasil .rk_hasil_scroll { overflow: auto; border: 1px solid #e3e8f5; }
+        #rk_hasil table { width: 100% !important; margin: 0; }
+        #rk_hasil thead th { position: sticky; top: 0; z-index: 2; background: #eef0f4; }
+        #rk_hasil .rk_th, #rk_hasil .rk_cell { width: 76px; min-width: 76px; max-width: 76px; }
         /* Popup rak: melayang di area tabel, mirip popup detail stok */
         #gs_rak_pop { position: absolute; z-index: 99995; box-sizing: border-box; min-width: 150px; max-width: min(280px, 94vw);
                       display: flex; flex-direction: column; background: #fff; border: 1px solid #ccc; border-radius: 4px;
@@ -630,6 +645,13 @@
     const FILTER_KEY = 'aistim_rak_filter';
     let filterRak = '';
     try { const f = sessionStorage.getItem(FILTER_KEY); if (f === 'ada' || f === 'kosong') filterRak = f; } catch (e) { /* abaikan */ }
+    // Filter Status Gambar: '' = semua, 'ada' = sudah bergambar, 'kosong' = belum ada gambar (digabung dengan filter rak)
+    const FILTER_GBR_KEY = 'aistim_gbr_filter';
+    let filterGbr = '';
+    try { const f = sessionStorage.getItem(FILTER_GBR_KEY); if (f === 'ada' || f === 'kosong') filterGbr = f; } catch (e) { /* abaikan */ }
+    function aktifFilter() { return !!(filterRak || filterGbr); }
+    function kunciFilter() { return filterRak + '|' + filterGbr; }
+
     const antreFilter = [];
     let jalanFilter = 0;
     const MAKS_FILTER = 3; // maks permintaan rak bersamaan saat memeriksa baris
@@ -642,46 +664,571 @@
         return td.dataset.rkgagal ? 'gagal' : null;
     }
 
+    // 'ada' | 'kosong' | 'gagal' | null (belum diketahui); gambar diambil dari halaman detail produk (GCACHE)
+    function statusGbr(td) {
+        const id = td.dataset.prd;
+        if (!id) return 'kosong';
+        const u = GCACHE[id];
+        if (u) return u.length ? 'ada' : 'kosong';
+        return td.dataset.gbgagal ? 'gagal' : null;
+    }
+
+    // status gabungan semua filter aktif: 'cocok' | 'tidak' | 'gagal' (tetap tampil) | null (belum diketahui)
+    function statusFilter(td) {
+        let gagal = false;
+        if (filterRak) {
+            const s = statusRak(td);
+            if (s === null) return null;
+            if (s === 'gagal') gagal = true; else if (s !== filterRak) return 'tidak';
+        }
+        if (filterGbr) {
+            const s = statusGbr(td);
+            if (s === null) return null;
+            if (s === 'gagal') gagal = true; else if (s !== filterGbr) return 'tidak';
+        }
+        return gagal ? 'gagal' : 'cocok';
+    }
+
     function pompaFilter() {
         while (jalanFilter < MAKS_FILTER && antreFilter.length) {
             const td = antreFilter.shift();
             jalanFilter++;
-            dataRak(td)
-                .catch((e) => { td.dataset.rkgagal = '1'; console.error('[Rak] filter gagal produk=', td.dataset.prd, e); })
+            const kerja = [];
+            if (filterRak) kerja.push(dataRak(td).catch((e) => { td.dataset.rkgagal = '1'; console.error('[Rak] filter gagal produk=', td.dataset.prd, e); }));
+            if (filterGbr && td.dataset.prd) kerja.push(ambilGambar(td.dataset.prd).catch((e) => { td.dataset.gbgagal = '1'; console.error('[Gambar] filter gagal produk=', td.dataset.prd, e); }));
+            Promise.all(kerja)
                 .finally(() => { jalanFilter--; delete td.dataset.rkantri; terapkanFilterRak(); pompaFilter(); });
+        }
+    }
+
+    // ---- jelajah halaman: saat filter aktif, buka halaman berikutnya (tombol "Selanjutnya" milik situs)
+    // sampai terkumpul TARGET_FILTER baris yang cocok, lalu tampilkan hasilnya sekaligus ----
+    const TARGET_FILTER = 50;
+    const MAKS_HALAMAN = 60; // batas pengaman jumlah halaman yang dipindai
+    const jelajah = { aktif: false, pindah: false, baris: [], kunci: new Set(), halaman: 1, sig: null, dikumpul: null, sigSelesai: null, timer: null, ringkas: '', mode: 'klik', sesi: 0, hal: 1, fh: 0, awal: 0, habis: false, params: null };
+    let fetchGagal = false; // true bila ambil halaman lewat fetch tidak berhasil (pakai cara klik tombol)
+
+    // Tombol halaman situs bisa memuat ulang seluruh halaman (variabel skrip hilang), jadi keadaan penelusuran
+    // disimpan di sessionStorage sebelum pindah halaman dan dipulihkan saat skrip dimuat lagi.
+    const JEL_KEY = 'aistim_rak_jelajah';
+    function simpanJelajah() {
+        try {
+            sessionStorage.setItem(JEL_KEY, JSON.stringify({
+                filter: kunciFilter(), t: Date.now(), halaman: jelajah.halaman, sig: jelajah.sig,
+                kunci: Array.from(jelajah.kunci), baris: jelajah.baris.map((tr) => tr.outerHTML)
+            }));
+            catatLog('jelajah: simpan hal.' + jelajah.halaman + ', terkumpul ' + jelajah.baris.length);
+        } catch (e) { catatLog('jelajah: gagal menyimpan (' + e + ')'); }
+    }
+    function hapusSimpanJelajah() { try { sessionStorage.removeItem(JEL_KEY); } catch (e) { /* abaikan */ } }
+
+    (function pulihkanJelajah() {
+        try {
+            const raw = sessionStorage.getItem(JEL_KEY);
+            if (!raw) return;
+            const s = JSON.parse(raw);
+            if (!s || !aktifFilter() || s.filter !== kunciFilter() || Date.now() - s.t > 5 * 60 * 1000) { hapusSimpanJelajah(); return; }
+            const tb = document.createElement('tbody');
+            document.createElement('table').appendChild(tb);
+            tb.innerHTML = s.baris.join('');
+            jelajah.baris = Array.from(tb.children);
+            jelajah.kunci = new Set(s.kunci);
+            jelajah.halaman = s.halaman;
+            jelajah.sig = s.sig;
+            jelajah.aktif = true;
+            jelajah.pindah = true;
+            jelajah.timer = setTimeout(() => {
+                const t = document.querySelector(TABLE_SEL);
+                if (jelajah.pindah && t) { selesaiJelajah(t, 'halaman berikutnya tidak termuat'); terapkanFilterRak(); }
+            }, 25000);
+            catatLog('jelajah: pulih hal.' + s.halaman + ', terkumpul ' + jelajah.baris.length);
+        } catch (e) { hapusSimpanJelajah(); }
+    })();
+
+    function kunciBaris(td) { return (td.dataset.prd || '') + '|' + (td.dataset.otl || '') + '|' + (td.dataset.gdn || ''); }
+    function sigTabel(table) { return Array.from(table.querySelectorAll('tbody .rk_cell')).map(kunciBaris).join(';'); }
+
+    function linkBerikut() {
+        const mati = (a) => a.classList.contains('disabled') || a.getAttribute('aria-disabled') === 'true' ||
+            (a.parentElement && a.parentElement.classList.contains('disabled'));
+        let cand = Array.from(document.querySelectorAll('a[rel="next"], a.next_page, li.next > a, a.paginate_button.next'));
+        if (!cand.length) {
+            cand = Array.from(document.querySelectorAll('.pagination a, .dataTables_paginate a, .digg_pagination a, .apple_pagination a'))
+                .filter((a) => /selanjutnya|next|\u203A|\u00BB/i.test(a.textContent));
+        }
+        return cand.find((a) => !mati(a)) || null;
+    }
+
+    function mulaiJelajah(table) {
+        clearTimeout(jelajah.timer);
+        jelajah.mode = fetchGagal ? 'klik' : 'fetch';
+        jelajah.aktif = true;
+        jelajah.pindah = false;
+        jelajah.baris = [];
+        jelajah.kunci = new Set();
+        jelajah.halaman = 1;
+        jelajah.sig = sigTabel(table);
+        jelajah.dikumpul = null;
+        jelajah.ringkas = '';
+        jelajah.hal = 1; // halaman hasil (50 baris per halaman)
+        jelajah.fh = 0; // nomor halaman situs berikutnya yang akan diambil
+        jelajah.awal = 0;
+        jelajah.habis = false;
+        jelajah.params = null;
+        const box = siapkanHasil(table);
+        const tbody = box && box.querySelector('tbody');
+        if (tbody) tbody.textContent = '';
+    }
+
+    function hentikanJelajah() {
+        jelajah.sesi++; // membatalkan penelusuran fetch yang masih berjalan
+        hapusSimpanJelajah();
+        clearTimeout(jelajah.timer);
+        jelajah.aktif = false;
+        jelajah.pindah = false;
+    }
+
+    // tabel hasil sementara (di dalam wrapper tabel); dibuat dari struktur tabel situs
+    function siapkanHasil(table) {
+        const wrap = table.closest('.dataTables_wrapper') || table.parentElement;
+        if (!wrap) return null;
+        let box = document.getElementById('rk_hasil');
+        if (box) return box;
+        box = document.createElement('div');
+        box.id = 'rk_hasil';
+
+        const bar = document.createElement('div');
+        bar.className = 'rk_hasil_bar';
+        const ic = document.createElement('i');
+        ic.className = 'fa fa-circle-o-notch fa-spin';
+        const tx = document.createElement('span');
+        tx.className = 'rk_hasil_teks';
+        const tutup = document.createElement('button');
+        tutup.type = 'button';
+        tutup.className = 'rk_hasil_tutup';
+        tutup.textContent = 'Tutup hasil';
+        tutup.addEventListener('click', () => {
+            const s = document.getElementById('rk_filter_status');
+            const g = document.getElementById('rk_filter_gambar');
+            if (g) g.value = '';
+            filterGbr = '';
+            try { sessionStorage.setItem(FILTER_GBR_KEY, ''); } catch (e) { /* abaikan */ }
+            if (s) { s.value = ''; s.dispatchEvent(new Event('change')); }
+        });
+        bar.appendChild(ic);
+        bar.appendChild(tx);
+        bar.appendChild(tutup);
+
+        const sc = document.createElement('div');
+        sc.className = 'rk_hasil_scroll';
+        const tb = table.cloneNode(false);
+        tb.removeAttribute('id');
+        tb.removeAttribute('style');
+        const srcHead = wrap.querySelector('.dataTables_scrollHead thead') || table.querySelector('thead');
+        if (srcHead) {
+            const th = srcHead.cloneNode(true);
+            th.querySelectorAll('th').forEach((x) => {
+                x.removeAttribute('style');
+                x.removeAttribute('aria-sort');
+                x.removeAttribute('aria-controls');
+                x.className = (x.className || '').replace(/\bsorting\w*\b/g, '').trim();
+            });
+            tb.appendChild(th);
+        }
+        tb.appendChild(document.createElement('tbody'));
+        sc.appendChild(tb);
+        box.appendChild(bar);
+        box.appendChild(sc);
+
+        const pg = document.createElement('div');
+        pg.className = 'rk_hasil_pager';
+        const prev = document.createElement('button');
+        prev.type = 'button';
+        prev.className = 'rk_pg_prev';
+        prev.textContent = '\u2039 Sebelumnya';
+        prev.addEventListener('click', () => halamanHasil(-1));
+        const lbl = document.createElement('span');
+        lbl.className = 'rk_pg_lbl';
+        const nxt = document.createElement('button');
+        nxt.type = 'button';
+        nxt.className = 'rk_pg_next';
+        nxt.textContent = 'Selanjutnya \u203A';
+        nxt.addEventListener('click', () => halamanHasil(1));
+        pg.appendChild(prev);
+        pg.appendChild(lbl);
+        pg.appendChild(nxt);
+        box.appendChild(pg);
+
+        const ref = wrap.querySelector('.dataTables_scroll') || table;
+        ref.insertAdjacentElement('beforebegin', box);
+        wrap.classList.add('rk_mode_hasil');
+        return box;
+    }
+
+    function hapusHasil(table) {
+        const box = document.getElementById('rk_hasil');
+        if (box) box.remove();
+        const wrap = table.closest('.dataTables_wrapper') || table.parentElement;
+        if (wrap) wrap.classList.remove('rk_mode_hasil');
+    }
+
+    // teks status di bar tabel hasil (hanya menulis bila berubah) + ikon putar selama berjalan
+    function setBar(teks, berjalan) {
+        const box = document.getElementById('rk_hasil');
+        if (!box) return;
+        const tx = box.querySelector('.rk_hasil_teks');
+        if (tx && tx.textContent !== teks) tx.textContent = teks;
+        const ic = box.querySelector('.rk_hasil_bar .fa');
+        if (ic) ic.style.display = berjalan ? '' : 'none';
+        perbaruiPager();
+        sesuaikanTinggiHasil();
+    }
+
+    // area tabel hasil menampilkan TAMPIL_BARIS baris sekaligus (tinggi dihitung dari baris sebenarnya); sisanya di-scroll
+    const TAMPIL_BARIS = 8;
+    function sesuaikanTinggiHasil() {
+        const sc = document.querySelector('#rk_hasil .rk_hasil_scroll');
+        if (!sc) return;
+        const rows = sc.querySelectorAll('tbody tr');
+        let mh = '';
+        if (rows.length > TAMPIL_BARIS) {
+            const thead = sc.querySelector('thead');
+            let h = thead ? thead.offsetHeight : 0;
+            for (let i = 0; i < TAMPIL_BARIS; i++) h += rows[i].offsetHeight;
+            if (h > 0) mh = (h + 2) + 'px';
+        }
+        if (sc.style.maxHeight !== mh) sc.style.maxHeight = mh;
+    }
+
+    // tombol halaman hasil (hanya mode fetch): Sebelumnya / Selanjutnya (melanjutkan penelusuran bila perlu)
+    function perbaruiPager() {
+        const pg = document.querySelector('#rk_hasil .rk_hasil_pager');
+        if (!pg) return;
+        const tampil = jelajah.mode === 'fetch' && (jelajah.baris.length > 0 || jelajah.aktif);
+        const disp = tampil ? 'flex' : 'none';
+        if (pg.style.display !== disp) pg.style.display = disp;
+        const lbl = pg.querySelector('.rk_pg_lbl');
+        const teks = 'Hal. ' + jelajah.hal;
+        if (lbl && lbl.textContent !== teks) lbl.textContent = teks;
+        const prev = pg.querySelector('.rk_pg_prev');
+        const nxt = pg.querySelector('.rk_pg_next');
+        const adaLagi = jelajah.baris.length > jelajah.hal * TARGET_FILTER || !jelajah.habis;
+        if (prev) prev.disabled = jelajah.aktif || jelajah.hal <= 1;
+        if (nxt) nxt.disabled = jelajah.aktif || !adaLagi;
+    }
+
+    function renderHasilHalaman() {
+        const hb = document.querySelector('#rk_hasil tbody');
+        if (!hb) return;
+        hb.textContent = '';
+        const dari = (jelajah.hal - 1) * TARGET_FILTER;
+        jelajah.baris.slice(dari, dari + TARGET_FILTER).forEach((tr) => hb.appendChild(tr.cloneNode(true)));
+        const sc = document.querySelector('#rk_hasil .rk_hasil_scroll');
+        if (sc) sc.scrollTop = 0;
+        sesuaikanTinggiHasil();
+    }
+
+    function halamanHasil(arah) {
+        if (jelajah.aktif || jelajah.mode !== 'fetch') return;
+        const table = document.querySelector(TABLE_SEL);
+        const baru = jelajah.hal + arah;
+        if (!table || baru < 1) return;
+        jelajah.hal = baru;
+        renderHasilHalaman();
+        if (jelajah.baris.length < jelajah.hal * TARGET_FILTER && !jelajah.habis) {
+            jelajah.aktif = true; // lanjutkan penelusuran dari halaman situs berikutnya
+            tulisStatus('Melanjutkan penelusuran...', true);
+            lanjutkanFetch(table);
+        } else {
+            selesaiJelajah(table, '');
+            tulisStatus(jelajah.ringkas, false);
+        }
+    }
+
+    // penelusuran selesai / dijeda: baris yang ketemu sudah ada di tabel hasil
+    function selesaiJelajah(table, alasan) {
+        hentikanJelajah();
+        jelajah.sigSelesai = sigTabel(table);
+        jelajah.dikumpul = null;
+        if (jelajah.mode === 'fetch') {
+            const dari = (jelajah.hal - 1) * TARGET_FILTER;
+            const n = Math.max(0, Math.min(jelajah.baris.length - dari, TARGET_FILTER));
+            jelajah.ringkas = 'Hasil hal. ' + jelajah.hal + ': ' + n + ' baris (total ditemukan ' + jelajah.baris.length +
+                ', dipindai ' + Math.max(0, jelajah.fh - jelajah.awal) + ' halaman situs' + (alasan ? ', ' + alasan : '') + ')';
+        } else {
+            const n = Math.min(jelajah.baris.length, TARGET_FILTER);
+            jelajah.ringkas = (n ? 'Tampil ' + n + ' baris' : 'Tidak ada baris yang cocok') + ' (dipindai ' + jelajah.halaman + ' halaman' + (alasan ? ', ' + alasan : '') + ')';
+        }
+    }
+
+    // ---- penelusuran lewat fetch: GET /produk_gudangs/lihat_stok/new?page=N (tanpa reload / klik tombol) ----
+    function tulisStatus(teks, tombol) {
+        const info = document.getElementById('rk_filter_info');
+        const stop = document.getElementById('rk_filter_stop');
+        if (info && info.textContent !== teks) info.textContent = teks;
+        if (stop) stop.style.display = tombol ? '' : 'none';
+        setBar(teks, tombol);
+    }
+
+    function halamanSekarang() {
+        const cur = document.querySelector('.pagination .current, .pagination em, .pagination .active, .dataTables_paginate .current, .paginate_button.current');
+        const n = cur ? parseInt(cur.textContent, 10) : NaN;
+        if (n > 0) return n;
+        const m = /[?&]page=(\d+)/.exec(location.search);
+        return m ? parseInt(m[1], 10) : 1;
+    }
+
+    // ambil satu halaman tabel; null = respons tidak berisi tabel (mis. bukan HTML)
+    async function ambilHalamanFetch(params, halaman) {
+        const q = new URLSearchParams(params);
+        q.set('page', String(halaman));
+        const url = '/produk_gudangs/lihat_stok/new?' + q.toString();
+        const res = await fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'text/html' } });
+        catatLog('jelajah fetch hal.' + halaman + ' -> ' + res.status);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        const tb = doc.querySelector(TABLE_SEL + ' tbody');
+        if (!tb) return null;
+        return Array.from(tb.querySelectorAll('tr')).filter((tr) => tr.querySelector('td.bt_dialog_aktifitas_stok'));
+    }
+
+    // lengkapi baris mentah (hasil fetch) seperti baris di tabel situs: sel Rak, ikon gambar, panah harga jual
+    function pasangBarisHasil(tr) {
+        const head = document.querySelector('#rk_hasil thead tr');
+        if (!head) return;
+        const namaIdx = findIndexIn(head, 'nama');
+        const barcodeIdx = findIndexIn(head, 'barcode');
+        const hjIdx = Array.from(head.children).findIndex((th) => /^harga\s*jual/i.test(th.textContent.trim()));
+        const stokCell = tr.querySelector('td.bt_dialog_aktifitas_stok');
+        const tds = tr.children;
+        if (namaIdx < 0 || barcodeIdx < 0 || !stokCell || tds.length <= Math.max(namaIdx, barcodeIdx)) return;
+
+        const td = document.createElement('td');
+        td.className = 'rk_cell';
+        td.dataset.bc = tds[barcodeIdx].textContent.trim();
+        td.dataset.prd = stokCell.dataset.prd || '';
+        td.dataset.otl = stokCell.dataset.otl || '';
+        td.dataset.gdn = stokCell.dataset.gdn || '';
+        renderLihat(td);
+        const namaTd = tds[namaIdx];
+        namaTd.classList.add('rs_nama');
+        if (td.dataset.prd && !namaTd.querySelector('.gs_ikon')) {
+            const ikon = document.createElement('span');
+            ikon.className = 'gs_ikon gs_logo';
+            ikon.title = 'Lihat gambar produk';
+            ikon.dataset.prd = td.dataset.prd;
+            namaTd.insertBefore(ikon, namaTd.firstChild);
+        }
+        namaTd.insertAdjacentElement('afterend', td);
+
+        const hd = hjIdx >= 0 ? tr.children[hjIdx] : null;
+        if (hd && td.dataset.prd) {
+            hd.classList.add('hj_td');
+            hd.dataset.hjprd = td.dataset.prd;
+            if (!hd.querySelector('i.fa-angle-double-down, .hj_btn')) {
+                const b = document.createElement('i');
+                b.className = 'fa fa-angle-double-down hj_btn';
+                b.title = 'Harga jual per pelanggan';
+                hd.appendChild(b);
+            }
+        }
+    }
+
+    // awal penelusuran fetch: ambil parameter form & halaman awal, lalu kumpulkan untuk hasil halaman 1
+    async function jalankanFetch(table) {
+        const form = document.getElementById('form_pencarian_lihat_stok');
+        jelajah.params = form ? new URLSearchParams(new FormData(form)) : new URLSearchParams();
+        jelajah.params.delete('page');
+        jelajah.awal = halamanSekarang();
+        jelajah.fh = jelajah.awal;
+        return lanjutkanFetch(table);
+    }
+
+    // kumpulkan baris cocok dari halaman situs berikutnya sampai halaman hasil saat ini penuh (50 baris)
+    async function lanjutkanFetch(table) {
+        const sesi = jelajah.sesi;
+        const batasFh = jelajah.fh + MAKS_HALAMAN;
+        let adaHalaman = jelajah.fh > jelajah.awal;
+        const batal = () => sesi !== jelajah.sesi || !jelajah.aktif;
+        const sasaran = () => jelajah.hal * TARGET_FILTER;
+        const status = () => tulisStatus('Hasil hal. ' + jelajah.hal + ' (situs hal. ' + jelajah.fh + '): terkumpul ' +
+            Math.min(jelajah.baris.length, sasaran()) + '/' + sasaran(), true);
+
+        try {
+            status();
+            while (!batal() && jelajah.baris.length < sasaran() && !jelajah.habis && jelajah.fh < batasFh) {
+                const rows = await ambilHalamanFetch(jelajah.params, jelajah.fh);
+                if (batal()) return;
+                if (rows === null) throw new Error('respons tidak berisi tabel');
+                adaHalaman = true;
+                if (!rows.length) { jelajah.habis = true; break; }
+
+                // periksa rak tiap baris (maks MAKS_FILTER paralel); baris cocok tampil berurutan begitu siap
+                const hasil = new Array(rows.length);
+                let tampilIdx = 0;
+                const antre = rows.map((tr, i) => i);
+                const alirkan = () => {
+                    while (tampilIdx < rows.length && hasil[tampilIdx] !== undefined) {
+                        const tr = hasil[tampilIdx++];
+                        if (!tr) continue;
+                        const sc = tr.querySelector('td.bt_dialog_aktifitas_stok');
+                        const k = (sc.dataset.prd || '') + '|' + (sc.dataset.otl || '') + '|' + (sc.dataset.gdn || '');
+                        if (jelajah.kunci.has(k)) continue;
+                        jelajah.kunci.add(k);
+                        const salin = document.importNode(tr, true);
+                        pasangBarisHasil(salin);
+                        jelajah.baris.push(salin);
+                        const idx = jelajah.baris.length - 1;
+                        const hb = document.querySelector('#rk_hasil tbody');
+                        // langsung tampil bila termasuk halaman hasil yang sedang dibuka
+                        if (hb && idx >= (jelajah.hal - 1) * TARGET_FILTER && idx < sasaran()) hb.appendChild(salin.cloneNode(true));
+                        status();
+                    }
+                };
+                const kerja = async () => {
+                    while (antre.length && !batal()) {
+                        const i = antre.shift();
+                        const sc = rows[i].querySelector('td.bt_dialog_aktifitas_stok');
+                        let cocok = false;
+                        try {
+                            const pseudo = { dataset: { prd: sc.dataset.prd || '', otl: sc.dataset.otl || '', gdn: sc.dataset.gdn || '' } };
+                            let okRak = true, okGbr = true;
+                            if (filterRak) {
+                                const data = pseudo.dataset.prd ? await dataRak(pseudo) : [];
+                                okRak = ((data || []).some((x) => x.r) ? 'ada' : 'kosong') === filterRak;
+                            }
+                            if (okRak && filterGbr) {
+                                const urls = pseudo.dataset.prd ? await ambilGambar(pseudo.dataset.prd) : [];
+                                okGbr = ((urls || []).length ? 'ada' : 'kosong') === filterGbr;
+                            }
+                            cocok = okRak && okGbr;
+                        } catch (e) { console.error('[Rak] fetch cek rak gagal', e); }
+                        hasil[i] = cocok ? rows[i] : null;
+                        alirkan();
+                    }
+                };
+                status();
+                await Promise.all([kerja(), kerja(), kerja()]);
+                if (batal()) return;
+                alirkan();
+                jelajah.fh++;
+            }
+            if (batal()) return;
+            const alasan = jelajah.habis ? 'halaman terakhir' : (jelajah.baris.length < sasaran() ? 'batas ' + MAKS_HALAMAN + ' halaman, tekan Selanjutnya untuk melanjutkan' : '');
+            selesaiJelajah(table, alasan);
+            tulisStatus(jelajah.ringkas, false);
+        } catch (e) {
+            if (batal()) return;
+            catatLog('jelajah fetch gagal: ' + e.message);
+            if (!adaHalaman) {
+                // fetch tidak berhasil sama sekali: pakai cara klik tombol "Selanjutnya"
+                fetchGagal = true;
+                mulaiJelajah(table);
+                terapkanFilterRak();
+            } else {
+                selesaiJelajah(table, 'berhenti: ' + e.message);
+                tulisStatus(jelajah.ringkas, false);
+            }
         }
     }
 
     function terapkanFilterRak() {
         const table = document.querySelector(TABLE_SEL);
         if (!table) return;
-        let total = 0, tampil = 0, menunggu = 0, gagal = 0;
+        const info = document.getElementById('rk_filter_info');
+        const stop = document.getElementById('rk_filter_stop');
+        const tulis = (teks, tombol) => {
+            // hanya tulis bila berubah: menulis ulang memicu MutationObserver dan membuat putaran tak berujung
+            if (info && info.textContent !== teks) info.textContent = teks;
+            if (stop) stop.style.display = tombol ? '' : 'none';
+            setBar(teks, jelajah.aktif || jelajah.pindah);
+        };
+
+        if (!aktifFilter()) {
+            hentikanJelajah();
+            jelajah.sigSelesai = null;
+            jelajah.ringkas = '';
+            hapusHasil(table);
+            table.querySelectorAll('tbody tr').forEach((tr) => { if (tr.style.display) tr.style.display = ''; });
+            tulis('', false);
+            return;
+        }
+
+        const sig = sigTabel(table);
+        let total = 0, menunggu = 0;
+        if ((jelajah.aktif || jelajah.pindah) && !document.getElementById('rk_hasil')) {
+            const box = siapkanHasil(table);
+            const tbody = box && box.querySelector('tbody');
+            if (tbody) jelajah.baris.slice(0, TARGET_FILTER).forEach((tr) => tbody.appendChild(tr.cloneNode(true)));
+        }
+        // Transisi halaman: setelah klik "Selanjutnya", tunggu sampai isi tabel benar-benar berganti
+        if (jelajah.pindah) {
+            if (!sig || sig === jelajah.sig) { tulis('Hal. ' + jelajah.halaman + ': memuat halaman berikutnya... terkumpul ' + jelajah.baris.length + '/' + TARGET_FILTER, true); return; }
+            clearTimeout(jelajah.timer);
+            jelajah.pindah = false;
+            jelajah.sig = sig;
+            jelajah.halaman++;
+        } else if (!jelajah.aktif && sig && sig !== jelajah.sigSelesai) {
+            mulaiJelajah(table); // tabel baru (filter baru dipilih / halaman baru dari situs): mulai kumpulkan
+            if (jelajah.mode === 'fetch') jalankanFetch(table);
+        }
+        if (jelajah.aktif && jelajah.mode === 'fetch') return; // mode fetch: kemajuan ditulis oleh jalankanFetch
+
         table.querySelectorAll('tbody tr').forEach((tr) => {
             const td = tr.querySelector('.rk_cell');
             if (!td) return;
             total++;
-            if (!filterRak) { tr.style.display = ''; tampil++; return; }
-            const st = statusRak(td);
+            const st = statusFilter(td);
             if (st === null) {
-                // belum diketahui: sembunyikan dulu, periksa rak-nya, lalu saring ulang
+                // belum diketahui: sembunyikan dulu, periksa rak/gambarnya, lalu saring ulang
                 menunggu++;
                 tr.style.display = 'none';
                 if (!td.dataset.rkantri) { td.dataset.rkantri = '1'; antreFilter.push(td); }
                 return;
             }
-            if (st === 'gagal') gagal++;
-            const cocok = st === 'gagal' || st === filterRak; // yang gagal diperiksa tetap ditampilkan
-            tr.style.display = cocok ? '' : 'none';
-            if (cocok) tampil++;
+            tr.style.display = (st === 'gagal' || st === 'cocok') ? '' : 'none'; // yang gagal diperiksa tetap tampil
         });
         pompaFilter();
-        const info = document.getElementById('rk_filter_info');
-        if (!info) return;
-        let teks = '';
-        if (filterRak && menunggu) teks = 'Memeriksa rak... ' + (total - menunggu) + '/' + total;
-        else if (filterRak) teks = 'Tampil ' + tampil + ' dari ' + total + ' baris di halaman ini' + (gagal ? ' (' + gagal + ' gagal diperiksa)' : '');
-        // hanya tulis bila berubah: menulis ulang memicu MutationObserver dan membuat putaran tak berujung
-        if (info.textContent !== teks) info.textContent = teks;
+
+        if (!jelajah.aktif) { tulis(jelajah.ringkas, false); return; }
+        if (menunggu) {
+            tulis('Hal. ' + jelajah.halaman + ': memeriksa ' + (total - menunggu) + '/' + total + ' - terkumpul ' + jelajah.baris.length + '/' + TARGET_FILTER, true);
+            return;
+        }
+        if (!total) { hentikanJelajah(); tulis(jelajah.ringkas, false); return; } // tabel kosong: jangan biarkan loading menggantung
+
+        // semua baris halaman ini sudah diketahui statusnya: kumpulkan yang cocok (sekali per halaman)
+        if (jelajah.dikumpul !== jelajah.sig) {
+            jelajah.dikumpul = jelajah.sig;
+            const hasilBody = document.querySelector('#rk_hasil tbody');
+            table.querySelectorAll('tbody tr').forEach((tr) => {
+                const td = tr.querySelector('.rk_cell');
+                if (!td || statusFilter(td) !== 'cocok') return;
+                if (jelajah.baris.length >= TARGET_FILTER) return;
+                const k = kunciBaris(td);
+                if (jelajah.kunci.has(k)) return;
+                jelajah.kunci.add(k);
+                const salin = tr.cloneNode(true);
+                salin.style.display = '';
+                jelajah.baris.push(salin);
+                if (hasilBody) hasilBody.appendChild(salin.cloneNode(true)); // langsung tampil begitu ketemu
+            });
+        }
+        if (jelajah.baris.length >= TARGET_FILTER) { selesaiJelajah(table, ''); tulis(jelajah.ringkas, false); return; }
+        const next = linkBerikut();
+        if (!next) { selesaiJelajah(table, 'tombol Selanjutnya tidak ditemukan / halaman terakhir'); tulis(jelajah.ringkas, false); return; }
+        if (jelajah.halaman >= MAKS_HALAMAN) { selesaiJelajah(table, 'batas ' + MAKS_HALAMAN + ' halaman'); tulis(jelajah.ringkas, false); return; }
+        jelajah.pindah = true;
+        clearTimeout(jelajah.timer);
+        jelajah.timer = setTimeout(() => {
+            if (!jelajah.pindah) return;
+            selesaiJelajah(table, 'halaman berikutnya tidak termuat');
+            tulis(jelajah.ringkas, false);
+        }, 20000);
+        tulis('Hal. ' + jelajah.halaman + ': memuat halaman berikutnya... terkumpul ' + jelajah.baris.length + '/' + TARGET_FILTER, true);
+        simpanJelajah();
+        catatLog('jelajah: klik Selanjutnya dari hal.' + jelajah.halaman);
+        next.click();
     }
 
     // pasang combobox tepat di bawah kolom Barcode/Nama Produk/Kode Ref pada panel filter (sekali; dipasang ulang bila panel digambar ulang)
@@ -699,19 +1246,26 @@
         box.id = 'rk_filter_box';
         const lb = document.createElement('label');
         lb.htmlFor = 'rk_filter_status';
-        lb.textContent = 'Status Rak';
+        lb.textContent = 'Status Rak / Gambar';
         const sel = document.createElement('select');
         sel.id = 'rk_filter_status'; // tanpa atribut name: tidak ikut terkirim ke server
-        [['', '-- Semua --'], ['ada', 'Sudah ada rak'], ['kosong', 'Belum ada rak']].forEach((o) => {
+        [['', '-- Semua --'], ['rak_ada', 'Sudah ada rak'], ['rak_kosong', 'Belum ada rak'], ['gbr_ada', 'Sudah bergambar'], ['gbr_kosong', 'Belum ada gambar']].forEach((o) => {
             const op = document.createElement('option');
             op.value = o[0];
             op.textContent = o[1];
             sel.appendChild(op);
         });
-        sel.value = filterRak;
+        sel.value = filterRak ? 'rak_' + filterRak : (filterGbr ? 'gbr_' + filterGbr : '');
         sel.addEventListener('change', () => {
-            filterRak = sel.value;
-            try { sessionStorage.setItem(FILTER_KEY, filterRak); } catch (e) { /* abaikan */ }
+            const v = sel.value;
+            filterRak = v.indexOf('rak_') === 0 ? v.slice(4) : '';
+            filterGbr = v.indexOf('gbr_') === 0 ? v.slice(4) : '';
+            hentikanJelajah();
+            jelajah.sigSelesai = null;
+            try {
+                sessionStorage.setItem(FILTER_KEY, filterRak);
+                sessionStorage.setItem(FILTER_GBR_KEY, filterGbr);
+            } catch (e) { /* abaikan */ }
             terapkanFilterRak();
         });
         const info = document.createElement('div');
@@ -720,7 +1274,18 @@
         box.appendChild(lb);
         box.appendChild(document.createElement('br'));
         box.appendChild(sel);
+
         box.appendChild(info);
+        const stop = document.createElement('button');
+        stop.type = 'button';
+        stop.id = 'rk_filter_stop';
+        stop.textContent = 'Berhenti & tampilkan';
+        stop.style.cssText = 'display:none;margin-top:4px;font-size:11px;padding:2px 8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer';
+        stop.addEventListener('click', () => {
+            const table = document.querySelector(TABLE_SEL);
+            if (table && jelajah.aktif) { selesaiJelajah(table, 'dihentikan'); terapkanFilterRak(); }
+        });
+        box.appendChild(stop);
         field.insertAdjacentElement('afterend', box);
         terapkanFilterRak();
     }
