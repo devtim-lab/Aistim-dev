@@ -1,15 +1,73 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.16.1
-// @description  Lihat Stok: kolom Rak (tulisan "Lihat rak", klik untuk popup daftar rak per toko/gudang dari Penempatan Rak), ikon logo PartDistro di kolom Nama (gambar produk baru dimuat & tampil di popup saat ikon diklik), tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
+// @version      1.17.10
+// @description  Lihat Stok: kolom Rak (tulisan "Map rak", klik untuk popup daftar rak per toko/gudang dari Penempatan Rak), ikon logo PartDistro di kolom Nama (gambar produk baru dimuat & tampil di popup saat ikon diklik), tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
+// @match        https://*.erzap.com/produks/*/edit*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==
 
 (function () {
     'use strict';
+
+    // ---------- halaman edit produk (/produks/<id>/edit): tombol "Edit gambar" di popup membuka halaman ini dengan
+    // alamat berakhiran #tab_produk_gambar -> tab "Gambar" langsung dibuka, tinggal pilih/unggah gambar ----------
+    if (/^\/produks\/[^/]+\/edit\/?$/.test(location.pathname)) {
+        // Tombol "Pilih Gambar untuk diunggah": browser TIDAK mengizinkan jendela pilih-file terbuka sendiri tanpa klik pengguna
+        // (tab baru belum punya "aktivasi pengguna"), jadi tombolnya disorot dan diberi fokus; pengguna tinggal klik / tekan Enter.
+        // Kalau halaman kebetulan masih punya aktivasi pengguna, jendela pilih-file dibuka langsung.
+        const siapkanPilihGambar = (pane) => {
+            const mulaiCari = Date.now();
+            const cari = () => {
+                const root = pane || document;
+                const label = Array.from(root.querySelectorAll('label')).find((l) => /pilih\s+gambar/i.test(l.textContent)) ||
+                    root.querySelector('label[for="fileupload"]');
+                const input = document.getElementById('fileupload');
+                if (!label && !input) {
+                    if (Date.now() - mulaiCari < 8000) setTimeout(cari, 250);
+                    return;
+                }
+                const st = document.createElement('style');
+                st.textContent = '@keyframes rk_denyut { 0%,100% { box-shadow: 0 0 0 0 rgba(13,110,253,.55); } 50% { box-shadow: 0 0 0 10px rgba(13,110,253,0); } }' +
+                    '.rk_sorot { outline: 3px solid #0d6efd !important; outline-offset: 2px; animation: rk_denyut 1.2s ease-in-out 5; }' +
+                    '#rk_petunjuk_unggah { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 99999; background: #0d6efd; color: #fff;' +
+                    ' padding: 8px 14px; border-radius: 6px; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.3); }';
+                document.head.appendChild(st);
+                const sasaran = label || input;
+                sasaran.classList.add('rk_sorot');
+                if (sasaran.scrollIntoView) sasaran.scrollIntoView({ block: 'center' });
+                const aktif = navigator.userActivation && navigator.userActivation.isActive;
+                if (aktif && input) { try { input.click(); return; } catch (e) { /* lanjut ke petunjuk */ } }
+                const tip = document.createElement('div');
+                tip.id = 'rk_petunjuk_unggah';
+                tip.textContent = 'Klik "Pilih Gambar" yang bergaris biru untuk memilih file gambar';
+                document.body.appendChild(tip);
+                setTimeout(() => tip.remove(), 8000);
+                const hapus = () => { sasaran.classList.remove('rk_sorot'); tip.remove(); };
+                sasaran.addEventListener('click', hapus, { once: true });
+                if (input && input.focus) { try { input.focus({ preventScroll: true }); } catch (e) { /* input tersembunyi: abaikan */ } }
+            };
+            cari();
+        };
+        if (location.hash === '#tab_produk_gambar') {
+            const mulai = Date.now();
+            const coba = () => {
+                const tab = document.getElementById('produk-gambar-tab');
+                if (tab) {
+                    if (!tab.classList.contains('active')) tab.click(); // tab Bootstrap (data-bs-toggle="tab")
+                    const pane = document.getElementById('tab_produk_gambar');
+                    if (pane && pane.scrollIntoView) pane.scrollIntoView({ block: 'start' });
+                    siapkanPilihGambar(pane);
+                    return;
+                }
+                if (Date.now() - mulai < 10000) setTimeout(coba, 200); // halaman belum selesai dirender
+            };
+            coba();
+        }
+        return; // sisa skrip hanya untuk halaman Lihat Stok
+    }
 
     const TABLE_SEL = '#data_table_produk';
     const CACHE_KEY = 'aistim_rak_cache_v3';
@@ -38,15 +96,27 @@
 
     const style = document.createElement('style');
     style.textContent = `
-        /* Kolom Rak sempit: lebar hanya sebesar tulisan "Lihat rak" */
+        /* Kolom Rak sempit: lebar hanya sebesar tulisan "Map rak" */
         /* lebar dikunci hanya di tabel isi; header mengikuti lebar kolom isi lewat syncWidths supaya selalu sejajar */
         #data_table_produk .rk_th, #data_table_produk .rk_cell { width: 76px !important; min-width: 76px !important; max-width: 76px !important; white-space: nowrap; box-sizing: border-box; }
         .rk_th { white-space: nowrap; }
-        .rk_cell { cursor: pointer; font-size: 12px; }
+        .rk_cell { cursor: pointer; font-size: inherit; }
         /* Layar sempit (HP): lebar dibatasi */
         @media (max-width: 768px) {
             #data_table_produk .rk_th, #data_table_produk .rk_cell { width: 76px !important; max-width: 76px !important; }
         }
+        /* Kolom Rak asli disembunyikan (bukan dihapus: filter & popup masih memakai datanya); "Map rak" kini di bawah barcode */
+        #data_table_produk .rk_th, #data_table_produk .rk_cell, #rk_hasil .rk_th, #rk_hasil .rk_cell,
+        .dataTables_scrollHead .rk_th { display: none !important; }
+        .rk_bc_baris { margin-top: 3px; }
+        .rk_bc_ikon { display: inline-block; width: 18px; margin-right: 5px; text-align: center; color: #444; }
+        .rk_bc_rak { display: inline-flex; align-items: center; gap: 3px; color: #0d6efd; cursor: pointer; text-decoration: underline; white-space: nowrap; font-size: inherit; }
+        .rk_bc_rak:hover { color: #0a58ca; }
+        /* ikon "Map rak" berkedip pelan (warna asli, tanpa pendar); mati bila pengguna memilih "kurangi animasi" di sistemnya */
+        @keyframes rk_kedip { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
+        .rk_bc_rak .fa { animation: rk_kedip 2.4s ease-in-out infinite; }
+        .rk_bc_rak:hover .fa { animation-play-state: paused; opacity: 1; }
+        @media (prefers-reduced-motion: reduce) { .rk_bc_rak .fa { animation: none; } }
         .rk_cell .rk_muted { color: #aaa; }
         .rk_cell .rk_lihat { color: #0d6efd; text-decoration: underline; white-space: nowrap; }
         /* Hasil filter Status Rak: tabel sementara berisi baris yang sudah ketemu; tabel asli situs disembunyikan */
@@ -83,6 +153,9 @@
         #gs_rak_pop .rk_tutup:hover { background: #f0f0f0; }
         #gs_rak_pop .rk_foot { flex: none; padding: 5px 8px; border-top: 1px solid #ddd; background: #fff; border-radius: 0 0 4px 4px; }
         #gs_rak_pop.rk_gambar { max-width: min(340px, 94vw); }
+        #gs_rak_pop.rk_gambar .rk_foot { display: flex; gap: 6px; flex-wrap: wrap; }
+        #gs_rak_pop .rk_edit { color: #0d6efd; border-color: #b6d4fe; }
+        #gs_rak_pop .rk_edit:hover { background: #e7f1ff; }
         #gs_rak_pop.rk_gambar .rk_isi img { display: block; max-width: 100%; margin: 0 auto 6px; border: 1px solid #eee; border-radius: 4px; background: #fafafa;
                                             pointer-events: none; -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none; }
 
@@ -106,7 +179,7 @@
         .rs_nama_th, .rs_nama { min-width: 220px; }
         .rs_nama { white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
                    max-width: none !important; word-break: break-word; }
-        .rs_nama * { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+        .rs_nama *:not(.gs_ikon) { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
         @media (max-width: 768px) { .rs_nama_th, .rs_nama { min-width: 160px; } }
     `;
     document.head.appendChild(style);
@@ -159,7 +232,7 @@
         const bodyThs = table.querySelectorAll('thead tr:first-child th');
         if (!bodyThs.length) return;
         const widths = Array.from(bodyThs).map((t) => t.getBoundingClientRect().width);
-        if (widths.some((w) => !w)) return;
+        if (widths.some((w, i) => !w && !bodyThs[i].classList.contains('rk_th'))) return; // kolom Rak disembunyikan -> lebar 0 wajar
         const total = table.getBoundingClientRect().width;
         wrapper.querySelectorAll('table').forEach((t) => {
             if (t === table) return;
@@ -285,12 +358,12 @@
     }
 
     // ---------- tampilan sel ----------
-    // Sel Rak hanya berisi tulisan "Lihat rak"; daftar rak tampil di popup saat diklik.
+    // Sel Rak hanya berisi tulisan "Map rak"; daftar rak tampil di popup saat diklik.
     function renderLihat(td) {
         td.textContent = '';
         const s = document.createElement('span');
         s.className = 'rk_lihat';
-        s.textContent = 'Lihat rak';
+        s.textContent = 'Map rak';
         td.appendChild(s);
     }
 
@@ -388,6 +461,34 @@
     // ---------- ambil semua gambar dari halaman detail produk ----------
     // (halaman yang sama juga dipakai untuk mengisi HCACHE / harga per pelanggan)
     const GPROMISE = {}; // id -> promise yang sedang berjalan (hindari fetch ganda)
+
+    // Alamat halaman edit produk: dicari dari link "edit" di halaman detail produk; cadangannya /produks/<id>/edit
+    // (pola Rails). Dibuka di tab baru dengan tab Gambar sebagai tujuan.
+    const GEDIT = {};
+    function cariLinkEdit(doc, id) {
+        let href = '';
+        const kandidat = Array.from(doc.querySelectorAll('a[href*="/produks/' + id + '/edit"], a[href$="/edit"]'));
+        const pas = kandidat.find((a) => (a.getAttribute('href') || '').indexOf('/produks/' + id) >= 0) || kandidat[0];
+        if (pas) href = pas.getAttribute('href') || '';
+        if (!href) href = '/produks/' + encodeURIComponent(id) + '/edit';
+        try { return new URL(href, location.origin).href; } catch (e) { return location.origin + '/produks/' + encodeURIComponent(id) + '/edit'; }
+    }
+
+    // tombol "Edit gambar" di footer popup gambar (di samping Tutup)
+    function tambahEditGambar(m, id) {
+        const foot = m.pop.querySelector('.rk_foot');
+        if (!foot || foot.querySelector('.rk_edit')) return;
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'rk_tutup rk_edit';
+        b.textContent = '✎ Edit gambar';
+        b.title = 'Buka halaman edit produk di tab baru';
+        b.addEventListener('click', () => {
+            const url = GEDIT[id] || (location.origin + '/produks/' + encodeURIComponent(id) + '/edit');
+            window.open(url + (url.indexOf('#') < 0 ? '#tab_produk_gambar' : ''), '_blank', 'noopener');
+        });
+        foot.insertBefore(b, foot.firstChild);
+    }
     function ambilGambar(id) {
         if (GCACHE[id]) return Promise.resolve(GCACHE[id]);
         if (!GPROMISE[id]) {
@@ -404,6 +505,7 @@
         catatLog('GET /produks/' + id + ' -> ' + res.status);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        GEDIT[id] = cariLinkEdit(doc, id);
         try { HCACHE[id] = ekstrakHarga(doc, id); } catch (e) { catatLog('produk ' + id + ' harga error: ' + e.message); HCACHE[id] = null; }
         const pane = doc.querySelector('#tab_produk_gambar');
         if (!pane) { catatLog('produk ' + id + ': #tab_produk_gambar tidak ada'); GCACHE[id] = []; return []; }
@@ -507,7 +609,7 @@
 
         ambilGambar(id).then((urls) => {
             if (!document.body.contains(m.pop)) return; // popup sudah ditutup
-            if (!urls.length) return m.info('Produk ini belum punya gambar.');
+            if (!urls.length) { m.info('Produk ini belum punya gambar.'); tambahEditGambar(m, id); m.taruh(); return; }
             m.isi.textContent = '';
             urls.forEach((u) => {
                 const img = document.createElement('img');
@@ -519,6 +621,7 @@
                 m.isi.appendChild(img);
             });
             m.tombolTutup();
+            tambahEditGambar(m, id);
             m.taruh();
         }).catch((e) => {
             console.error('[Gambar] gagal produk=', id, e);
@@ -527,9 +630,9 @@
         });
     }
 
-    // popup daftar rak: toko/gudang tebal, nama rak di bawahnya, dipisah garis (klik "Lihat rak")
-    function bukaModalRak(td, judul) {
-        const m = bukaPop(td, judul || 'Rak produk');
+    // popup daftar rak: toko/gudang tebal, nama rak di bawahnya, dipisah garis (klik "Map rak")
+    function bukaModalRak(td, judul, anchor) {
+        const m = bukaPop(anchor || td, judul || 'Rak produk'); // anchor = elemen yang diklik (kolom Rak asli disembunyikan, tidak punya posisi)
         m.info('Memuat rak...');
 
         dataRak(td).then((data) => {
@@ -561,14 +664,50 @@
         });
     }
 
-    // klik di luar popup (bukan "Lihat rak"/ikon gambar) menutupnya
+    // klik di luar popup (bukan "Map rak"/ikon gambar) menutupnya
     document.addEventListener('mousedown', (e) => {
         if (!document.getElementById('gs_rak_pop')) return;
-        if (e.target.closest && (e.target.closest('#gs_rak_pop') || e.target.closest('.rk_cell') || e.target.closest('.gs_ikon') || e.target.closest('.hj_td i'))) return;
+        if (e.target.closest && (e.target.closest('#gs_rak_pop') || e.target.closest('.rk_cell') || e.target.closest('.rk_bc_rak') || e.target.closest('.gs_ikon') || e.target.closest('.hj_td i'))) return;
         tutupModal();
     }, true);
 
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') tutupModal(); });
+
+    // Sel Barcode: ikon barcode di KIRI nomor barcode, dan di BAWAHNYA "Map rak" berikon (membuka popup rak yang sama
+    // dengan kolom Rak, yang kini disembunyikan). Ikon gambar produk tetap di sel Nama. Dipasang sekali per sel.
+    function pasangBarcode(bcTd, namaTd, prd) {
+        if (!bcTd || !prd) return;
+        // ikon gambar produk (logo PartDistro) TETAP di sel Nama, di depan nama barang
+        if (namaTd && !namaTd.querySelector('.gs_ikon')) {
+            const ikon = document.createElement('span');
+            ikon.className = 'gs_ikon gs_logo'; // logo PartDistro sebagai ikon awal
+            ikon.title = 'Lihat gambar produk';
+            ikon.dataset.prd = prd;
+            namaTd.insertBefore(ikon, namaTd.firstChild);
+        }
+        // sel Barcode: ikon barcode di kiri nomor barcode
+        if (!bcTd.querySelector('.rk_bc_ikon')) {
+            const ib = document.createElement('i');
+            ib.className = 'fa fa-barcode rk_bc_ikon';
+            ib.setAttribute('aria-hidden', 'true');
+            bcTd.insertBefore(ib, bcTd.firstChild);
+        }
+        if (!bcTd.querySelector('.rk_bc_rak')) {
+            const baris = document.createElement('div');
+            baris.className = 'rk_bc_baris';
+            const lihat = document.createElement('span');
+            lihat.className = 'rk_bc_rak';
+            lihat.title = 'Map rak';
+            lihat.dataset.prd = prd;
+            const i = document.createElement('i');
+            i.className = 'fa fa-map-marker';
+            i.setAttribute('aria-hidden', 'true');
+            lihat.appendChild(i);
+            lihat.appendChild(document.createTextNode(' Map rak'));
+            baris.appendChild(lihat);
+            bcTd.appendChild(baris);
+        }
+    }
 
     // ---------- pasang kolom ----------
     function enhance(table) {
@@ -601,14 +740,7 @@
             renderLihat(td);
             const namaTd = tds[namaIdx];
             namaTd.classList.add('rs_nama');
-            if (stokCell && stokCell.dataset.prd && !namaTd.querySelector('.gs_ikon')) {
-                const ikon = document.createElement('span');
-                ikon.className = 'gs_ikon';
-                ikon.title = 'Lihat gambar produk';
-                ikon.classList.add('gs_logo'); // logo PartDistro sebagai ikon awal
-                ikon.dataset.prd = stokCell.dataset.prd;
-                namaTd.insertBefore(ikon, namaTd.firstChild);
-            }
+            pasangBarcode(tds[barcodeIdx], namaTd, stokCell ? stokCell.dataset.prd : '');
             namaTd.insertAdjacentElement('afterend', td);
         });
 
@@ -704,7 +836,7 @@
     // ---- jelajah halaman: saat filter aktif, buka halaman berikutnya (tombol "Selanjutnya" milik situs)
     // sampai terkumpul TARGET_FILTER baris yang cocok, lalu tampilkan hasilnya sekaligus ----
     const TARGET_FILTER = 50;
-    const MAKS_HALAMAN = 60; // batas pengaman jumlah halaman yang dipindai
+    const MAKS_HALAMAN = 20; // batas pengaman jumlah halaman situs yang dipindai sekali jalan (dulu 60: bisa ribuan permintaan ke server); "Selanjutnya" melanjutkan
     const jelajah = { aktif: false, pindah: false, baris: [], kunci: new Set(), halaman: 1, sig: null, dikumpul: null, sigSelesai: null, timer: null, ringkas: '', mode: 'klik', sesi: 0, hal: 1, fh: 0, awal: 0, habis: false, params: null };
     let fetchGagal = false; // true bila ambil halaman lewat fetch tidak berhasil (pakai cara klik tombol)
 
@@ -1012,13 +1144,7 @@
         renderLihat(td);
         const namaTd = tds[namaIdx];
         namaTd.classList.add('rs_nama');
-        if (td.dataset.prd && !namaTd.querySelector('.gs_ikon')) {
-            const ikon = document.createElement('span');
-            ikon.className = 'gs_ikon gs_logo';
-            ikon.title = 'Lihat gambar produk';
-            ikon.dataset.prd = td.dataset.prd;
-            namaTd.insertBefore(ikon, namaTd.firstChild);
-        }
+        pasangBarcode(tds[barcodeIdx], namaTd, td.dataset.prd);
         namaTd.insertAdjacentElement('afterend', td);
 
         const hd = hjIdx >= 0 ? tr.children[hjIdx] : null;
@@ -1355,19 +1481,35 @@
         if (!ikon) return;
         e.preventDefault();
         e.stopPropagation();
-        const td = ikon.closest('td');
-        const judul = td ? td.textContent.replace(ikon.textContent, '').replace(/\s+/g, ' ').trim() : '';
-        bukaModal(ikon, ikon.dataset.prd, judul);
+        // judul "barcode - nama" dari baris (ikon kini di sel Barcode, jadi teks selnya bukan nama produk)
+        const rk = ikon.closest('tr') && ikon.closest('tr').querySelector('.rk_cell');
+        bukaModal(ikon, ikon.dataset.prd, rk ? judulBaris(rk) : '');
     }, true);
 
-    // klik "Lihat rak" -> popup daftar rak (capture + stopPropagation: tidak sampai ke handler situs)
+    // klik "Map rak" di bawah barcode -> popup daftar rak yang sama dengan kolom Rak
+    document.addEventListener('click', (e) => {
+        const lihat = e.target.closest && e.target.closest('.rk_bc_rak');
+        if (!lihat) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const rk = lihat.closest('tr') && lihat.closest('tr').querySelector('.rk_cell');
+        if (!rk) return;
+        try {
+            catatLog('klik Map rak (bawah barcode) produk=' + (rk.dataset.prd || '?'));
+            bukaModalRak(rk, judulBaris(rk), lihat);
+        } catch (err) {
+            console.error('[Rak] gagal membuka popup', err);
+        }
+    }, true);
+
+    // klik "Map rak" -> popup daftar rak (capture + stopPropagation: tidak sampai ke handler situs)
     document.addEventListener('click', (e) => {
         const td = e.target.closest && e.target.closest('.rk_cell');
         if (!td) return;
         e.preventDefault();
         e.stopPropagation();
         try {
-            catatLog('klik Lihat rak produk=' + (td.dataset.prd || '?'));
+            catatLog('klik Map rak produk=' + (td.dataset.prd || '?'));
             bukaModalRak(td, judulBaris(td));
         } catch (err) {
             console.error('[Rak] gagal membuka popup', err);
