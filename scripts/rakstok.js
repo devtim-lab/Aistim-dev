@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lihat Stok - Kolom Rak
 // @namespace    http://tampermonkey.net/
-// @version      1.5.7
+// @version      1.5.8
 // @description  Lihat Stok: kolom Rak (otomatis dari Penempatan Rak per gudang), thumbnail gambar produk asli (kecil seukuran favicon) di kolom Nama, klik untuk lihat semua gambar di popup, tombol panah di kolom Harga Jual untuk melihat harga jual per pelanggan (Basic dst., diambil dari tab harga di detail produk), dan kolom Nama yang responsif (teks panjang turun ke bawah, tidak terpotong).
 // @match        https://*.erzap.com/produk_gudangs/lihat_stok/new*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -20,6 +20,8 @@
     // ---------- cache (localStorage, aman kalau diblokir) ----------
     let cache = {};
     try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') || {}; } catch (e) { cache = {}; }
+    // buang entri kedaluwarsa saat dimuat (bukan hanya saat menyimpan)
+    Object.keys(cache).forEach((k) => { if (!cache[k] || Date.now() - cache[k].t > CACHE_TTL) delete cache[k]; });
     let saveTimer = null;
     function saveCache() {
         clearTimeout(saveTimer);
@@ -457,6 +459,7 @@
     }
 
     // ---------- ambil semua gambar dari halaman detail produk ----------
+    // (halaman yang sama juga dipakai untuk mengisi HCACHE / harga per pelanggan)
     const GPROMISE = {}; // id -> promise yang sedang berjalan (hindari fetch ganda)
     function ambilGambar(id) {
         if (GCACHE[id]) return Promise.resolve(GCACHE[id]);
@@ -748,7 +751,6 @@
         const judul = td ? td.textContent.replace(ikon.textContent, '').replace(/\s+/g, ' ').trim() : '';
         bukaModal(ikon.dataset.prd, judul);
     }, true);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') tutupModal(); });
 
     // klik sel Rak -> muat ulang dari server
     document.addEventListener('click', (e) => {
