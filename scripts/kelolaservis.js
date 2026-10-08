@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Kolom Outlet di Kelola Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.0.41
-// @description  [v1.0.41] Daftar Kelola Servis: kolom Outlet (kiri Status), Tipe HP (kanan Pelanggan), teknisi di bawah kode servis, nomor HP jadi ikon WhatsApp. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi. Servis baru: Rawat Inap default, Quick Servis dimatikan (dulu smart_repair.js)
+// @version      1.0.56
+// @description  [v1.0.56] Daftar Kelola Servis: kolom Outlet (dengan "Status: ..." di bawahnya, kolom Status asli disembunyikan), Tipe HP (kanan Pelanggan), teknisi di bawah kode servis, nomor HP jadi ikon WhatsApp, filter teknisi (combobox + pencarian) menggantikan kotak Teknisi di panel Pencarian dan memfilter lewat server (isi nama + ID teknisi lalu tombol Filter); kalau nama tidak ada di daftar, beralih ke filter bawaan Erzap. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi. Servis baru: Rawat Inap default, Quick Servis dimatikan (dulu smart_repair.js)
 // @author       You
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -12,7 +12,7 @@
 (function() {
     'use strict';
 
-    const CACHE_KEY = 'ks_outlet_cache_v6'; // v6: nilai {outlet, tipe, teknisi}; v5 menyimpan teknisi kosong dari pencari yang salah
+    const CACHE_KEY = 'ks_outlet_cache_v7'; // v7: nilai {outlet, tipe, teknisi, peta}; v6 belum punya peta nama->ID teknisi
     const PARALEL = 4;
     const TANDA = 'ks_outlet_td';
     const TANDA_TIPE = 'ks_tipe_td';
@@ -112,6 +112,19 @@
         return nama.join(', ');
     }
 
+    // Pasangan nama -> ID teknisi dari kotak Teknisi tiap unit (servis_elektronik_detailN[iduser_teknisi]); dipakai untuk
+    // mengisi filter Teknisi bawaan Erzap (butuh ID, bukan hanya nama)
+    function cariTeknisiPeta(doc) {
+        const peta = {};
+        doc.querySelectorAll('input[name*="[user_teknisi_nama]"]').forEach(inp => {
+            const nama = (inp.getAttribute('value') || '').replace(/\s+/g, ' ').trim();
+            const idInp = doc.querySelector('input[name="' + inp.name.replace('[user_teknisi_nama]', '[iduser_teknisi]') + '"]');
+            const id = idInp ? (idInp.getAttribute('value') || '').trim() : '';
+            if (nama && id) peta[nama] = id;
+        });
+        return peta;
+    }
+
     async function ambilOutlet(url) {
         if (url in cache) return cache[url];
         const res = await fetch(url, { credentials: 'same-origin' });
@@ -119,6 +132,7 @@
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         const tipe = cariTipe(doc) || '-';
         const teknisi = cariTeknisi(doc);
+        const peta = cariTeknisiPeta(doc);
         const outlet = cariOutlet(doc) || '-';
         if (outlet === '-') {
             const txt = (doc.body ? doc.body.textContent : '').replace(/\s+/g, ' ');
@@ -127,7 +141,7 @@
             let m;
             while ((m = re.exec(txt)) && cuplikan.length < 5) cuplikan.push(txt.slice(Math.max(0, m.index - 40), m.index + 80));
             console.warn('[kelolaservis] Outlet tidak ditemukan di', url, '| cuplikan kata "outlet":', cuplikan);
-            return { outlet, tipe, teknisi }; // tidak di-cache supaya dicoba lagi saat dimuat ulang
+            return { outlet, tipe, teknisi, peta }; // tidak di-cache supaya dicoba lagi saat dimuat ulang
         }
         if (!teknisi) {
             // Teknisi kosong bisa berarti belum ditugaskan -> jangan di-cache, dicek lagi saat dimuat ulang
@@ -137,11 +151,17 @@
             let m;
             while ((m = re.exec(t)) && cuplikan.length < 4) cuplikan.push(t.slice(Math.max(0, m.index - 30), m.index + 60));
             console.warn('[kelolaservis] Teknisi kosong di', url, '| input teknisi:', doc.querySelectorAll('input[name*="teknisi"]').length, '| cuplikan:', cuplikan);
-            return { outlet, tipe, teknisi };
+            return { outlet, tipe, teknisi, peta };
         }
-        cache[url] = { outlet, tipe, teknisi };
+        cache[url] = { outlet, tipe, teknisi, peta };
         simpanCache();
         return cache[url];
+    }
+
+    // Isi bagian nama outlet di sel Outlet (bagian "Status: ..." di bawahnya dibiarkan)
+    function isiOutlet(td, teks) {
+        const s = td.querySelector('.ks_outlet_nilai');
+        (s || td).textContent = teks;
     }
 
     function jalankanAntrian() {
@@ -151,17 +171,22 @@
             aktif++;
             ambilOutlet(url)
                 .then(d => {
-                    td.textContent = (d.outlet && d.outlet !== '-') ? d.outlet : TEKS_BELUM;
+                    isiOutlet(td, (d.outlet && d.outlet !== '-') ? d.outlet : TEKS_BELUM);
                     tdTipe.textContent = d.tipe || '-';
                     tdTipe.style.whiteSpace = 'pre-line'; // unit kedua dst tampil di bawahnya
                     if (elTeknisi) elTeknisi.textContent = 'Teknisi: ' + (d.teknisi || '-');
+                    const tr = td.closest('tr');
+                    if (tr) tr.dataset.ksTeknisi = d.teknisi || ''; // dipakai filter teknisi
+                    simpanPeta(d.peta);
                 })
                 .catch(e => {
-                    td.textContent = '?'; td.title = String(e && e.message || e);
+                    isiOutlet(td, '?'); td.title = String(e && e.message || e);
                     tdTipe.textContent = '?'; tdTipe.title = td.title;
                     if (elTeknisi) elTeknisi.textContent = 'Teknisi: ?';
+                    const tr = td.closest('tr');
+                    if (tr) tr.dataset.ksTeknisi = ''; // gagal dimuat: dianggap tanpa teknisi
                 })
-                .finally(() => { aktif--; sinkronLebar(); jalankanAntrian(); });
+                .finally(() => { aktif--; perbaruiFilterTeknisi(); sinkronLebar(); jalankanAntrian(); });
         }
     }
 
@@ -174,7 +199,8 @@
             const headVis = document.querySelector('.dataTables_scrollHead table');
             if (!tabel || !headVis) return;
             // Ukur dari sel baris pertama (lebar nyata), bukan dari th sizing yang bisa punya width inline lama
-            const baris = tabel.querySelector('tbody tr');
+            // Ukur dari baris yang kelihatan (baris yang disembunyikan filter teknisi lebarnya 0)
+            const baris = Array.from(tabel.querySelectorAll('tbody tr')).find(tr => tr.style.display !== 'none');
             const vis = headVis.querySelectorAll('thead tr:last-child th');
             if (!baris || baris.children.length !== vis.length) return;
             const total = tabel.getBoundingClientRect().width;
@@ -200,6 +226,12 @@
         const st = document.createElement('style');
         st.id = 'ks_style';
         st.textContent = `
+            .ks_kolom_status, .ks_kolom_proses { display: none !important; }
+            /* Kolom Aksi: semua tombol rata kiri, tersusun ke bawah, tepi kiri ikon sejajar */
+            th.ks_aksi_head, td.ks_aksi_sel { text-align: left !important; vertical-align: middle; }
+            td.ks_aksi_sel > *, td.ks_aksi_sel .ks_aksi_proses { text-align: left !important; margin-left: 0 !important; padding-left: 0 !important; float: none !important; }
+            td.ks_aksi_sel .ks_aksi_item { display: flex !important; align-items: center; justify-content: flex-start !important; width: auto !important; margin: 0 0 4px 0 !important; text-align: left !important; float: none !important; }
+            td.ks_aksi_sel .ks_aksi_proses .ks_aksi_item:last-child, td.ks_aksi_sel > .ks_aksi_item:last-child { margin-bottom: 0 !important; }
             /* Scrollbar area tabel (vertikal + horizontal) dibuat tipis */
             .dataTables_scrollBody::-webkit-scrollbar { width: 5px !important; height: 5px !important; }
             .dataTables_scrollBody::-webkit-scrollbar-button { display: none !important; width: 0 !important; height: 0 !important; }
@@ -264,6 +296,11 @@
         // DataTables punya 2 thead: yang kelihatan (scrollHead) dan yang tersembunyi di dalam area scroll
         // (penentu lebar kolom). Dua-duanya harus punya kolom Outlet supaya sejajar dengan isi tabel.
         document.querySelectorAll('.dataTables_scrollHead table thead, table#data_table thead').forEach(thead => {
+          // kolom Status asli: header disembunyikan (isinya dipindah ke sel Outlet)
+          const barisAkhir = thead.querySelector('tr:last-child');
+          if (barisAkhir) Array.from(barisAkhir.children).forEach(h => {
+              if (!h.classList.contains('ks_kolom_status') && teksBersih(h).toLowerCase() === 'status') h.classList.add('ks_kolom_status');
+          });
           KOLOM.forEach(kol => {
             if (kol.acuan === 'pelanggan' && ip < 0) return;
             const rows = thead.querySelectorAll('tr');
@@ -283,7 +320,7 @@
                         th.textContent = kol.judul;
                         // Samakan tampilan dengan th acuan (garis bawah, warna, padding), tanpa ikon urut
                         const ref = tr.children[pos];
-                        th.className = (kol.kelas + ' ' + ref.className).replace(/\bsorting\w*\b/g, '').trim() + ' sorting_disabled';
+                        th.className = (kol.kelas + ' ' + ref.className).replace(/\bsorting\w*\b/g, '').replace(/\bks_kolom_status\b/g, '').trim() + ' sorting_disabled';
                         const cs = getComputedStyle(ref);
                         th.style.borderBottom = cs.borderBottomWidth + ' ' + cs.borderBottomStyle + ' ' + cs.borderBottomColor;
                         th.style.backgroundColor = cs.backgroundColor;
@@ -311,9 +348,34 @@
             const acuPelanggan = ip >= 0 ? tr.children[ip] : null;
             const td = document.createElement('td');
             td.className = TANDA;
-            td.textContent = '...';
             td.dataset.ks = String(++nomor);
+            // Isi sel Outlet: nama outlet di atas, "Status: ..." di bawahnya. Kolom Status asli disembunyikan (bukan dihapus,
+            // supaya DataTables dan penghitung kolom tetap konsisten) dan teks + warnanya dipindah ke sini.
+            const nilaiOutlet = document.createElement('span');
+            nilaiOutlet.className = 'ks_outlet_nilai';
+            nilaiOutlet.textContent = '...';
+            const barisStatus = document.createElement('div');
+            barisStatus.className = 'ks_status_baris';
+            const teksStatus = teksBersih(acuStatus) || '-';
+            const sumberWarna = acuStatus.querySelector('a, span, b, strong, font') || acuStatus;
+            const gayaAsli = getComputedStyle(sumberWarna); // ukuran huruf asli kolom Status dipakai lagi
+            barisStatus.style.cssText = 'font-size:' + gayaAsli.fontSize + ';margin-top:2px;color:#000'; // tulisan "Status:" hitam
+            const nilaiStatus = document.createElement('span');
+            nilaiStatus.className = 'ks_status_nilai';
+            nilaiStatus.style.color = gayaAsli.color; // hanya nilainya yang berwarna (warna asli kolom Status)
+            nilaiStatus.style.fontWeight = gayaAsli.fontWeight;
+            // Latar tipis dari warna statusnya sendiri (hijau -> latar hijau muda, biru -> biru muda, dst.)
+            const m = gayaAsli.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+            nilaiStatus.style.backgroundColor = m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',0.14)' : 'rgba(0,0,0,0.08)';
+            nilaiStatus.style.padding = '1px 8px';
+            nilaiStatus.style.borderRadius = '10px';
+            nilaiStatus.style.display = 'inline-block';
+            nilaiStatus.style.lineHeight = '1.4';
+            nilaiStatus.textContent = teksStatus;
+            barisStatus.append('Status: ', nilaiStatus);
+            td.append(nilaiOutlet, barisStatus);
             acuStatus.before(td);
+            acuStatus.classList.add('ks_kolom_status');
             const tdTipe = document.createElement('td');
             tdTipe.className = TANDA_TIPE;
             tdTipe.style.cssText = 'min-width:' + lebarTipe() + 'px;width:' + lebarTipe() + 'px'; // inline, supaya menang atas lebar kolom bawaan tabel
@@ -321,9 +383,9 @@
             if (acuPelanggan) acuPelanggan.after(tdTipe);
 
             const a = tr.querySelector('a[href*="/servis_elektroniks/kelola_servis/"]');
-            if (!a) { td.textContent = TEKS_BELUM; tdTipe.textContent = '-'; return; }
+            if (!a) { isiOutlet(td, TEKS_BELUM); tdTipe.textContent = '-'; tr.dataset.ksTeknisi = ''; return; }
             let url;
-            try { url = new URL(a.getAttribute('href'), location.href).href; } catch (e) { td.textContent = TEKS_BELUM; tdTipe.textContent = '-'; return; }
+            try { url = new URL(a.getAttribute('href'), location.href).href; } catch (e) { isiOutlet(td, TEKS_BELUM); tdTipe.textContent = '-'; tr.dataset.ksTeknisi = ''; return; }
             // Teknisi: di bawah kode servis (di sel yang sama)
             // Link "Edit Penerimaan" / "Proses Servis" juga mengarah ke kelola_servis/ID -> sel kode dicari lewat teks link (SRxxxx-xxxx)
             // Cari sel yang berisi kode servis (SRxxxx-xxxx), tidak peduli link-nya mengarah ke mana; sel buatan skrip dilewati
@@ -333,15 +395,441 @@
             if (selKode) {
                 elTeknisi = document.createElement('div');
                 elTeknisi.className = 'ks_teknisi';
-                elTeknisi.style.cssText = 'font-size:12px;color:#555;margin-top:2px';
+                const linkKodeEl = selKode.querySelector('a') || selKode; // ukuran huruf = ukuran kode servis
+                elTeknisi.style.cssText = 'font-size:' + getComputedStyle(linkKodeEl).fontSize + ';color:#333;margin-top:3px;line-height:1.3';
                 elTeknisi.textContent = 'Teknisi: ...';
                 selKode.appendChild(elTeknisi);
             }
             antrian.push({ url, td, tdTipe, elTeknisi });
         });
+        gabungAksi(tabel);
         telpJadiWA(tabel);
+        perbaruiFilterTeknisi();
         jalankanAntrian();
         sinkronLebar();
+    }
+
+    // ===== Filter teknisi (di atas tabel): pilihannya diambil dari teknisi yang sudah termuat di baris =====
+    const SEMUA = '', TANPA = '__tanpa__';
+    let teknisiTerpilih = SEMUA;
+
+    // Peta nama -> ID teknisi, dikumpulkan dari halaman detail yang pernah dimuat dan disimpan permanen (localStorage),
+    // supaya daftar pilihan tetap lengkap setelah filter server membuat halaman hanya berisi satu teknisi.
+    const KUNCI_PETA = 'ks_teknisi_peta_v1';
+    const KUNCI_PILIH = 'ks_teknisi_dipilih_v1';
+    let petaTeknisi = {};
+    try { petaTeknisi = JSON.parse(localStorage.getItem(KUNCI_PETA) || '{}') || {}; } catch (e) { petaTeknisi = {}; }
+    function simpanPeta(baru) {
+        if (!baru) return;
+        let berubah = false;
+        Object.keys(baru).forEach(n => { if (petaTeknisi[n] !== baru[n]) { petaTeknisi[n] = baru[n]; berubah = true; } });
+        if (berubah) { try { localStorage.setItem(KUNCI_PETA, JSON.stringify(petaTeknisi)); } catch (e) { /* abaikan */ } }
+    }
+
+    // Mengisi filter Teknisi bawaan Erzap (nama + ID, tanpa memicu event "input" miliknya yang akan mengosongkan ID),
+    // lalu menekan tombol Filter -> penyaringan terjadi di server, lintas halaman.
+    function terapkanKeServer(o) {
+        const nama = document.getElementById('user_teknisi_user_nama');
+        const id = document.getElementById('user_teknisi_iduser_teknisi');
+        const tmp = document.getElementById('user_teknisi_tmp_user_nama');
+        const tombol = document.getElementById('bt_filter_servis_elektronik');
+        if (!nama || !id || !tombol) return false;
+        const aktifServer = !!id.value;
+        let nilaiNama = '', nilaiId = '';
+        if (o.v === SEMUA) {
+            if (!aktifServer) return false; // memang belum ada filter di server
+        } else if (o.v !== TANPA && petaTeknisi[o.v]) {
+            nilaiNama = o.v; nilaiId = petaTeknisi[o.v];
+            if (aktifServer && id.value === nilaiId) return false; // sudah terfilter teknisi ini
+        } else {
+            return false; // "(Tanpa teknisi)" / ID belum diketahui -> hanya filter di tabel
+        }
+        nama.value = nilaiNama;
+        id.value = nilaiId;
+        if (tmp) tmp.value = nilaiNama;
+        try { sessionStorage.setItem(KUNCI_PILIH, JSON.stringify({ v: o.v, t: Date.now() })); } catch (e) { /* abaikan */ }
+        tombol.click();
+        return true;
+    }
+
+    // Pilihan awal: kalau server sudah memfilter (kotak bawaan terisi) atau baru saja kita kirim -> tampilkan itu
+    let pilihanAwalDibaca = false;
+    function bacaPilihanAwal() {
+        if (pilihanAwalDibaca) return;
+        pilihanAwalDibaca = true;
+        const nama = document.getElementById('user_teknisi_user_nama');
+        const nilai = nama ? nama.value.replace(/\s+/g, ' ').trim() : '';
+        if (nilai) { teknisiTerpilih = nilai; return; }
+        try {
+            const j = JSON.parse(sessionStorage.getItem(KUNCI_PILIH) || 'null');
+            sessionStorage.removeItem(KUNCI_PILIH);
+            // hanya berlaku untuk halaman yang dimuat tepat setelah pilihan (halaman diganti oleh filter)
+            if (j && Date.now() - j.t < 20000 && j.v !== SEMUA && j.v !== TANPA) teknisiTerpilih = j.v;
+        } catch (e) { /* abaikan */ }
+    }
+    let kunciOpsi = '';
+
+    function daftarTeknisi(baris) {
+        return (baris.dataset.ksTeknisi || '').split(',').map(x => x.trim()).filter(Boolean);
+    }
+
+    // Combobox pencarian: kotak teks + daftar saran yang tersaring saat mengetik (panah atas/bawah, Enter, Esc didukung)
+    let opsiTeknisi = [{ v: SEMUA, t: 'Semua teknisi' }];
+    let sorot = 0; // indeks opsi yang disorot di daftar
+
+    function labelPilihan() {
+        const o = opsiTeknisi.find(x => x.v === teknisiTerpilih);
+        return o ? o.t : (teknisiTerpilih === TANPA ? '(Tanpa teknisi)' : teknisiTerpilih);
+    }
+
+    function bangunFilterTeknisi(tabel) {
+        let wrap = document.getElementById('ks_filter_teknisi_wrap');
+        if (wrap && wrap.isConnected) { tempatkanFilter(wrap, tabel); return wrap; }
+        wrap = document.createElement('div');
+        wrap.id = 'ks_filter_teknisi_wrap';
+        wrap.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:6px 0;font-size:13px';
+
+        const lab = document.createElement('label');
+        lab.textContent = 'Filter Teknisi:';
+        lab.htmlFor = 'ks_filter_teknisi';
+        lab.style.cssText = 'margin:0;font-weight:600';
+
+        const kotak = document.createElement('div');
+        kotak.style.cssText = 'position:relative;min-width:220px;max-width:100%';
+
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.id = 'ks_filter_teknisi';
+        inp.autocomplete = 'off';
+        inp.placeholder = 'Cari teknisi...';
+        inp.setAttribute('role', 'combobox');
+        inp.setAttribute('aria-expanded', 'false');
+        inp.setAttribute('aria-controls', 'ks_filter_teknisi_list');
+        inp.style.cssText = 'width:100%;padding:4px 26px 4px 8px;border:1px solid #bbb;border-radius:4px;box-sizing:border-box;background:#fff';
+
+        const panah = document.createElement('span');
+        panah.textContent = '▾'; // ▾
+        panah.style.cssText = 'position:absolute;right:8px;top:50%;transform:translateY(-50%);pointer-events:none;color:#666';
+
+        const daftar = document.createElement('div');
+        daftar.id = 'ks_filter_teknisi_list';
+        daftar.setAttribute('role', 'listbox');
+        daftar.style.cssText = 'display:none;position:fixed;left:0;top:0;width:220px;max-height:240px;overflow-y:auto;' +
+            'background:#fff;border:1px solid #bbb;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:2147483000';
+
+        const info = document.createElement('span');
+        info.id = 'ks_filter_teknisi_info';
+        info.style.cssText = 'color:#666;font-size:12px';
+
+        function tersaring() {
+            const q = inp.dataset.mengetik ? inp.value.trim().toLowerCase() : '';
+            return opsiTeknisi.filter(o => !q || o.t.toLowerCase().includes(q));
+        }
+
+        function gambarDaftar() {
+            const hasil = tersaring();
+            if (sorot >= hasil.length) sorot = Math.max(0, hasil.length - 1);
+            daftar.textContent = '';
+            if (!hasil.length) {
+                const kosong = document.createElement('div');
+                kosong.textContent = 'Tidak ada teknisi yang cocok';
+                kosong.style.cssText = 'padding:6px 10px;color:#888';
+                daftar.appendChild(kosong);
+                // Tidak ada di daftar kita -> tawarkan pencarian dengan filter Teknisi bawaan Erzap (seluruh pegawai)
+                const q = inp.value.trim();
+                if (q && bisaPakaiBawaan()) {
+                    const alih = document.createElement('div');
+                    alih.setAttribute('role', 'option');
+                    alih.textContent = 'Cari "' + q + '" dengan filter bawaan ▸';
+                    alih.style.cssText = 'padding:6px 10px;cursor:pointer;color:#0d6efd;border-top:1px solid #eee;background:#f4f8ff';
+                    const ambilAlih = e => { e.preventDefault(); e.stopPropagation(); pakaiBawaan(q); };
+                    alih.addEventListener('pointerdown', ambilAlih);
+                    alih.addEventListener('mousedown', ambilAlih);
+                    daftar.appendChild(alih);
+                }
+                return;
+            }
+            hasil.forEach((o, i) => {
+                const it = document.createElement('div');
+                it.setAttribute('role', 'option');
+                it.textContent = o.t;
+                const aktif = o.v === teknisiTerpilih;
+                it.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' +
+                    (i === sorot ? ';background:#e7f1ff' : '') + (aktif ? ';font-weight:600' : '');
+                // pointerdown/mousedown (bukan click) supaya terjadi sebelum input kehilangan fokus; dijaga agar hanya sekali jalan
+                const ambil = e => { e.preventDefault(); e.stopPropagation(); if (it.dataset.dipilih) return; it.dataset.dipilih = '1'; pilih(o); };
+                it.addEventListener('pointerdown', ambil);
+                it.addEventListener('mousedown', ambil);
+                it.addEventListener('click', ambil);
+                // sorotan hanya diubah gayanya, elemen TIDAK dibangun ulang (membangun ulang saat kursor lewat membuat klik meleset)
+                it.addEventListener('mouseenter', () => {
+                    sorot = i;
+                    Array.from(daftar.children).forEach((c, k) => { c.style.background = k === i ? '#e7f1ff' : ''; });
+                });
+                daftar.appendChild(it);
+            });
+            // gulir di dalam daftar saja (scrollIntoView ikut menggulir halaman)
+            const sel = daftar.children[sorot];
+            if (sel) {
+                if (sel.offsetTop < daftar.scrollTop) daftar.scrollTop = sel.offsetTop;
+                else if (sel.offsetTop + sel.offsetHeight > daftar.scrollTop + daftar.clientHeight) daftar.scrollTop = sel.offsetTop + sel.offsetHeight - daftar.clientHeight;
+            }
+        }
+
+        // Daftar dipasang di <body> dengan position:fixed (bukan di dalam panel): elemen lain di panel / sidebar tidak bisa
+        // menutupinya dan menelan klik, dan overflow panel tidak memotongnya.
+        function letakkanDaftar() {
+            const r = inp.getBoundingClientRect();
+            const bawah = window.innerHeight - r.bottom;
+            const tinggi = Math.min(240, Math.max(120, bawah - 8));
+            daftar.style.left = r.left + 'px';
+            daftar.style.top = (r.bottom + 2) + 'px';
+            daftar.style.width = r.width + 'px';
+            daftar.style.maxHeight = tinggi + 'px';
+        }
+
+        function buka() {
+            if (daftar.parentElement !== document.body) document.body.appendChild(daftar);
+            daftar.style.display = 'block';
+            letakkanDaftar();
+            inp.setAttribute('aria-expanded', 'true');
+            gambarDaftar();
+        }
+        function tutup() {
+            daftar.style.display = 'none';
+            inp.setAttribute('aria-expanded', 'false');
+            delete inp.dataset.mengetik;
+            inp.value = labelPilihan();
+        }
+        // ----- Mode filter bawaan: kotak Teknisi asli Erzap ditampilkan lagi (autocomplete seluruh pegawai) -----
+        function kotakBawaan() {
+            const nama = document.getElementById('user_teknisi_user_nama');
+            return nama ? { nama, isi: nama.closest('.autocomplete_pegawai_content') } : null;
+        }
+        function bisaPakaiBawaan() {
+            const b = kotakBawaan();
+            return !!(b && b.isi && wrap.dataset.mode === 'panel');
+        }
+        function pakaiBawaan(q) {
+            const b = kotakBawaan();
+            if (!b || !b.isi) return;
+            tutup();
+            inp.blur();
+            wrap.dataset.bawaan = '1';
+            wrap.style.display = 'none';
+            b.isi.style.display = 'flex'; // tampilan aslinya (display:flex)
+            // petunjuk + tombol kembali, tepat di bawah kotak bawaan
+            let petunjuk = document.getElementById('ks_bawaan_petunjuk');
+            if (!petunjuk) {
+                petunjuk = document.createElement('div');
+                petunjuk.id = 'ks_bawaan_petunjuk';
+                petunjuk.style.cssText = 'font-size:12px;color:#666;margin-top:3px';
+                petunjuk.append('Filter bawaan: pilih nama dari daftar, lalu tekan tombol Filter. ');
+                const kembali = document.createElement('a');
+                kembali.href = '#';
+                kembali.textContent = '‹ kembali ke filter cepat';
+                kembali.addEventListener('click', ev => { ev.preventDefault(); kembaliKeFilterKita(); });
+                petunjuk.appendChild(kembali);
+                b.isi.after(petunjuk);
+            }
+            petunjuk.style.display = '';
+            // isi kotak bawaan dengan yang diketik, lalu pancing autocomplete-nya (jQuery UI mendengar event DOM biasa)
+            b.nama.value = q;
+            b.nama.focus();
+            b.nama.dispatchEvent(new Event('input', { bubbles: true }));
+            b.nama.dispatchEvent(new KeyboardEvent('keydown', { key: q.slice(-1), bubbles: true }));
+            b.nama.dispatchEvent(new KeyboardEvent('keyup', { key: q.slice(-1), bubbles: true }));
+        }
+        function kembaliKeFilterKita() {
+            const b = kotakBawaan();
+            delete wrap.dataset.bawaan;
+            wrap.style.display = 'block';
+            if (b && b.isi) b.isi.style.display = 'none';
+            const petunjuk = document.getElementById('ks_bawaan_petunjuk');
+            if (petunjuk) petunjuk.style.display = 'none';
+        }
+
+        function pilih(o) {
+            teknisiTerpilih = o.v;
+            tutup();
+            inp.blur();
+            terapkanFilterTeknisi();
+            sinkronLebar();
+            terapkanKeServer(o); // filter di server (lintas halaman) bila nama + ID teknisinya diketahui
+        }
+
+        inp.addEventListener('focus', () => { delete inp.dataset.mengetik; sorot = 0; inp.select(); buka(); });
+        inp.addEventListener('click', () => { if (daftar.style.display === 'none') { sorot = 0; buka(); } });
+        inp.addEventListener('blur', tutup);
+        inp.addEventListener('input', () => { inp.dataset.mengetik = '1'; sorot = 0; buka(); });
+        inp.addEventListener('keydown', e => {
+            const hasil = tersaring();
+            if (e.key === 'ArrowDown') { e.preventDefault(); if (daftar.style.display === 'none') buka(); else { sorot = Math.min(sorot + 1, hasil.length - 1); gambarDaftar(); } }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); sorot = Math.max(sorot - 1, 0); gambarDaftar(); }
+            else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (hasil[sorot]) pilih(hasil[sorot]);
+                else if (inp.value.trim() && bisaPakaiBawaan()) pakaiBawaan(inp.value.trim()); // tidak ada yang cocok -> filter bawaan
+            }
+            else if (e.key === 'Escape') { tutup(); inp.blur(); }
+        });
+        // isi daftar bisa berubah saat data teknisi masuk -> gambar ulang kalau sedang terbuka
+        wrap.gambarUlang = () => { if (daftar.style.display !== 'none') gambarDaftar(); else inp.value = labelPilihan(); };
+
+        inp.value = labelPilihan();
+        const lamaDiBody = document.getElementById('ks_filter_teknisi_list'); // sisa combobox lama (halaman diganti AJAX)
+        if (lamaDiBody) lamaDiBody.remove();
+        daftar.addEventListener('mousedown', e => e.preventDefault()); // klik scrollbar daftar tidak boleh membuat kotak kehilangan fokus (daftar menutup)
+        const geser = () => { if (daftar.style.display !== 'none' && inp.isConnected) letakkanDaftar(); else if (!inp.isConnected) daftar.remove(); };
+        window.addEventListener('scroll', geser, true);
+        window.addEventListener('resize', geser);
+        kotak.append(inp, panah);
+        wrap.append(lab, kotak, info);
+        wrap.dataset.mode = '';
+        tempatkanFilter(wrap, tabel);
+        kunciOpsi = ''; // opsi harus dibangun ulang di wrap baru
+        return wrap;
+    }
+
+    // Tempat combobox: menggantikan kotak "Teknisi" bawaan di panel Pencarian (kanan). Kotak bawaan disembunyikan
+    // (isiannya kosong, jadi tidak ikut menyaring di server). Kalau panel tidak ada -> di atas tabel.
+    function tempatkanFilter(wrap, tabel) {
+        const asli = document.getElementById('user_teknisi_user_nama');
+        const field = asli ? asli.closest('.field2') : null;
+        const lab = wrap.querySelector('label');
+        const kotak = lab ? lab.nextElementSibling : null;
+        if (field) {
+            const isi = field.querySelector('.autocomplete_pegawai_content');
+            // sembunyikan kotak Teknisi bawaan, kecuali pengguna sedang memakainya (mode filter bawaan)
+            if (isi && !wrap.dataset.bawaan && isi.style.display !== 'none') isi.style.display = 'none';
+            if (wrap.parentElement !== field) field.appendChild(wrap);
+            if (wrap.dataset.mode !== 'panel') {
+                wrap.dataset.mode = 'panel';
+                wrap.style.cssText = 'display:block;margin:0;font-size:13px';
+                if (lab) lab.style.display = 'none'; // label "Teknisi" bawaan sudah ada di atasnya
+                if (kotak) kotak.style.cssText = 'position:relative;width:100%;min-width:0;max-width:100%';
+            }
+        } else if (!wrap.isConnected || wrap.dataset.mode === 'panel') {
+            wrap.dataset.mode = 'atas';
+            wrap.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:6px 0;font-size:13px';
+            if (lab) lab.style.display = '';
+            if (kotak) kotak.style.cssText = 'position:relative;min-width:220px;max-width:100%';
+            const wadah = tabel.closest('.dataTables_wrapper') || tabel;
+            wadah.before(wrap);
+        }
+    }
+
+    function perbaruiFilterTeknisi() {
+        const tabel = document.querySelector('table#data_table');
+        if (!tabel) return;
+        bacaPilihanAwal();
+        const wrap = bangunFilterTeknisi(tabel);
+        const baris = Array.from(tabel.querySelectorAll('tbody tr')).filter(tr => tr.querySelector('.' + TANDA));
+        const nama = new Set();
+        let tanpa = false, belum = 0;
+        baris.forEach(tr => {
+            if (tr.dataset.ksTeknisi === undefined) { belum++; return; }
+            const d = daftarTeknisi(tr);
+            if (d.length) d.forEach(x => nama.add(x)); else tanpa = true;
+        });
+        Object.keys(petaTeknisi).forEach(n => nama.add(n)); // teknisi yang pernah dilihat (walau barisnya tidak ada di halaman ini)
+        const urut = Array.from(nama).sort((a, b) => a.localeCompare(b, 'id'));
+        const kunciBaru = urut.join('|') + '#' + tanpa + '#' + teknisiTerpilih;
+        if (kunciBaru !== kunciOpsi) { // daftar hanya dibangun ulang bila berubah (menjaga posisi sorot / ketikan user)
+            kunciOpsi = kunciBaru;
+            const opsi = [{ v: SEMUA, t: 'Semua teknisi' }];
+            urut.forEach(n => opsi.push({ v: n, t: n }));
+            if (tanpa || teknisiTerpilih === TANPA) opsi.push({ v: TANPA, t: '(Tanpa teknisi)' });
+            // pilihan tetap ada walau barisnya (belum) termuat
+            if (teknisiTerpilih !== SEMUA && !opsi.some(o => o.v === teknisiTerpilih)) opsi.push({ v: teknisiTerpilih, t: teknisiTerpilih });
+            opsiTeknisi = opsi;
+            if (wrap.gambarUlang) wrap.gambarUlang();
+        }
+        wrap.querySelector('#ks_filter_teknisi_info').textContent = belum ? 'memuat teknisi ' + belum + ' baris...' : '';
+        terapkanFilterTeknisi();
+    }
+
+    function terapkanFilterTeknisi() {
+        const tabel = document.querySelector('table#data_table');
+        if (!tabel) return;
+        tabel.querySelectorAll('tbody tr').forEach(tr => {
+            if (!tr.querySelector('.' + TANDA)) return; // baris "tidak ada data"
+            let tampil = true;
+            if (teknisiTerpilih !== SEMUA) {
+                if (tr.dataset.ksTeknisi === undefined) tampil = false; // belum diketahui -> belum bisa dicocokkan
+                else {
+                    const d = daftarTeknisi(tr);
+                    tampil = teknisiTerpilih === TANPA ? d.length === 0 : d.includes(teknisiTerpilih);
+                }
+            }
+            const mau = tampil ? '' : 'none';
+            if (tr.style.display !== mau) tr.style.display = mau;
+        });
+    }
+
+    // ===== Kolom "Edit Penerimaan" + "Proses Servis" digabung jadi satu kolom "Aksi" =====
+    // Kolom dikenali dari ISI selnya (tulisan link), bukan judul header, karena judul header-nya tidak pasti.
+    // Isi sel Proses Servis dipindah ke sel Edit Penerimaan (di bawahnya); kolom Proses Servis disembunyikan, bukan dihapus.
+    const RE_EDIT = /^\s*edit\s+penerimaan\s*$/i;
+    const RE_PROSES = /^\s*proses\s+servis\s*$/i;
+
+    function gabungAksi(tabel) {
+        const baris = Array.from(tabel.querySelectorAll('tbody tr')).filter(tr => tr.querySelector('.' + TANDA));
+        let iEdit = -1, iProses = -1;
+        for (const tr of baris) {
+            const sel = Array.from(tr.children);
+            const e = sel.findIndex(c => !c.classList.contains('ks_kolom_proses') && RE_EDIT.test(c.textContent));
+            const p = sel.findIndex(c => RE_PROSES.test(c.textContent));
+            if (e >= 0) iEdit = e;
+            if (p >= 0 && !tr.children[p].classList.contains('ks_kolom_proses')) iProses = p;
+            else if (p >= 0 && iProses < 0) iProses = p;
+            if (iEdit >= 0 && iProses >= 0) break;
+        }
+        if (iEdit < 0 || iProses < 0 || iEdit === iProses) return;
+
+        // header (kedua thead): judul kolom pertama jadi "Aksi", kolom kedua disembunyikan
+        document.querySelectorAll('.dataTables_scrollHead table thead, table#data_table thead').forEach(thead => {
+            const akhir = thead.querySelector('tr:last-child');
+            if (!akhir) return;
+            const hEdit = akhir.children[iEdit], hProses = akhir.children[iProses];
+            if (hEdit && teksBersih(hEdit) !== 'Aksi') hEdit.textContent = 'Aksi';
+            if (hEdit) hEdit.classList.add('ks_aksi_head'); // judul ikut rata kiri
+            if (hProses) hProses.classList.add('ks_kolom_proses');
+        });
+
+        // isi: pindahkan konten sel Proses Servis ke sel Edit Penerimaan (sekali per baris)
+        baris.forEach(tr => {
+            const cEdit = tr.children[iEdit], cProses = tr.children[iProses];
+            if (!cEdit || !cProses || cProses.classList.contains('ks_kolom_proses')) return;
+            if (cProses.childNodes.length) {
+                const wadah = document.createElement('div');
+                wadah.className = 'ks_aksi_proses';
+                wadah.style.marginTop = '0';
+                while (cProses.firstChild) wadah.appendChild(cProses.firstChild); // pindah node asli, pendengar event-nya ikut
+                cEdit.appendChild(wadah);
+            }
+            cProses.classList.add('ks_kolom_proses');
+        });
+
+        // rata kiri + ikon (Font Awesome 4 bawaan Erzap, class "fa") di depan tiap tombol
+        baris.forEach(tr => {
+            const cEdit = tr.children[iEdit];
+            if (!cEdit) return;
+            cEdit.classList.add('ks_aksi_sel'); // rata kiri dipaksa lewat CSS !important (gaya bawaan Erzap bisa memusatkan isi sel)
+            cEdit.querySelectorAll('a, button').forEach(el => {
+                if (el.dataset.ksIkon) return;
+                const t = el.textContent;
+                const kelas = RE_EDIT.test(t) ? 'fa-pencil-square-o' : (RE_PROSES.test(t) ? 'fa-wrench' : '');
+                if (!kelas) return;
+                el.dataset.ksIkon = '1';
+                const ikon = document.createElement('i');
+                ikon.className = 'fa ' + kelas;
+                ikon.setAttribute('aria-hidden', 'true');
+                ikon.style.cssText = 'display:inline-block;width:16px;margin-right:6px;text-align:center';
+                el.insertBefore(ikon, el.firstChild);
+                el.classList.add('ks_aksi_item');
+            });
+        });
     }
 
     // ===== Kolom Pelanggan: nomor HP diganti ikon WhatsApp (>1 nomor -> daftar) =====
