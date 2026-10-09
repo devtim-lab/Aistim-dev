@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.24.0
+// @version      1.25.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -21,7 +21,9 @@
     // (tanpa \b: di DOM teks "Kode Pemesanan" bisa menempel langsung setelah nomor faktur)
     const RE_FAKTUR = /(?<![A-Z0-9])(1[A-Z0-9]{9,13})-(\d{10})(?!\d)/;
     const LIST_URL = '/penjualans';
-    const POLL_MS = 60 * 1000;         // cek tiap 1 menit (hanya saat tab terlihat)
+    const POLL_MS = 1000;              // cek tiap 1 detik di latar (juga saat tab tidak terlihat); mundur otomatis bila gagal
+    const K_LEADER = 'aistim_pw_leader';   // penanda tab yang bertugas mengecek (satu tab per browser)
+    const KATA_BUNYI = 'Pesanan baru dari web';   // diucapkan saat ada nota web baru
     const CACHE_MS = 90 * 1000;        // pindah halaman tidak memicu fetch ulang kalau data masih segar
     const K_SEEN = 'aistim_pw_seen', K_POS = 'aistim_pw_pos', K_FILTER = 'aistim_pw_filter', K_CACHE = 'aistim_pw_cache', K_BUNYI = 'aistim_pw_bunyi';
 
@@ -94,6 +96,7 @@
 
     // ---------- Ambil data (dengan cache singkat) ----------
     let data = null;           // { items, totalBaris, waktu, error }
+    let tulisCache = 0;        // waktu terakhir cache halaman 1 ditulis (dibatasi tiap 5 detik)
     let sedangFetch = false;
 
     function bacaCache() {
@@ -113,9 +116,8 @@
         } catch (e) { /* tidak didukung */ }
     }
     ['pointerdown', 'touchstart', 'keydown', 'click'].forEach((ev) => document.addEventListener(ev, siapkanAudio, { passive: true }));
-    function bunyi() {
+    function bip() {
         try {
-            siapkanAudio();
             if (!audioCtx || audioCtx.state !== 'running') return;
             [[880, 0], [1175, 0.18], [880, 0.36]].forEach(([f, t]) => {
                 const o = audioCtx.createOscillator(), g = audioCtx.createGain();
@@ -127,7 +129,30 @@
                 o.connect(g); g.connect(audioCtx.destination);
                 o.start(m); o.stop(m + 0.18);
             });
+        } catch (e) { /* abaikan */ }
+    }
+    // Suara ucapan (bahasa Indonesia). Browser hanya mengizinkannya setelah halaman pernah diklik/disentuh;
+    // kalau diblokir atau tidak didukung, dipakai bunyi bip.
+    function ucapkan(teks) {
+        try {
+            if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return false;
+            const u = new SpeechSynthesisUtterance(teks);
+            u.lang = 'id-ID';
+            u.rate = 1;
+            u.volume = 1;
+            const v = (window.speechSynthesis.getVoices() || []).find((x) => /^id([-_]|$)/i.test(x.lang));
+            if (v) u.voice = v;
+            u.onerror = () => bip();
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(u);
+            return true;
+        } catch (e) { return false; }
+    }
+    function bunyi() {
+        try {
+            siapkanAudio();
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            if (!ucapkan(KATA_BUNYI)) bip();
         } catch (e) { /* abaikan */ }
     }
     function cekBunyi() {
@@ -155,7 +180,7 @@
             const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
             const r = ekstrakDaftar(doc, location.origin + LIST_URL);
             data = { items: r.items, totalBaris: r.totalBaris, halaman: halKini, waktu: Date.now(), error: '' };
-            if (halKini === 1) ls.set(K_CACHE, JSON.stringify(data));
+            if (halKini === 1 && Date.now() - tulisCache > 5000) { tulisCache = Date.now(); ls.set(K_CACHE, JSON.stringify(data)); }
         } catch (e) {
             data = { items: (data && data.items) || [], totalBaris: (data && data.totalBaris) || 0, halaman: (data && data.halaman) || 1, waktu: (data && data.waktu) || 0, error: e.message || String(e) };
         }
@@ -1016,5 +1041,31 @@
         if (!ls.get(K_SEEN) && tsTerbaru()) ls.set(K_SEEN, String(tsTerbaru()));
         sesuaikanBadge();
     });
-    setInterval(() => { if (document.visibilityState === 'visible' && !terbuka) muatData(true); }, POLL_MS);
+    // Pengecekan di latar tiap POLL_MS. Supaya cek tiap detik tidak berlipat ganda:
+    //  - hanya satu tab per browser yang mengecek (pemimpin; diambil alih tab lain bila 5 detik tak ada denyut),
+    //  - tidak ada permintaan yang bertumpuk (muatData menolak bila masih berjalan),
+    //  - bila gagal, jedanya melebar 2x tiap kegagalan (maks. 60 detik) dan kembali 1 detik setelah berhasil.
+    const ID_TAB = Math.random().toString(36).slice(2);
+    let gagalCek = 0;
+    function jadiPemimpin() {
+        try {
+            const l = JSON.parse(ls.get(K_LEADER) || 'null');
+            const now = Date.now();
+            if (l && l.id !== ID_TAB && now - l.t < 5000) return false;
+            ls.set(K_LEADER, JSON.stringify({ id: ID_TAB, t: now }));
+        } catch (e) { /* localStorage diblokir: anggap pemimpin */ }
+        return true;
+    }
+    async function siklusCek() {
+        let tunda = POLL_MS;
+        try {
+            if (!terbuka && jadiPemimpin()) {
+                await muatData(true);
+                gagalCek = data && data.error ? gagalCek + 1 : 0;
+            }
+        } catch (e) { gagalCek++; }
+        if (gagalCek) tunda = Math.min(60000, POLL_MS * Math.pow(2, gagalCek));
+        setTimeout(siklusCek, tunda);
+    }
+    setTimeout(siklusCek, POLL_MS);
 })();
