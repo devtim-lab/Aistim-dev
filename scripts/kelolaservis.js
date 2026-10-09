@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Erzap - Kolom Outlet di Kelola Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.0.93
-// @description  [v1.0.93] Daftar Kelola Servis (tabel bawaan Erzap tidak diubah: tanpa kolom tambahan, header/lebar/ukuran huruf/scrollbar/paginasi asli): nama outlet di dalam sel Edit Penerimaan, di bawah tombol Edit (tanpa kolom Outlet), tipe HP/motor di dalam sel Pelanggan (tanpa kolom Tipe), teknisi di bawah tombol Proses Servis, nomor HP jadi ikon WhatsApp, filter teknisi (combobox + pencarian) menggantikan kotak Teknisi di panel Pencarian dan memfilter lewat server (isi nama + ID teknisi lalu tombol Filter); kalau nama tidak ada di daftar, beralih ke filter bawaan Erzap. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi.
+// @version      1.0.97
+// @description  [v1.0.96] Hanya untuk /servis_elektroniks/index_kelola/* dan /kelola_servis/* (halaman /servis_elektroniks punya skrip sendiri: servisindex.js). Daftar Kelola Servis (tabel bawaan Erzap tidak diubah: tanpa kolom tambahan, header/lebar/ukuran huruf/scrollbar/paginasi asli): nama outlet di dalam sel Edit Penerimaan, di bawah tombol Edit (tanpa kolom Outlet), tipe HP/motor di dalam sel Pelanggan (tanpa kolom Tipe), teknisi di bawah tombol Proses Servis, nomor HP jadi ikon WhatsApp, filter teknisi (combobox + pencarian) menggantikan kotak Teknisi di panel Pencarian dan memfilter lewat server (isi nama + ID teknisi lalu tombol Filter); kalau nama tidak ada di daftar, beralih ke filter bawaan Erzap. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi.
 // @author       You
-// @match        https://*.erzap.com/servis_elektroniks/*
+// @match        https://*.erzap.com/servis_elektroniks/index_kelola/*
+// @match        https://*.erzap.com/servis_elektroniks/kelola_servis/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
 // @grant        none
 // ==/UserScript==
@@ -210,6 +211,17 @@
         return w;
     }
 
+    // Ukuran huruf baris "Telp. ..." di sel Pelanggan (dibaca dari elemen yang memuat tulisan "Telp"). Bila sel tidak punya baris
+    // telepon, dipakai ukuran huruf sel itu sendiri (ukuran nama pelanggan). Dibaca SEBELUM tipe ditambahkan.
+    function ukuranTelp(sel) {
+        const w = document.createTreeWalker(sel, NodeFilter.SHOW_TEXT);
+        let n;
+        while ((n = w.nextNode())) {
+            if (/telp/i.test(n.nodeValue) && n.parentElement) return getComputedStyle(n.parentElement).fontSize;
+        }
+        return getComputedStyle(sel).fontSize;
+    }
+
     // Isi teks nama teknisi/mekanik (ikon profil di sebelahnya dibiarkan)
     function isiTeknisi(el, teks) {
         const t = el.querySelector('.ks_teknisi_teks');
@@ -220,7 +232,8 @@
     function isiOutlet(td, teks) {
         const t = td.querySelector('.ks_outlet_teks'); // hanya teksnya; ikon di sebelahnya dibiarkan
         const s = td.querySelector('.ks_outlet_nilai');
-        (t || s || td).textContent = teks;
+        const sasaran = t || s;
+        if (sasaran) sasaran.textContent = teks; // tanpa sasaran: jangan menimpa isi sel asli
     }
 
     function jalankanAntrian() {
@@ -257,6 +270,9 @@
         st.id = 'ks_style';
         st.textContent = `
             .ks_tunda { display: none !important; }
+            /* tipe HP/motor: saat kursor diarahkan, kotak jadi biru penuh dan tulisan putih (menimpa gaya inline) */
+            .ks_tipe_td { transition: color .15s ease, background-color .15s ease; }
+            .ks_tipe_td:hover { color: #fff !important; background-color: #0d6efd !important; }
             .ks_wa svg { width: 15px; height: 15px; vertical-align: middle; }
             @media (max-width: 768px) {
                 .ks_wa { display: inline-block; padding: 3px 0; } /* area sentuh WA lebih besar */
@@ -280,13 +296,18 @@
         tabel.querySelectorAll('tbody tr').forEach(tr => {
             if (tr.querySelector('.' + TANDA)) return;
             if (tr.children.length <= Math.max(iu, ip)) return; // baris "tidak ada data" (colspan)
-            const acuStatus = tr.children[iu];
             const acuPelanggan = ip >= 0 ? tr.children[ip] : null;
             // Tidak ada kolom Outlet: nama outlet ditaruh DI DALAM sel "Edit Penerimaan" (di bawah tombol Edit). Sel itu
-            // sekaligus menjadi penanda "baris sudah diproses" (kelas TANDA) dan sasaran isi untuk hasil fetch. Sel Status
-            // dibiarkan asli. Kalau sel Edit Penerimaan tidak ditemukan, dipakai sel Status sebagai cadangan.
-            const selEdit = Array.from(tr.children).find(c => c.style.display !== 'none' && /^\s*edit\s+penerimaan\s*$/i.test(c.textContent));
-            const td = selEdit || acuStatus;
+            // sekaligus menjadi penanda "baris sudah diproses" (kelas TANDA) dan sasaran isi untuk hasil fetch.
+            // Sel Status TIDAK PERNAH dipakai, juga bukan sebagai cadangan. Urutan cadangan bila sel Edit Penerimaan tidak ada:
+            // sel Proses Servis, lalu sel mana pun yang punya link ke halaman servis; bila tidak ada sama sekali, outlet
+            // tidak ditampilkan (baris tetap ditandai sudah diproses lewat sel pertama, tanpa isi apa pun ditambahkan).
+            const tampak = c => c.style.display !== 'none';
+            const selEdit = Array.from(tr.children).find(c => tampak(c) && /^\s*edit\s+penerimaan\s*$/i.test(c.textContent));
+            const selProsesOutlet = Array.from(tr.children).find(c => tampak(c) && /^\s*proses\s+servis\s*$/i.test(c.textContent));
+            const selLinkServis = Array.from(tr.children).find(c => tampak(c) && c.querySelector('a[href*="/servis_elektroniks/"]'));
+            const tempatOutlet = selEdit || selProsesOutlet || selLinkServis || null;
+            const td = tempatOutlet || tr.children[0];
             td.classList.add(TANDA);
             td.dataset.ks = String(++nomor);
             barisBaru++;
@@ -314,13 +335,13 @@
             teksOutlet.textContent = '...';
             nilaiOutlet.append(ikonOutlet, teksOutlet);
             tundaTampil(nilaiOutlet);
-            td.appendChild(nilaiOutlet);
+            if (tempatOutlet) tempatOutlet.appendChild(nilaiOutlet); // tanpa tempat yang pantas: tidak ditampilkan
             // Tipe HP/motor: tidak punya kolom; ditaruh di dalam sel Pelanggan (di bawah nama dan nomor HP)
             const tdTipe = document.createElement('div');
             tdTipe.className = TANDA_TIPE;
             // jarak ke bawah dari nama/nomor telepon; tipe HP/motor biru dengan latar biru muda (kotak membulat, selebar isinya)
-            // ukuran huruf = ukuran huruf nama pelanggan (teks asli di sel Pelanggan), dibaca SEBELUM tipe ditambahkan
-            const ukuranNama = acuPelanggan ? getComputedStyle(acuPelanggan).fontSize : '';
+            // ukuran huruf = ukuran huruf baris "Telp." di sel Pelanggan (cadangan: ukuran sel), dibaca SEBELUM tipe ditambahkan
+            const ukuranNama = acuPelanggan ? ukuranTelp(acuPelanggan) : '';
             tdTipe.style.cssText = 'display:block;width:fit-content;max-width:100%;margin-top:8px;padding:2px 10px;border-radius:6px;color:#0d6efd;background:rgba(13,110,253,.12)' + (ukuranNama ? ';font-size:' + ukuranNama : '');
             tdTipe.textContent = '...';
             tundaTampil(tdTipe);
