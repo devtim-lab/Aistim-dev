@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Kolom Outlet di Kelola Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.0.63
-// @description  [v1.0.63] Daftar Kelola Servis: kolom Outlet (dengan "Status: ..." di bawahnya, kolom Status asli disembunyikan), Tipe HP (kanan Pelanggan), teknisi di bawah kode servis, nomor HP jadi ikon WhatsApp, filter teknisi (combobox + pencarian) menggantikan kotak Teknisi di panel Pencarian dan memfilter lewat server (isi nama + ID teknisi lalu tombol Filter); kalau nama tidak ada di daftar, beralih ke filter bawaan Erzap. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi.
+// @version      1.0.93
+// @description  [v1.0.93] Daftar Kelola Servis (tabel bawaan Erzap tidak diubah: tanpa kolom tambahan, header/lebar/ukuran huruf/scrollbar/paginasi asli): nama outlet di dalam sel Edit Penerimaan, di bawah tombol Edit (tanpa kolom Outlet), tipe HP/motor di dalam sel Pelanggan (tanpa kolom Tipe), teknisi di bawah tombol Proses Servis, nomor HP jadi ikon WhatsApp, filter teknisi (combobox + pencarian) menggantikan kotak Teknisi di panel Pencarian dan memfilter lewat server (isi nama + ID teknisi lalu tombol Filter); kalau nama tidak ada di daftar, beralih ke filter bawaan Erzap. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi.
 // @author       You
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -16,18 +16,10 @@
     const PARALEL = 4;
     const TANDA = 'ks_outlet_td';
     const TANDA_TIPE = 'ks_tipe_td';
-    const HP_LAYAR = window.matchMedia('(max-width: 768px)'); // layar HP/tablet kecil
-    const lebarTipe = () => HP_LAYAR.matches ? 170 : 240; // lebar kolom Tipe HP (px): sempit di HP, lega di desktop
-    // Istilah mengikuti nama toko (bagian depan alamat Erzap): ototech.erzap.com -> "Tipe Motor" dan "Mekanik", selain itu "Tipe HP" dan "Teknisi"
+    // Istilah mengikuti nama toko (bagian depan alamat Erzap): ototech.erzap.com -> "Mekanik", selain itu "Teknisi"
     const OTOTECH = /(^|[.-])ototech([.-]|$)/i.test(location.hostname.replace(/\.erzap\.com$/i, ''));
-    const JUDUL_TIPE = OTOTECH ? 'Tipe Motor' : 'Tipe HP';
     const IST_TEKNISI = OTOTECH ? 'Mekanik' : 'Teknisi';        // label di bawah kode servis, filter, dst.
     const IST_KECIL = IST_TEKNISI.toLowerCase();
-    // Kolom tambahan: Outlet di kiri Status, tipe unit di kanan Pelanggan (dicari dari judul header)
-    const KOLOM = [
-        { kelas: TANDA, judul: 'Outlet', acuan: 'status', setelah: false },
-        { kelas: TANDA_TIPE, judul: JUDUL_TIPE, acuan: 'pelanggan', setelah: true }
-    ];
     const TEKS_BELUM = 'Nota proses'; // ditampilkan saat Outlet belum ada (sebelumnya "-")
 
     let cache = {};
@@ -37,19 +29,35 @@
     }
 
     const antrian = [];
+
+    // Supaya tabel tidak "bergerak": tambahan di sel (outlet, tipe unit, teknisi) disembunyikan dulu selama data detail
+    // diambil, lalu DITAMPILKAN SEKALIGUS setelah semuanya siap. Tanpa ini tiap kiriman data mengubah tinggi baris dan
+    // lebar kolom satu per satu (puluhan kali) sehingga tabel terlihat bergeser terus.
+    const tertunda = [];
+    let timerPaksa = null;
+    function tundaTampil(el) {
+        el.classList.add('ks_tunda'); // display:none (lihat pasangStyle); gaya inline aslinya tetap utuh
+        tertunda.push(el);
+        if (!timerPaksa) timerPaksa = setTimeout(tampilkanSemua, 15000); // jaga-jaga bila ada permintaan yang menggantung
+    }
+    function tampilkanSemua() {
+        clearTimeout(timerPaksa);
+        timerPaksa = null;
+        if (!tertunda.length) return;
+        while (tertunda.length) tertunda.shift().classList.remove('ks_tunda');
+        ukurUlangTabel(); // satu kali saja, setelah semuanya tampil
+    }
     let aktif = 0;
 
     function teksBersih(el) {
         return el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
     }
 
-    // Kolom acuan dicari dari judul header, bukan posisi tetap
+    // Kolom acuan dicari dari judul header, bukan posisi tetap (tabel Erzap tidak diubah, jadi indeks header = indeks sel)
     function indeksKolom(tabel, nama) {
         const ths = tabel.querySelectorAll('thead tr:last-child th');
-        let n = 0; // th buatan skrip tidak dihitung, karena baris tbody baru belum punya kolom itu
         for (let i = 0; i < ths.length; i++) {
-            if (KOLOM.some(k => ths[i].classList.contains(k.kelas))) { n++; continue; }
-            if (teksBersih(ths[i]).toLowerCase() === nama) return i - n;
+            if (teksBersih(ths[i]).toLowerCase() === nama) return i;
         }
         return -1;
     }
@@ -162,10 +170,57 @@
         return hasil;
     }
 
+    // Isi sel bertambah (outlet, tipe, teknisi, ikon) setelah DataTables mengukur kolom. Header Erzap berada di tabel terpisah,
+    // jadi supaya header tetap sejajar dengan isi, DataTables diminta menghitung ulang lewat mekanisme bawaannya sendiri
+    // (event "resize" pada window yang memang didengarnya). Skrip TIDAK mengatur lebar kolom / header sendiri.
+    let timerUkur = null, timerUkur2 = null;
+    function ukurUlangTabel() {
+        clearTimeout(timerUkur);
+        clearTimeout(timerUkur2);
+        timerUkur = setTimeout(() => window.dispatchEvent(new Event('resize')), 250);
+        // kedua kali: ikon (Font Awesome) / gambar / font bisa baru selesai dimuat sesudah itu dan menggeser lebar sel lagi
+        timerUkur2 = setTimeout(() => window.dispatchEvent(new Event('resize')), 1200);
+    }
+    // font ikon selesai dimuat -> lebar sel (ikon WhatsApp, tombol) berubah -> ukur ulang
+    try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (document.querySelector('table#data_table')) ukurUlangTabel(); }); } catch (e) { /* abaikan */ }
+
+    // Satu ukuran untuk SEMUA ikon yang kita tambahkan (edit, proses, outlet, teknisi): 1,25 x ukuran huruf link di tabel,
+    // dibulatkan, dihitung sekali dari link pertama yang ditemui. Semua ikon berukuran persegi sama (px x px).
+    let ukIkon = 0;
+    function ukuranIkon(acuan) {
+        if (!ukIkon) {
+            const fs = parseFloat(getComputedStyle(acuan).fontSize) || 13;
+            ukIkon = Math.max(14, Math.round(fs * 1.25));
+        }
+        return ukIkon;
+    }
+
+    // Ikon "kotak berpojok oval": persegi berwarna dengan pojok membulat, gambar ikon putih di tengahnya. Dibuat sendiri
+    // (bukan glyph Font Awesome) supaya semua ikon (edit, proses, outlet, teknisi) bentuk dan ukurannya sama persis.
+    function ikonKotak(kelasGambar, warna, px) {
+        const w = document.createElement('span');
+        w.className = 'ks_ikon_kotak';
+        w.setAttribute('aria-hidden', 'true');
+        w.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;' +
+            'width:' + px + 'px;height:' + px + 'px;border-radius:' + Math.max(3, Math.round(px * 0.3)) + 'px;vertical-align:middle;background:' + warna;
+        const i = document.createElement('i');
+        i.className = 'fa ' + kelasGambar;
+        i.style.cssText = 'font-size:' + Math.round(px * 0.58) + 'px;line-height:1;color:#fff !important;margin:0';
+        w.appendChild(i);
+        return w;
+    }
+
+    // Isi teks nama teknisi/mekanik (ikon profil di sebelahnya dibiarkan)
+    function isiTeknisi(el, teks) {
+        const t = el.querySelector('.ks_teknisi_teks');
+        (t || el).textContent = teks;
+    }
+
     // Isi bagian nama outlet di sel Outlet (bagian "Status: ..." di bawahnya dibiarkan)
     function isiOutlet(td, teks) {
+        const t = td.querySelector('.ks_outlet_teks'); // hanya teksnya; ikon di sebelahnya dibiarkan
         const s = td.querySelector('.ks_outlet_nilai');
-        (s || td).textContent = teks;
+        (t || s || td).textContent = teks;
     }
 
     function jalankanAntrian() {
@@ -178,7 +233,7 @@
                     isiOutlet(td, (d.outlet && d.outlet !== '-') ? d.outlet : TEKS_BELUM);
                     tdTipe.textContent = d.tipe || '-';
                     tdTipe.style.whiteSpace = 'pre-line'; // unit kedua dst tampil di bawahnya
-                    if (elTeknisi) elTeknisi.textContent = IST_TEKNISI + ' : ' + (d.teknisi || '-');
+                    if (elTeknisi) isiTeknisi(elTeknisi, d.teknisi || '-');
                     const tr = td.closest('tr');
                     if (tr) tr.dataset.ksTeknisi = d.teknisi || ''; // dipakai filter teknisi
                     simpanPeta(d.peta);
@@ -186,234 +241,130 @@
                 .catch(e => {
                     isiOutlet(td, '?'); td.title = String(e && e.message || e);
                     tdTipe.textContent = '?'; tdTipe.title = td.title;
-                    if (elTeknisi) elTeknisi.textContent = IST_TEKNISI + ' : ?';
+                    if (elTeknisi) isiTeknisi(elTeknisi, '?');
                     const tr = td.closest('tr');
                     if (tr) tr.dataset.ksTeknisi = ''; // gagal dimuat: dianggap tanpa teknisi
                 })
-                .finally(() => { aktif--; perbaruiFilterTeknisi(); sinkronLebar(); jalankanAntrian(); });
+                .finally(() => { aktif--; perbaruiFilterTeknisi(); if (!aktif && !antrian.length) tampilkanSemua(); jalankanAntrian(); });
         }
     }
 
-    // Samakan lebar th header yang kelihatan dengan kolom asli di area scroll
-    let timerSinkron = null;
-    function sinkronLebar() {
-        clearTimeout(timerSinkron);
-        timerSinkron = setTimeout(() => {
-            const tabel = document.querySelector('table#data_table');
-            const headVis = document.querySelector('.dataTables_scrollHead table');
-            if (!tabel || !headVis) return;
-            // Ukur dari sel baris pertama (lebar nyata), bukan dari th sizing yang bisa punya width inline lama
-            // Ukur dari baris yang kelihatan (baris yang disembunyikan filter teknisi lebarnya 0)
-            const baris = Array.from(tabel.querySelectorAll('tbody tr')).find(tr => tr.style.display !== 'none');
-            const vis = headVis.querySelectorAll('thead tr:last-child th');
-            if (!baris || baris.children.length !== vis.length) return;
-            const total = tabel.getBoundingClientRect().width;
-            Array.from(baris.children).forEach((td, i) => {
-                let w = td.getBoundingClientRect().width;
-                if (vis[i].classList.contains(TANDA_TIPE)) w = Math.max(w, lebarTipe());
-                vis[i].style.boxSizing = 'border-box';
-                vis[i].style.width = w + 'px';
-                vis[i].style.minWidth = w + 'px';
-                vis[i].style.maxWidth = w + 'px';
-            });
-            headVis.style.tableLayout = 'fixed';
-            headVis.style.width = total + 'px';
-            const inner = headVis.parentElement;
-            if (inner) inner.style.width = total + 'px';
-        }, 150);
-    }
-
-    // Header di dalam area scroll hanya penentu lebar kolom -> harus tak kelihatan (tinggi 0),
-    // header yang kelihatan adalah yang di .dataTables_scrollHead
+    // Gaya yang dipasang skrip. Tabel Erzap (header, lebar kolom, ukuran huruf, scrollbar, paginasi) TIDAK diubah; yang diatur hanya
+    // ikon WhatsApp yang kita tambahkan di sel Pelanggan.
     function pasangStyle() {
         if (document.getElementById('ks_style')) return;
         const st = document.createElement('style');
         st.id = 'ks_style';
         st.textContent = `
-            .ks_kolom_status, .ks_kolom_proses { display: none !important; }
-            /* Satu ukuran huruf untuk SEMUA isi tabel (kolom asli + kolom tambahan) dan judul kolom yang kelihatan.
-               Variabel --ks-fs dihitung dari ukuran kode servis, maksimal 13px di layar kecil (lihat aturFs). */
-            html.ks_fs_aktif table#data_table tbody td, html.ks_fs_aktif table#data_table tbody td *, html.ks_fs_aktif .dataTables_scrollHead th { font-size: var(--ks-fs, 13px) !important; }
-            .ks_wa svg { width: max(20px, calc(var(--ks-fs, 13px) * 1.6)) !important; height: max(20px, calc(var(--ks-fs, 13px) * 1.6)) !important; }
-            /* Kolom Aksi: semua tombol rata kiri, tersusun ke bawah, tepi kiri ikon sejajar */
-            th.ks_aksi_head, td.ks_aksi_sel { text-align: left !important; vertical-align: middle; }
-            td.ks_aksi_sel > *, td.ks_aksi_sel .ks_aksi_proses { text-align: left !important; margin-left: 0 !important; padding-left: 0 !important; float: none !important; }
-            td.ks_aksi_sel .ks_aksi_item { display: flex !important; align-items: center; justify-content: flex-start !important; width: auto !important; margin: 0 0 4px 0 !important; text-align: left !important; float: none !important; }
-            td.ks_aksi_sel .ks_aksi_proses .ks_aksi_item:last-child, td.ks_aksi_sel > .ks_aksi_item:last-child { margin-bottom: 0 !important; }
-            /* Scrollbar area tabel (vertikal + horizontal) dibuat tipis */
-            .dataTables_scrollBody::-webkit-scrollbar { width: 5px !important; height: 5px !important; }
-            .dataTables_scrollBody::-webkit-scrollbar-button { display: none !important; width: 0 !important; height: 0 !important; }
-            .dataTables_scrollBody::-webkit-scrollbar-thumb { background: #b5b5b5; border-radius: 3px; }
-            .dataTables_scrollBody::-webkit-scrollbar-thumb:hover { background: #8e8e8e; }
-            .dataTables_scrollBody::-webkit-scrollbar-track { background: #efefef; }
-            .ks_wa svg { vertical-align: middle; }
-            .paginate_lite_wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
-            .paginate_lite_wrap .pagination_links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+            .ks_tunda { display: none !important; }
+            .ks_wa svg { width: 15px; height: 15px; vertical-align: middle; }
             @media (max-width: 768px) {
-                .dataTables_scrollBody::-webkit-scrollbar { width: 8px !important; height: 8px !important; } /* lebih mudah disentuh */
                 .ks_wa { display: inline-block; padding: 3px 0; } /* area sentuh WA lebih besar */
-                .ks_wa svg { width: 24px; height: 24px; }
-                .paginate_lite_wrap { justify-content: center; text-align: center; }
-                .paginate_lite_wrap a.pagination_link { display: inline-block; padding: 8px 12px; }
+                .ks_wa svg { width: 18px; height: 18px; }
             }
-            .dataTables_scrollBody table#data_table > thead { visibility: collapse !important; }
-            .dataTables_scrollBody table#data_table > thead tr { height: 0 !important; visibility: collapse !important; }
-            .dataTables_scrollBody table#data_table > thead th {
-                height: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important;
-                border-top-width: 0 !important; border-bottom-width: 0 !important;
-                line-height: 0 !important; font-size: 0 !important; overflow: hidden !important;
-            }
-            .dataTables_scrollBody table#data_table > thead th::before,
-            .dataTables_scrollBody table#data_table > thead th::after { display: none !important; }
         `;
         document.head.appendChild(st);
-    }
-
-    // Halaman Kelola Servis menampilkan blok paginasi ganda -> sisakan satu yang KELIHATAN.
-    // Blok yang pernah kita sembunyikan dibuka dulu, supaya paginasi tidak hilang total kalau yang pertama
-    // ternyata tidak kelihatan / halaman diganti.
-    function rapikanPaginasi() {
-        const semua = Array.from(document.querySelectorAll('.paginate_lite_wrap'));
-        semua.forEach(el => { if (el.dataset.ksSembunyi) { el.style.display = ''; delete el.dataset.ksSembunyi; } });
-        const tampak = semua.filter(el => el.getClientRects().length > 0);
-        const tabel = document.querySelector('table#data_table');
-        // Paginasi harus di LUAR tabel (tidak ikut ter-scroll): pembungkus DataTables, atau kalau tidak ada, area scroll tabel
-        const pembungkus = tabel && (tabel.closest('.dataTables_wrapper') || tabel.closest('.dataTables_scroll') || tabel.parentElement);
-        // kalau sudah ada yang di luar tabel, pakai itu; kalau tidak, yang pertama
-        const simpan = tampak.find(el => pembungkus && !pembungkus.contains(el)) || tampak[0];
-        tampak.forEach(el => { if (el !== simpan) { el.dataset.ksSembunyi = '1'; el.style.display = 'none'; } });
-        if (simpan && pembungkus && pembungkus.contains(simpan) && pembungkus.nextElementSibling !== simpan) {
-            pembungkus.after(simpan); // pindah ke bawah, di luar pembungkus tabel
-            simpan.style.marginTop = '8px';
-        }
     }
 
     let nomor = 0;
     function proses() {
         const tabel = document.querySelector('table#data_table');
         if (!tabel) return;
-        rapikanPaginasi();
         const iu = indeksKolom(tabel, 'status');
         if (iu < 0) return;
         const ip = indeksKolom(tabel, 'pelanggan'); // kalau tidak ada, kolom Tipe HP dilewati
 
-        // Header: DataTables menduplikasi thead (tabel scrollHead terpisah + thead tersembunyi) -> semua diisi
         pasangStyle();
 
-        // DataTables punya 2 thead: yang kelihatan (scrollHead) dan yang tersembunyi di dalam area scroll
-        // (penentu lebar kolom). Dua-duanya harus punya kolom Outlet supaya sejajar dengan isi tabel.
-        document.querySelectorAll('.dataTables_scrollHead table thead, table#data_table thead').forEach(thead => {
-          // kolom Status asli: header disembunyikan (isinya dipindah ke sel Outlet)
-          const barisAkhir = thead.querySelector('tr:last-child');
-          if (barisAkhir) Array.from(barisAkhir.children).forEach(h => {
-              if (!h.classList.contains('ks_kolom_status') && teksBersih(h).toLowerCase() === 'status') h.classList.add('ks_kolom_status');
-          });
-          KOLOM.forEach(kol => {
-            if (kol.acuan === 'pelanggan' && ip < 0) return;
-            const rows = thead.querySelectorAll('tr');
-            if (!rows.length) return;
-            const ths = rows[rows.length - 1].children;
-            let pos = -1;
-            for (let i = 0; i < ths.length; i++) if (teksBersih(ths[i]).toLowerCase() === kol.acuan) { pos = i; break; }
-            if (pos < 0) return;
-            rows.forEach((tr, i) => {
-                const ada = tr.querySelectorAll('.' + kol.kelas);
-                ada.forEach((x, n) => { if (n > 0) x.remove(); }); // buang duplikat (DataTables meng-clone header)
-                if (ada.length) return;
-                const th = document.createElement('th');
-                th.className = kol.kelas;
-                if (i === rows.length - 1) {
-                    if (thead.closest('.dataTables_scrollHead')) {
-                        th.textContent = kol.judul;
-                        // Samakan tampilan dengan th acuan (garis bawah, warna, padding), tanpa ikon urut
-                        const ref = tr.children[pos];
-                        th.className = (kol.kelas + ' ' + ref.className).replace(/\bsorting\w*\b/g, '').replace(/\bks_kolom_status\b/g, '').trim() + ' sorting_disabled';
-                        const cs = getComputedStyle(ref);
-                        th.style.borderBottom = cs.borderBottomWidth + ' ' + cs.borderBottomStyle + ' ' + cs.borderBottomColor;
-                        th.style.backgroundColor = cs.backgroundColor;
-                        th.style.color = cs.color;
-                        th.style.padding = cs.padding;
-                    } else {
-                        th.style.cssText = 'padding-top:0;padding-bottom:0;border-top-width:0;border-bottom-width:0;height:0';
-                        if (kol.kelas === TANDA_TIPE) th.style.cssText += ';min-width:' + lebarTipe() + 'px;width:' + lebarTipe() + 'px';
-                        const d = document.createElement('div');
-                        d.className = 'dataTables_sizing';
-                        d.style.cssText = 'height:0;overflow:hidden';
-                        d.textContent = kol.judul;
-                        th.appendChild(d);
-                    }
-                }
-                if (kol.setelah) tr.children[pos].after(th); else tr.children[pos].before(th);
-            });
-          });
-        });
-
+        let barisBaru = 0;
         tabel.querySelectorAll('tbody tr').forEach(tr => {
             if (tr.querySelector('.' + TANDA)) return;
             if (tr.children.length <= Math.max(iu, ip)) return; // baris "tidak ada data" (colspan)
             const acuStatus = tr.children[iu];
             const acuPelanggan = ip >= 0 ? tr.children[ip] : null;
-            const td = document.createElement('td');
-            td.className = TANDA;
+            // Tidak ada kolom Outlet: nama outlet ditaruh DI DALAM sel "Edit Penerimaan" (di bawah tombol Edit). Sel itu
+            // sekaligus menjadi penanda "baris sudah diproses" (kelas TANDA) dan sasaran isi untuk hasil fetch. Sel Status
+            // dibiarkan asli. Kalau sel Edit Penerimaan tidak ditemukan, dipakai sel Status sebagai cadangan.
+            const selEdit = Array.from(tr.children).find(c => c.style.display !== 'none' && /^\s*edit\s+penerimaan\s*$/i.test(c.textContent));
+            const td = selEdit || acuStatus;
+            td.classList.add(TANDA);
             td.dataset.ks = String(++nomor);
-            // Isi sel Outlet: nama outlet di atas, "Status: ..." di bawahnya. Kolom Status asli disembunyikan (bukan dihapus,
-            // supaya DataTables dan penghitung kolom tetap konsisten) dan teks + warnanya dipindah ke sini.
-            const nilaiOutlet = document.createElement('span');
+            barisBaru++;
+            const nilaiOutlet = document.createElement('div');
             nilaiOutlet.className = 'ks_outlet_nilai';
-            nilaiOutlet.textContent = '...';
-            const barisStatus = document.createElement('div');
-            barisStatus.className = 'ks_status_baris';
-            const teksStatus = teksBersih(acuStatus) || '-';
-            const sumberWarna = acuStatus.querySelector('a, span, b, strong, font') || acuStatus;
-            const gayaAsli = getComputedStyle(sumberWarna); // ukuran huruf asli kolom Status dipakai lagi
-            barisStatus.style.cssText = 'margin-top:2px;color:#000'; // tulisan "Status:" hitam (ukuran huruf: lihat .ks_fs di CSS)
-            const nilaiStatus = document.createElement('span');
-            nilaiStatus.className = 'ks_status_nilai';
-            nilaiStatus.style.color = gayaAsli.color; // hanya nilainya yang berwarna (warna asli kolom Status)
-            nilaiStatus.style.fontWeight = gayaAsli.fontWeight;
-            // Latar tipis dari warna statusnya sendiri (hijau -> latar hijau muda, biru -> biru muda, dst.)
-            const m = gayaAsli.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-            nilaiStatus.style.backgroundColor = m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',0.14)' : 'rgba(0,0,0,0.08)';
-            nilaiStatus.style.padding = '1px 8px';
-            nilaiStatus.style.borderRadius = '10px';
-            nilaiStatus.style.display = 'inline-block';
-            nilaiStatus.style.lineHeight = '1.4';
-            nilaiStatus.textContent = teksStatus;
-            barisStatus.append('Status: ', nilaiStatus);
-            td.append(nilaiOutlet, barisStatus);
-            acuStatus.before(td);
-            acuStatus.classList.add('ks_kolom_status');
-            const tdTipe = document.createElement('td');
+            // Ukuran huruf outlet = 85% ukuran teks sel itu (dibaca SEBELUM outlet ditambahkan), supaya lebih kecil dan tidak
+            // melebarkan kolom. Kolom TIDAK boleh melebar: nama outlet turun ke baris berikutnya bila kepanjangan.
+            //  - white-space:normal + overflow-wrap:anywhere : boleh patah baris, bahkan di tengah kata panjang
+            //  - contain:inline-size : isi ini dianggap berlebar 0 saat tabel menghitung lebar kolom (lebar kolom ditentukan
+            //    isi aslinya), lalu mengikuti lebar kolom yang sudah ada
+            const sumberUkuran = td.querySelector('a, span, b, strong, font') || td;
+            const ukuranDasar = parseFloat(getComputedStyle(sumberUkuran).fontSize) || 13;
+            // Susunan: [ikon] [nama outlet], rata kiri (sel Edit Penerimaan aslinya rata tengah; hanya outlet yang dibuat rata kiri).
+            // Ikon tidak ikut menyusut; nama outlet yang panjang patah baris di sebelah kanan ikon.
+            nilaiOutlet.style.cssText = 'display:flex;align-items:flex-start;justify-content:flex-start;gap:4px;text-align:left;' +
+                'margin-top:6px;color:#000 !important;font-size:' + (Math.round(ukuranDasar * 0.85 * 10) / 10) + 'px;' +
+                'white-space:normal;overflow-wrap:anywhere;contain:inline-size;line-height:1.25';
+            // warna kotak = warna ikon/tombol Edit di sel yang sama (warna link bawaan Erzap, dibaca dari halamannya); cadangan biru standar
+            const linkAcuan = td.querySelector('a');
+            const warnaIkon = linkAcuan ? getComputedStyle(linkAcuan).color : '#0d6efd';
+            const ikonOutlet = ikonKotak('fa-building', warnaIkon, ukuranIkon(linkAcuan || td)); // ikon gedung dalam kotak berpojok oval
+            const teksOutlet = document.createElement('span');
+            teksOutlet.className = 'ks_outlet_teks';
+            teksOutlet.style.cssText = 'min-width:0;flex:1 1 auto';
+            teksOutlet.textContent = '...';
+            nilaiOutlet.append(ikonOutlet, teksOutlet);
+            tundaTampil(nilaiOutlet);
+            td.appendChild(nilaiOutlet);
+            // Tipe HP/motor: tidak punya kolom; ditaruh di dalam sel Pelanggan (di bawah nama dan nomor HP)
+            const tdTipe = document.createElement('div');
             tdTipe.className = TANDA_TIPE;
-            tdTipe.style.cssText = 'min-width:' + lebarTipe() + 'px;width:' + lebarTipe() + 'px'; // inline, supaya menang atas lebar kolom bawaan tabel
+            // jarak ke bawah dari nama/nomor telepon; tipe HP/motor biru dengan latar biru muda (kotak membulat, selebar isinya)
+            // ukuran huruf = ukuran huruf nama pelanggan (teks asli di sel Pelanggan), dibaca SEBELUM tipe ditambahkan
+            const ukuranNama = acuPelanggan ? getComputedStyle(acuPelanggan).fontSize : '';
+            tdTipe.style.cssText = 'display:block;width:fit-content;max-width:100%;margin-top:8px;padding:2px 10px;border-radius:6px;color:#0d6efd;background:rgba(13,110,253,.12)' + (ukuranNama ? ';font-size:' + ukuranNama : '');
             tdTipe.textContent = '...';
-            if (acuPelanggan) acuPelanggan.after(tdTipe);
+            tundaTampil(tdTipe);
+            if (acuPelanggan) acuPelanggan.appendChild(tdTipe);
 
             const a = tr.querySelector('a[href*="/servis_elektroniks/kelola_servis/"]');
             if (!a) { isiOutlet(td, TEKS_BELUM); tdTipe.textContent = '-'; tr.dataset.ksTeknisi = ''; return; }
             let url;
             try { url = new URL(a.getAttribute('href'), location.href).href; } catch (e) { isiOutlet(td, TEKS_BELUM); tdTipe.textContent = '-'; tr.dataset.ksTeknisi = ''; return; }
-            // Teknisi: di bawah kode servis (di sel yang sama)
-            // Link "Edit Penerimaan" / "Proses Servis" juga mengarah ke kelola_servis/ID -> sel kode dicari lewat teks link (SRxxxx-xxxx)
-            // Cari sel yang berisi kode servis (SRxxxx-xxxx), tidak peduli link-nya mengarah ke mana; sel buatan skrip dilewati
+            // Teknisi/mekanik: di bawah tombol "Proses Servis" (sel itu, bukan sel kode servis). Sel dikenali dari tulisan
+            // tombolnya; kolom duplikat tersembunyi milik Erzap dilewati. Cadangan bila tombol tidak ada: sel kode servis (SRxxxx-xxxx).
             const RE_KODE = /[A-Z]{2}\d{3,}-\d+/;
-            const selKode = Array.from(tr.children).find(c => !c.className.includes('ks_') && RE_KODE.test(c.textContent));
+            const selProses = Array.from(tr.children).find(c => c.style.display !== 'none' && /^\s*proses\s+servis\s*$/i.test(c.textContent));
+            const selKode = selProses || Array.from(tr.children).find(c => !c.className.includes('ks_') && RE_KODE.test(c.textContent));
             let elTeknisi = null;
             if (selKode) {
                 elTeknisi = document.createElement('div');
                 elTeknisi.className = 'ks_teknisi';
-                elTeknisi.style.cssText = 'color:#333;margin-top:3px;line-height:1.3'; // ukuran huruf: lihat .ks_fs di CSS
-                elTeknisi.textContent = IST_TEKNISI + ' : ...';
+                // Nama panjang turun ke baris berikutnya (tidak memanjang ke samping / melebarkan kolom):
+                // white-space:normal + overflow-wrap:anywhere boleh patah baris; contain:inline-size membuat teks ini tidak ikut
+                // menentukan lebar kolom (lebar kolom tetap ditentukan isi aslinya).
+                // Susunan: [ikon profil] [nama], rata kiri. Tulisan "Teknisi :" diganti ikon (arti ikon ada di tooltip).
+                elTeknisi.style.cssText = 'display:flex;align-items:flex-start;justify-content:flex-start;gap:4px;text-align:left;color:#333;margin-top:3px;' +
+                    'line-height:1.3;white-space:normal;overflow-wrap:anywhere;contain:inline-size';
+                elTeknisi.title = IST_TEKNISI;
+                const linkTek = selKode.querySelector('a');
+                // ikon profil dalam kotak berpojok oval; warna = warna link/tombol di sel yang sama (biru bawaan Erzap), sama dengan ikon lain
+                const ikonTek = ikonKotak('fa-user', linkTek ? getComputedStyle(linkTek).color : '#0d6efd', ukuranIkon(linkTek || selKode));
+                const teksTek = document.createElement('span');
+                teksTek.className = 'ks_teknisi_teks';
+                teksTek.style.cssText = 'min-width:0;flex:1 1 auto';
+                teksTek.textContent = '...';
+                elTeknisi.append(ikonTek, teksTek);
+                tundaTampil(elTeknisi);
                 selKode.appendChild(elTeknisi);
             }
             antrian.push({ url, td, tdTipe, elTeknisi });
         });
-        aturFs(tabel);
-        gabungAksi(tabel);
+        ikonAksi(tabel);
         telpJadiWA(tabel);
+        if (barisBaru) ukurUlangTabel(); // hanya bila ada baris baru: menghindari putaran resize -> DataTables -> proses -> resize
         perbaruiFilterTeknisi();
         jalankanAntrian();
-        sinkronLebar();
+        if (!aktif && !antrian.length) tampilkanSemua(); // tidak ada permintaan sama sekali (mis. semua baris tanpa link)
     }
 
     // ===== Filter teknisi (di atas tabel): pilihannya diambil dari teknisi yang sudah termuat di baris =====
@@ -661,7 +612,7 @@
             tutup();
             inp.blur();
             terapkanFilterTeknisi();
-            sinkronLebar();
+            ukurUlangTabel(); // baris yang disembunyikan/ditampilkan mengubah lebar kolom
             terapkanKeServer(o); // filter di server (lintas halaman) bila nama + ID teknisinya diketahui
         }
 
@@ -774,97 +725,31 @@
         });
     }
 
-    // ===== Ukuran huruf seragam =====
-    // Acuan: ukuran huruf kode servis (link SRxxxx-xxxx) di tabel, DIUKUR SEKALI sebelum aturan seragam aktif (kelas html.ks_fs_aktif),
-    // supaya yang terukur ukuran aslinya, bukan hasil aturan kita sendiri. Di layar kecil dibatasi maksimal 13px.
-    // Hasilnya disimpan di variabel CSS --ks-fs yang dipakai seluruh isi tabel (lihat pasangStyle).
-    let fsAsli = 0, fsTerakhir = '';
-    function aturFs(tabel) {
-        if (!fsAsli) {
-            const kode = Array.from(tabel.querySelectorAll('tbody a')).find(a => /[A-Z]{2}\d{3,}-\d+/.test(a.textContent));
-            const acuan = kode || tabel.querySelector('tbody td');
-            if (!acuan) return; // tabel belum berisi -> coba lagi nanti
-            const px0 = parseFloat(getComputedStyle(acuan).fontSize);
-            if (!isFinite(px0) || px0 <= 0) return;
-            fsAsli = px0;
-        }
-        let px = fsAsli;
-        if (HP_LAYAR.matches) px = Math.min(px, 13);
-        const nilai = (Math.round(px * 10) / 10) + 'px';
-        if (nilai === fsTerakhir) return;
-        fsTerakhir = nilai;
-        document.documentElement.style.setProperty('--ks-fs', nilai);
-        document.documentElement.classList.add('ks_fs_aktif');
-    }
-
-    // ===== Kolom "Edit Penerimaan" + "Proses Servis" digabung jadi satu kolom "Aksi" =====
-    // Kolom dikenali dari ISI selnya (tulisan link), bukan judul header, karena judul header-nya tidak pasti.
-    // Isi sel Proses Servis dipindah ke sel Edit Penerimaan (di bawahnya); kolom Proses Servis disembunyikan, bukan dihapus.
-    const RE_EDIT = /^\s*edit\s+penerimaan\s*$/i;
-    const RE_PROSES = /^\s*proses\s+servis\s*$/i;
-
-    function gabungAksi(tabel) {
-        const baris = Array.from(tabel.querySelectorAll('tbody tr')).filter(tr => tr.querySelector('.' + TANDA));
-        let iEdit = -1, iProses = -1;
-        for (const tr of baris) {
-            const sel = Array.from(tr.children);
-            const e = sel.findIndex(c => !c.classList.contains('ks_kolom_proses') && RE_EDIT.test(c.textContent));
-            const p = sel.findIndex(c => RE_PROSES.test(c.textContent));
-            if (e >= 0) iEdit = e;
-            if (p >= 0 && !tr.children[p].classList.contains('ks_kolom_proses')) iProses = p;
-            else if (p >= 0 && iProses < 0) iProses = p;
-            if (iEdit >= 0 && iProses >= 0) break;
-        }
-        if (iEdit < 0 || iProses < 0 || iEdit === iProses) return;
-
-        // header (kedua thead): judul kolom pertama jadi "Aksi", kolom kedua disembunyikan
-        document.querySelectorAll('.dataTables_scrollHead table thead, table#data_table thead').forEach(thead => {
-            const akhir = thead.querySelector('tr:last-child');
-            if (!akhir) return;
-            const hEdit = akhir.children[iEdit], hProses = akhir.children[iProses];
-            if (hEdit && teksBersih(hEdit) !== 'Aksi') hEdit.textContent = 'Aksi';
-            if (hEdit) hEdit.classList.add('ks_aksi_head'); // judul ikut rata kiri
-            if (hProses) hProses.classList.add('ks_kolom_proses');
-        });
-
-        // isi: pindahkan konten sel Proses Servis ke sel Edit Penerimaan (sekali per baris)
-        baris.forEach(tr => {
-            const cEdit = tr.children[iEdit], cProses = tr.children[iProses];
-            if (!cEdit || !cProses || cProses.classList.contains('ks_kolom_proses')) return;
-            if (cProses.childNodes.length) {
-                const wadah = document.createElement('div');
-                wadah.className = 'ks_aksi_proses';
-                wadah.style.marginTop = '0';
-                while (cProses.firstChild) wadah.appendChild(cProses.firstChild); // pindah node asli, pendengar event-nya ikut
-                cEdit.appendChild(wadah);
-            }
-            cProses.classList.add('ks_kolom_proses');
-        });
-
-        // rata kiri + ikon (Font Awesome 4 bawaan Erzap, class "fa") di depan tiap tombol
-        baris.forEach(tr => {
-            const cEdit = tr.children[iEdit];
-            if (!cEdit) return;
-            cEdit.classList.add('ks_aksi_sel'); // rata kiri dipaksa lewat CSS !important (gaya bawaan Erzap bisa memusatkan isi sel)
-            cEdit.querySelectorAll('a, button').forEach(el => {
-                if (el.dataset.ksIkon) return;
-                const t = el.textContent;
-                const kelas = RE_EDIT.test(t) ? 'fa-pencil-square-o' : (RE_PROSES.test(t) ? 'fa-wrench' : '');
-                if (!kelas) return;
-                el.dataset.ksIkon = '1';
-                const ikon = document.createElement('i');
-                ikon.className = 'fa ' + kelas;
-                ikon.setAttribute('aria-hidden', 'true');
-                ikon.style.cssText = 'display:inline-block;width:16px;margin-right:6px;text-align:center';
-                el.insertBefore(ikon, el.firstChild);
-                el.classList.add('ks_aksi_item');
-            });
+    // ===== Ikon di depan tombol "Edit Penerimaan" dan "Proses Servis" =====
+    // Hanya menambah ikon di dalam tombolnya; kolom, urutan, dan tata letak tabel Erzap tidak diubah. Tombol dikenali dari
+    // tulisannya. Ikon memakai Font Awesome 4 bawaan Erzap (kelas "fa").
+    const IKON_AKSI = [
+        { re: /^\s*edit\s+penerimaan\s*$/i, kelas: 'fa-pencil' },
+        { re: /^\s*proses\s+servis\s*$/i, kelas: 'fa-wrench' }
+    ];
+    function ikonAksi(tabel) {
+        tabel.querySelectorAll('tbody a, tbody button').forEach(el => {
+            if (el.dataset.ksIkon) return;
+            const sel = el.closest('td');
+            if (sel && sel.style.display === 'none') return; // kolom duplikat tersembunyi bawaan Erzap
+            const t = el.textContent;
+            const cocok = IKON_AKSI.find(x => x.re.test(t));
+            if (!cocok) return;
+            el.dataset.ksIkon = '1';
+            const ikon = ikonKotak(cocok.kelas, getComputedStyle(el).color, ukuranIkon(el)); // kotak berwarna sama dengan link
+            ikon.style.marginRight = '5px';
+            el.insertBefore(ikon, el.firstChild);
         });
     }
 
     // ===== Kolom Pelanggan: nomor HP diganti ikon WhatsApp (>1 nomor -> daftar) =====
     const RE_HP = /(?:\+?62[\s-]?|0)8[\d\s.-]{7,16}\d/g;
-    const IKON_WA = '<svg viewBox="0 0 24 24" width="20" height="20" style="vertical-align:middle"><path fill="#25D366" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>';
+    const IKON_WA = '<svg viewBox="0 0 24 24" width="15" height="15" style="vertical-align:middle"><path fill="#25D366" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>';
 
     function nomorWA(mentah) {
         let d = mentah.replace(/\D/g, '');
@@ -899,7 +784,11 @@
             const nomor = []; // kunci nomor yang sudah dipakai (tanpa duplikat)
             const simpul = [];
             const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
-            while (walker.nextNode()) simpul.push(walker.currentNode);
+            while (walker.nextNode()) {
+                const tn = walker.currentNode;
+                if (tn.parentElement && tn.parentElement.closest('.' + TANDA_TIPE)) continue; // teks tipe unit bukan nomor telepon
+                simpul.push(tn);
+            }
             simpul.forEach(n => {
                 // Nomor diganti di tempatnya: "Telp. 0812..." -> "Telp. [ikon] 0812...". "0812.../0856..." = 2 nomor
                 // (pola tidak melewati "/" "," ";"); nomor ke-2 dst sebaris, dipisah "/".
@@ -932,16 +821,6 @@
     }
 
     // Konten Erzap dimuat ulang lewat AJAX (#ajax_target) -> proses ulang kalau tabel berganti
-    function terapkanLebarTipe() {
-        const w = lebarTipe();
-        document.querySelectorAll('td.' + TANDA_TIPE + ', th.' + TANDA_TIPE).forEach(el => {
-            el.style.minWidth = w + 'px';
-            el.style.width = w + 'px';
-            el.style.maxWidth = ''; // th header kelihatan di-set ulang oleh sinkronLebar
-        });
-        sinkronLebar();
-    }
-    window.addEventListener('resize', () => { const t = document.querySelector('table#data_table'); if (t) aturFs(t); terapkanLebarTipe(); });
     let timerProses = null;
     function jadwalkanProses() {
         clearTimeout(timerProses);
