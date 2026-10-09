@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.23.0
+// @version      1.23.1
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -767,17 +767,21 @@
             return t ? Array.from(t.querySelectorAll('tbody tr')).map((tr) => idBaris(tr)).sort().join(';') : '';   // diurutkan: tidak peduli urutan tampil
         };
 
-        // ---------- Urutan baris: "Pesanan Baru" paling atas, lalu "Pesanan Diproses", sisanya di bawah ----------
-        // Berlaku untuk baris di halaman yang sedang tampil (urutan antar-halaman ditentukan server). Pengurutan
-        // stabil: di dalam tiap kelompok urutan asli (terbaru di atas) dipertahankan. Kolom "No" tidak diubah.
+        // ---------- Urutan baris: pesanan WEB "Pesanan Baru" paling atas, lalu pesanan WEB "Pesanan Diproses" ----------
+        // Pesanan web = sel Pemesan memuat nomor faktur web (pola RE_FAKTUR). Pesanan non-web tidak dipindah: tetap
+        // di bawah dengan urutan aslinya. Berlaku untuk baris di halaman yang sedang tampil (urutan antar-halaman
+        // ditentukan server). Pengurutan stabil: di dalam tiap kelompok urutan asli (terbaru di atas) dipertahankan.
+        // Kolom "No" tidak diubah.
         const RE_ST_BARU = /^Pesanan Baru\b/i, RE_ST_PROSES = /^Pesanan Diproses\b/i;
         function rankStatus(tr, idx) {
             const sel = Array.from(tr.children).filter((c) => /^td$/i.test(c.tagName));
             const urutan = sel[idx] ? [sel[idx]].concat(sel.filter((c) => c !== sel[idx])) : sel;   // sel Pemesan dicek dulu
+            const teksPemesan = sel[idx] ? rapih(sel[idx].textContent) : '';
             for (const td of urutan) {
                 const t = rapih(td.textContent);
-                if (RE_ST_BARU.test(t)) return 0;
-                if (RE_ST_PROSES.test(t)) return 1;
+                const st = RE_ST_BARU.test(t) ? 0 : (RE_ST_PROSES.test(t) ? 1 : -1);
+                if (st < 0) continue;
+                return (RE_FAKTUR.test(t) || RE_FAKTUR.test(teksPemesan)) ? st : 2;   // bukan pesanan web: tidak diurutkan
             }
             return 2;
         }
