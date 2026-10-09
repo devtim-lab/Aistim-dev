@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.22.0
+// @version      1.22.1
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -676,7 +676,7 @@
     }
 
     // ---------- Outlet di sel "Pemesan" tabel Data Pesanan Penjualan ----------
-    // Tidak ada kolom tambahan: nama outlet ditulis sebagai baris "Outlet: ..." di bawah isi sel Pemesan.
+    // Tidak ada kolom tambahan: nama outlet ditulis sebagai baris berikon toko di bawah isi sel Pemesan.
     // ID pesanan dari link /pesanan_penjualans/<id> di baris; outlet dibaca dari dropdown outlet halaman detailnya.
     if (/^\/pesanan_penjualans(\/index\/new)?\/?$/.test(location.pathname)) {
         const K_OUTLET = 'aistim_pw_outlet';
@@ -697,7 +697,7 @@
             const m = a && /\/pesanan_penjualans\/(\d+)/.exec(a.getAttribute('href'));
             return m ? m[1] : '';
         };
-        const isiOutlet = (el, teks) => { el.textContent = 'Outlet: ' + teks; };
+        const isiOutlet = (el, teks) => { el.textContent = '🏪 ' + teks; };
         function prosesAntriOutlet() {
             while (jalanOutlet < 4 && antriOutlet.length) {
                 const it = antriOutlet.shift();
@@ -727,7 +727,8 @@
                     const id = idBaris(tr);
                     const info = document.createElement('div');
                     info.className = 'aistim_pw_outlet_info';
-                    info.textContent = id ? 'Outlet: ...' : 'Outlet: -';
+                    info.textContent = id ? '🏪 ...' : '🏪 -';
+                    info.title = 'Outlet';
                     tds[idx].appendChild(info);
                     if (id) antriOutlet.push({ id: id, td: info });
                 });
