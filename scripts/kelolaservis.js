@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Erzap - Kolom Outlet di Kelola Servis
 // @namespace    http://tampermonkey.net/
-// @version      1.0.62
-// @description  [v1.0.62] Daftar Kelola Servis: kolom Outlet (dengan "Status: ..." di bawahnya, kolom Status asli disembunyikan), Tipe HP (kanan Pelanggan), teknisi di bawah kode servis, nomor HP jadi ikon WhatsApp, filter teknisi (combobox + pencarian) menggantikan kotak Teknisi di panel Pencarian dan memfilter lewat server (isi nama + ID teknisi lalu tombol Filter); kalau nama tidak ada di daftar, beralih ke filter bawaan Erzap. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi.
+// @version      1.0.63
+// @description  [v1.0.63] Daftar Kelola Servis: kolom Outlet (dengan "Status: ..." di bawahnya, kolom Status asli disembunyikan), Tipe HP (kanan Pelanggan), teknisi di bawah kode servis, nomor HP jadi ikon WhatsApp, filter teknisi (combobox + pencarian) menggantikan kotak Teknisi di panel Pencarian dan memfilter lewat server (isi nama + ID teknisi lalu tombol Filter); kalau nama tidak ada di daftar, beralih ke filter bawaan Erzap. Detail servis: tombol "Tutup Servis" dikunci sampai Status Servis selesai/dibatalkan dan Disetujui Oleh terisi.
 // @author       You
 // @match        https://*.erzap.com/servis_elektroniks/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -130,8 +130,20 @@
         return peta;
     }
 
+    // Catatan diagnosa hanya SEKALI per alamat dan di level "debug" (tersembunyi di Console bawaan): servis yang memang belum
+    // punya teknisi/outlet bukan error, dan sebelumnya memenuhi Console dengan peringatan panjang tiap tabel digambar ulang.
+    const sudahDicatat = new Set();
+    function catatSekali(kunci, pesan, url) {
+        if (sudahDicatat.has(kunci)) return;
+        sudahDicatat.add(kunci);
+        console.debug(pesan, url);
+    }
+
+    const MASA_SEMENTARA = 2 * 60 * 1000; // hasil yang belum lengkap (belum ada teknisi/outlet) disimpan 2 menit, lalu diambil lagi
+
     async function ambilOutlet(url) {
-        if (url in cache) return cache[url];
+        const c = cache[url];
+        if (c && (!c.sementara || c.sementara > Date.now())) return c;
         const res = await fetch(url, { credentials: 'same-origin' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
@@ -139,28 +151,15 @@
         const teknisi = cariTeknisi(doc);
         const peta = cariTeknisiPeta(doc);
         const outlet = cariOutlet(doc) || '-';
-        if (outlet === '-') {
-            const txt = (doc.body ? doc.body.textContent : '').replace(/\s+/g, ' ');
-            const cuplikan = [];
-            const re = /outlet/ig;
-            let m;
-            while ((m = re.exec(txt)) && cuplikan.length < 5) cuplikan.push(txt.slice(Math.max(0, m.index - 40), m.index + 80));
-            console.warn('[kelolaservis] Outlet tidak ditemukan di', url, '| cuplikan kata "outlet":', cuplikan);
-            return { outlet, tipe, teknisi, peta }; // tidak di-cache supaya dicoba lagi saat dimuat ulang
-        }
-        if (!teknisi) {
-            // Teknisi kosong bisa berarti belum ditugaskan -> jangan di-cache, dicek lagi saat dimuat ulang
-            const t = (doc.body ? doc.body.textContent : '').replace(/\s+/g, ' ');
-            const cuplikan = [];
-            const re = /teknisi/ig;
-            let m;
-            while ((m = re.exec(t)) && cuplikan.length < 4) cuplikan.push(t.slice(Math.max(0, m.index - 30), m.index + 60));
-            console.warn('[kelolaservis] Teknisi kosong di', url, '| input teknisi:', doc.querySelectorAll('input[name*="teknisi"]').length, '| cuplikan:', cuplikan);
-            return { outlet, tipe, teknisi, peta };
-        }
-        cache[url] = { outlet, tipe, teknisi, peta };
+        const hasil = { outlet, tipe, teknisi, peta };
+        if (outlet === '-') catatSekali('o|' + url, '[kelolaservis] outlet belum terbaca di', url);
+        if (!teknisi) catatSekali('t|' + url, '[kelolaservis] ' + IST_KECIL + ' belum terisi di', url);
+        // Belum lengkap: bisa saja memang belum ditugaskan. Simpan sementara supaya tidak diambil ulang setiap tabel
+        // digambar ulang (dulu tidak disimpan sama sekali -> permintaan berulang), tapi cukup singkat agar perubahan terbaca.
+        if (outlet === '-' || !teknisi) hasil.sementara = Date.now() + MASA_SEMENTARA;
+        cache[url] = hasil;
         simpanCache();
-        return cache[url];
+        return hasil;
     }
 
     // Isi bagian nama outlet di sel Outlet (bagian "Status: ..." di bawahnya dibiarkan)
