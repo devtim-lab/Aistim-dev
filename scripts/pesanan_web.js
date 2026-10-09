@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.22.1
+// @version      1.23.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -764,8 +764,38 @@
         const tabelUtama = () => document.getElementById('data_table');
         const sigTabelWeb = () => {
             const t = tabelUtama();
-            return t ? Array.from(t.querySelectorAll('tbody tr')).map((tr) => idBaris(tr)).join(';') : '';
+            return t ? Array.from(t.querySelectorAll('tbody tr')).map((tr) => idBaris(tr)).sort().join(';') : '';   // diurutkan: tidak peduli urutan tampil
         };
+
+        // ---------- Urutan baris: "Pesanan Baru" paling atas, lalu "Pesanan Diproses", sisanya di bawah ----------
+        // Berlaku untuk baris di halaman yang sedang tampil (urutan antar-halaman ditentukan server). Pengurutan
+        // stabil: di dalam tiap kelompok urutan asli (terbaru di atas) dipertahankan. Kolom "No" tidak diubah.
+        const RE_ST_BARU = /^Pesanan Baru\b/i, RE_ST_PROSES = /^Pesanan Diproses\b/i;
+        function rankStatus(tr, idx) {
+            const sel = Array.from(tr.children).filter((c) => /^td$/i.test(c.tagName));
+            const urutan = sel[idx] ? [sel[idx]].concat(sel.filter((c) => c !== sel[idx])) : sel;   // sel Pemesan dicek dulu
+            for (const td of urutan) {
+                const t = rapih(td.textContent);
+                if (RE_ST_BARU.test(t)) return 0;
+                if (RE_ST_PROSES.test(t)) return 1;
+            }
+            return 2;
+        }
+        function urutkanPesanan() {
+            const tabel = tabelUtama();
+            const tb = tabel && tabel.tBodies[0];
+            const idx = idxPemesan(tabel);
+            if (!tb || idx < 0) return;
+            const rows = Array.from(tb.rows).filter((tr) => tr.children.length >= 3);   // baris pesan kosong dilewati
+            if (rows.length < 2) return;
+            const ranks = rows.map((tr) => rankStatus(tr, idx));
+            let urut = true;
+            for (let i = 1; i < ranks.length; i++) if (ranks[i] < ranks[i - 1]) { urut = false; break; }
+            if (urut) return;                                                          // sudah berurutan: jangan sentuh DOM
+            const frag = document.createDocumentFragment();
+            rows.map((tr, i) => ({ tr: tr, r: ranks[i], i: i })).sort((a, b) => a.r - b.r || a.i - b.i).forEach((x) => frag.appendChild(x.tr));
+            tb.appendChild(frag);
+        }
 
         const CSS_WEB = '#aistim_pw_hasil{margin:0 0 8px}' +
             '#aistim_pw_hasil .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:#fef2f2;border:1px solid #fecaca;font-size:13px;flex-wrap:wrap}' +
@@ -948,6 +978,8 @@
         }
         setInterval(pasangFilterWeb, 1500);
         pasangFilterWeb();
+        setInterval(urutkanPesanan, 1500);   // tabel bisa digambar ulang (cari/halaman berikut): urutan dipasang lagi
+        urutkanPesanan();
     }
 
     // ---------- Mulai ----------
