@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.25.0
+// @version      1.26.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -371,7 +371,10 @@
         '.rkh{font-size:11px;color:#888;text-transform:uppercase;margin-bottom:2px}',
         '.rkr{display:flex;justify-content:space-between;gap:8px;padding:2px 0}',
         '.rkr.tot{border-top:1px solid #ddd;margin-top:3px;padding-top:4px}',
-        '.kosong{padding:24px 12px;text-align:center;color:#777;font-size:13px}'
+        '.kosong{padding:24px 12px;text-align:center;color:#777;font-size:13px}',
+        '.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:90vw;background:#111827;color:#fff;font-size:13px;padding:8px 14px;border-radius:8px;',
+        'box-shadow:0 4px 14px rgba(0,0,0,.4);z-index:2147483002;opacity:0;pointer-events:none;transition:opacity .2s}',
+        '.toast.on{opacity:1}'
     ].join('');
     root.appendChild(css);
 
@@ -388,6 +391,34 @@
     const panel = document.createElement('div');
     panel.className = 'panel';
     root.appendChild(panel);
+
+    // ----- notifikasi kecil (toast) & salin ke clipboard -----
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    root.appendChild(toast);
+    let toastT = 0;
+    function tampilToast(teks) {
+        toast.textContent = teks;
+        toast.classList.add('on');
+        clearTimeout(toastT);
+        toastT = setTimeout(() => toast.classList.remove('on'), 2200);
+    }
+    function salinTeks(teks) {
+        const cadangan = () => {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = teks;
+                ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+                document.body.appendChild(ta);
+                ta.select();
+                const ok = document.execCommand('copy');
+                ta.remove();
+                return ok;
+            } catch (e) { return false; }
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(teks).then(() => true, () => cadangan());
+        return Promise.resolve(cadangan());
+    }
 
     // ----- posisi FAB (bisa digeser, tersimpan) -----
     const UK = 52;
@@ -817,7 +848,29 @@
             const td = Array.from(tr.children).filter((c) => /^td$/i.test(c.tagName))[idx];
             if (!td) return;
             CLS_ST.forEach((c, k) => { if (td.classList.contains(c) !== (r === k)) td.classList.toggle(c, r === k); });
+            // Centang hijau (diproses) = elemen kosong tanpa teks (isinya digambar CSS ::before), jadi teks sel tetap
+            // diawali "Pesanan Diproses" dan pengenalan status tidak terganggu. Klik = salin nomor faktur.
+            const ck = Array.from(td.children).find((c) => c.classList && c.classList.contains('aistim_pw_ck'));
+            if (r === 1) {
+                if (!ck) {
+                    const c = document.createElement('span');
+                    c.className = 'aistim_pw_ck';
+                    c.title = 'Klik untuk menyalin nomor faktur';
+                    c.setAttribute('role', 'button');
+                    td.insertBefore(c, td.firstChild);
+                }
+            } else if (ck) ck.remove();
         }
+        document.addEventListener('click', (e) => {
+            const ck = e.target && e.target.closest && e.target.closest('.aistim_pw_ck');
+            if (!ck) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const td = ck.closest('td');
+            const m = RE_FAKTUR.exec(rapih(td ? td.textContent : ''));
+            if (!m) { tampilToast('Nomor faktur tidak ditemukan'); return; }
+            salinTeks(m[0]).then((ok) => tampilToast(ok ? 'Faktur tersalin: ' + m[0] : 'Gagal menyalin faktur'));
+        }, true);
         function urutkanPesanan() {
             // tabel hasil filter Pesanan Web (salinan baris): hanya diberi tanda, tidak diurutkan ulang
             const hasil = document.querySelector('#aistim_pw_hasil table');
@@ -850,7 +903,9 @@
             '#aistim_pw_hasil thead th{position:sticky;top:0;z-index:2;background:#eef0f4}' +
             '.aistim_pw_mode_hasil .dataTables_scroll{display:none!important}' +
             'td.aistim_pw_st_baru::before{content:"BARU";display:inline-block;margin-right:6px;padding:1px 6px;border-radius:4px;background:#f97316;color:#fff;font-size:10px;font-weight:700;line-height:1.5;vertical-align:middle}' +
-            'td.aistim_pw_st_proses::before{content:"\\2714";display:inline-block;margin-right:6px;width:18px;height:18px;border-radius:50%;background:#16a34a;color:#fff;font-size:12px;font-weight:700;line-height:18px;text-align:center;vertical-align:middle}';
+            '.aistim_pw_ck{display:inline-block;margin-right:6px;width:18px;height:18px;border-radius:50%;background:#16a34a;color:#fff;font-size:12px;font-weight:700;line-height:18px;text-align:center;vertical-align:middle;cursor:pointer;user-select:none}' +
+            '.aistim_pw_ck::before{content:"\\2714"}' +
+            '.aistim_pw_ck:hover{filter:brightness(1.15)}';
         const stWeb = document.createElement('style');
         stWeb.textContent = CSS_WEB;
         document.head.appendChild(stWeb);
