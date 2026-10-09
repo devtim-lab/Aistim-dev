@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.23.1
+// @version      1.24.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -785,14 +785,30 @@
             }
             return 2;
         }
+        // Tanda di sel Pemesan lewat kelas CSS (label ditulis ::before, jadi teks sel tidak berubah dan
+        // pengenalan status "^Pesanan Baru" tetap jalan): pesanan web baru = label BARU, diproses = centang hijau.
+        const CLS_ST = ['aistim_pw_st_baru', 'aistim_pw_st_proses'];
+        function tandaiStatus(tr, idx, r) {
+            const td = Array.from(tr.children).filter((c) => /^td$/i.test(c.tagName))[idx];
+            if (!td) return;
+            CLS_ST.forEach((c, k) => { if (td.classList.contains(c) !== (r === k)) td.classList.toggle(c, r === k); });
+        }
         function urutkanPesanan() {
+            // tabel hasil filter Pesanan Web (salinan baris): hanya diberi tanda, tidak diurutkan ulang
+            const hasil = document.querySelector('#aistim_pw_hasil table');
+            const ih = hasil ? idxPemesan(hasil) : -1;
+            if (hasil && hasil.tBodies[0] && ih >= 0) {
+                Array.from(hasil.tBodies[0].rows).forEach((tr) => { if (tr.children.length >= 3) tandaiStatus(tr, ih, rankStatus(tr, ih)); });
+            }
             const tabel = tabelUtama();
             const tb = tabel && tabel.tBodies[0];
             const idx = idxPemesan(tabel);
             if (!tb || idx < 0) return;
             const rows = Array.from(tb.rows).filter((tr) => tr.children.length >= 3);   // baris pesan kosong dilewati
-            if (rows.length < 2) return;
+            if (!rows.length) return;
             const ranks = rows.map((tr) => rankStatus(tr, idx));
+            rows.forEach((tr, i) => tandaiStatus(tr, idx, ranks[i]));
+            if (rows.length < 2) return;
             let urut = true;
             for (let i = 1; i < ranks.length; i++) if (ranks[i] < ranks[i - 1]) { urut = false; break; }
             if (urut) return;                                                          // sudah berurutan: jangan sentuh DOM
@@ -807,7 +823,9 @@
             '#aistim_pw_hasil .bar button{border:1px solid #ccc;border-radius:6px;background:#f5f5f5;padding:3px 10px;cursor:pointer}' +
             '#aistim_pw_hasil .gulir{overflow:auto;max-height:70vh}' +
             '#aistim_pw_hasil thead th{position:sticky;top:0;z-index:2;background:#eef0f4}' +
-            '.aistim_pw_mode_hasil .dataTables_scroll{display:none!important}';
+            '.aistim_pw_mode_hasil .dataTables_scroll{display:none!important}' +
+            'td.aistim_pw_st_baru::before{content:"BARU";display:inline-block;margin-right:6px;padding:1px 6px;border-radius:4px;background:#f97316;color:#fff;font-size:10px;font-weight:700;line-height:1.5;vertical-align:middle}' +
+            'td.aistim_pw_st_proses::before{content:"\\2714";display:inline-block;margin-right:6px;width:18px;height:18px;border-radius:50%;background:#16a34a;color:#fff;font-size:12px;font-weight:700;line-height:18px;text-align:center;vertical-align:middle}';
         const stWeb = document.createElement('style');
         stWeb.textContent = CSS_WEB;
         document.head.appendChild(stWeb);
