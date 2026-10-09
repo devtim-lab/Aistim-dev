@@ -11,6 +11,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish_store:
+        description: "Paksa unggah + kirim review ke Chrome Web Store untuk versi manifest saat ini"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -89,4 +94,50 @@ jobs:
               --notes "Download **$ZIP** (bukan Source code zip). Lihat README.md untuk changelog lengkap." \
               --latest
             echo "Release $TAG dibuat"
+            echo "NEW_RELEASE=1" >> "$GITHUB_ENV"
           fi
+
+      # Unggah otomatis ke Chrome Web Store: hanya saat versi baru dirilis (atau dipicu manual)
+      # dan keempat secret CWS_* sudah diisi. Panduan: docs/chrome-web-store.md
+      - name: Unggah ke Chrome Web Store + kirim review
+        if: env.NEW_RELEASE == '1' || github.event.inputs.publish_store == 'true'
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_ITEM_ID: jmgenkikiinjmkjebhgbgilfjgifnbbl
+        run: |
+          if [ -z "$CWS_CLIENT_ID" ] || [ -z "$CWS_CLIENT_SECRET" ] || [ -z "$CWS_REFRESH_TOKEN" ] || [ -z "$CWS_PUBLISHER_ID" ]; then
+            echo "Secret CWS_* belum lengkap — lewati unggah ke Web Store (lihat docs/chrome-web-store.md)"
+            exit 0
+          fi
+          BASE="https://chromewebstore.googleapis.com"
+          ITEM="publishers/$CWS_PUBLISHER_ID/items/$CWS_ITEM_ID"
+
+          TOKEN=$(curl -sS https://oauth2.googleapis.com/token \
+            -d client_id="$CWS_CLIENT_ID" -d client_secret="$CWS_CLIENT_SECRET" \
+            -d refresh_token="$CWS_REFRESH_TOKEN" -d grant_type=refresh_token | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))")
+          [ -n "$TOKEN" ] || { echo "Gagal mengambil access token (cek secret CWS_*)"; exit 1; }
+          echo "::add-mask::$TOKEN"
+
+          echo "Mengunggah $STORE_ZIP (versi $VERSION) ..."
+          RES=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -T "$STORE_ZIP" "$BASE/upload/v2/$ITEM:upload")
+          echo "Respons upload: $RES"
+          STATE=$(printf '%s' "$RES" | python3 -c "import sys,json;print(json.load(sys.stdin).get('uploadState',''))" 2>/dev/null || true)
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            [ "$STATE" = "UPLOAD_IN_PROGRESS" ] || break
+            sleep 10
+            RES=$(curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/v2/$ITEM:fetchStatus")
+            STATE=$(printf '%s' "$RES" | python3 -c "import sys,json;print(json.load(sys.stdin).get('lastAsyncUploadState',''))" 2>/dev/null || true)
+            echo "Status unggahan: $STATE"
+          done
+          case "$STATE" in
+            SUCCESS|"") ;;
+            *) echo "Unggahan tidak sukses ($STATE): $RES"; exit 1 ;;
+          esac
+
+          echo "Mengirim untuk review/publish ..."
+          RES=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" "$BASE/v2/$ITEM:publish")
+          echo "Respons publish: $RES"
+          echo "$RES" | grep -qi '"error"' && { echo "Publish gagal"; exit 1; } || true

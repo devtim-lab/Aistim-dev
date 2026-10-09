@@ -10,3 +10,24 @@ Update otomatis = lewat Web Store (Chrome memperbarui sendiri begitu versi baru 
 Bangun manual: `python3 tools/build-store.py <folder_output>`.
 
 Jangan aktifkan "Upload CRX terverifikasi" (memaksa semua upload berikutnya bertanda tangan kunci pribadi).
+
+## Unggah otomatis (GitHub Actions)
+
+Workflow `Release` mengunggah zip store dan mengirimnya untuk review **setiap kali versi di `manifest.json` naik**
+(hanya jika empat secret di bawah terisi). Review dari Google tetap berjalan. Versi harus lebih tinggi dari yang sudah ada di store.
+
+### Menyiapkan kredensial (sekali saja)
+1. Google Cloud Console -> buat/pilih project -> **Enable** "Chrome Web Store API".
+2. OAuth consent screen: tipe External, tambahkan email penerbit sebagai *Test user*.
+3. Credentials -> Create **OAuth client ID** tipe *Web application*, redirect URI `https://developers.google.com/oauthplayground`.
+   Catat Client ID dan Client Secret.
+4. Buka https://developers.google.com/oauthplayground -> roda gigi -> centang *Use your own OAuth credentials* -> isi Client ID/Secret ->
+   masukkan scope `https://www.googleapis.com/auth/chromewebstore` -> Authorize (login dengan akun pemilik item) -> *Exchange authorization code for tokens* -> salin **Refresh token**.
+5. Dashboard Web Store -> Publisher -> Settings -> salin **Publisher ID**.
+6. GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret:
+   `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, `CWS_PUBLISHER_ID`.
+
+### Catatan
+- Unggahan pertama (dan setelah mengubah visibilitas/Privasi di dashboard) lakukan manual sekali lewat dashboard; API memakai pengaturan visibilitas yang ada.
+- Uji manual kapan saja: Actions -> Release -> *Run workflow* -> centang `publish_store`.
+- Perubahan hanya di folder `scripts/` tidak butuh Web Store: tersinkron otomatis dari GitHub.
