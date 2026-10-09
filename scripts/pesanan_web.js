@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Erzap - Pesanan Web (Lonceng)
 // @namespace    http://tampermonkey.net/
-// @version      1.21.0
+// @version      1.22.0
 // @description  Tombol lonceng melayang (FAB, bisa digeser) di halaman Erzap: daftar nota pesanan dari web (partdistro) yang nomor fakturnya berpola 1XXXXXXXXXXX-ddMMyyJJmm dan badge jumlah nota baru.
 // @match        https://*.erzap.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=erzap.com
@@ -675,7 +675,8 @@
         fab.style.display = 'none';   // di halaman lain lonceng disembunyikan (pengecekan & bunyi tetap jalan di latar)
     }
 
-    // ---------- Kolom "Outlet" di tabel Data Pesanan Penjualan (di samping kolom "Pemesan") ----------
+    // ---------- Outlet di sel "Pemesan" tabel Data Pesanan Penjualan ----------
+    // Tidak ada kolom tambahan: nama outlet ditulis sebagai baris "Outlet: ..." di bawah isi sel Pemesan.
     // ID pesanan dari link /pesanan_penjualans/<id> di baris; outlet dibaca dari dropdown outlet halaman detailnya.
     if (/^\/pesanan_penjualans(\/index\/new)?\/?$/.test(location.pathname)) {
         const K_OUTLET = 'aistim_pw_outlet';
@@ -696,7 +697,7 @@
             const m = a && /\/pesanan_penjualans\/(\d+)/.exec(a.getAttribute('href'));
             return m ? m[1] : '';
         };
-        const isiOutlet = (td, teks) => { td.textContent = teks; };
+        const isiOutlet = (el, teks) => { el.textContent = 'Outlet: ' + teks; };
         function prosesAntriOutlet() {
             while (jalanOutlet < 4 && antriOutlet.length) {
                 const it = antriOutlet.shift();
@@ -713,115 +714,31 @@
                     .then(() => { jalanOutlet--; prosesAntriOutlet(); });
             }
         }
-        function tambahKolomOutlet() {
-            let headBerubah = false;
+        function tambahOutletPemesan() {
             document.querySelectorAll('table').forEach((tabel) => {
                 const hrow = tabel.tHead && tabel.tHead.rows[0];
                 if (!hrow) return;
-                const ths = Array.from(hrow.children);
-                const idx = ths.findIndex((t) => /^pemesan$/i.test(rapih(t.textContent)));
+                const idx = Array.from(hrow.children).findIndex((t) => /^pemesan$/i.test(rapih(t.textContent)));
                 if (idx < 0) return;
-                if (!hrow.querySelector('th.aistim_pw_outlet_th')) {
-                    // salin th "Pemesan" (header DataTables: header terpisah + thead tersembunyi di tabel isi), ganti teksnya
-                    const th = ths[idx].cloneNode(true);
-                    th.className = (th.className || '').replace(/\bsorting\w*\b/g, '').trim() + ' aistim_pw_outlet_th';
-                    th.removeAttribute('aria-sort');
-                    th.removeAttribute('aria-label');
-                    th.removeAttribute('tabindex');
-                    th.style.width = '';
-                    th.style.cursor = 'default';
-                    setThText(th, 'Outlet');
-                    ths[idx].insertAdjacentElement('afterend', th);
-                    headBerubah = true;
-                }
                 tabel.querySelectorAll('tbody tr').forEach((tr) => {
-                    if (tr.querySelector('td.aistim_pw_outlet_td')) return;
                     const tds = Array.from(tr.children).filter((c) => /^td$/i.test(c.tagName));
                     if (tds.length <= idx || tds.length < 3) return;   // baris pesan kosong ("tidak ada data")
+                    if (tds[idx].querySelector('.aistim_pw_outlet_info')) return;
                     const id = idBaris(tr);
-                    const td = document.createElement('td');
-                    td.className = 'aistim_pw_outlet_td';
-                    td.textContent = id ? '...' : '-';
-                    tds[idx].after(td);
-                    if (id) antriOutlet.push({ id: id, td: td });
+                    const info = document.createElement('div');
+                    info.className = 'aistim_pw_outlet_info';
+                    info.textContent = id ? 'Outlet: ...' : 'Outlet: -';
+                    tds[idx].appendChild(info);
+                    if (id) antriOutlet.push({ id: id, td: info });
                 });
-            });
-            // header ganda: baris header di badan tabel (pengukur lebar) harus tersembunyi, hanya header terpisah yang tampak
-            document.querySelectorAll('#data_table td.aistim_pw_outlet_td').forEach((td) => {
-                const t = td.closest('table');
-                const w = t && t.closest('.dataTables_wrapper');
-                if (t && w && !t.classList.contains('aistim_pw_body_tbl') && Array.from(w.querySelectorAll('table')).some((x) => x !== t && x.querySelector('th.aistim_pw_outlet_th'))) {
-                    t.classList.add('aistim_pw_body_tbl');
-                }
             });
             prosesAntriOutlet();
-            if (headBerubah) {
-                window.dispatchEvent(new Event('resize'));   // tabel menghitung ulang header yang tersembunyi
-                [60, 300, 800].forEach((ms) => setTimeout(sinkronLebar, ms));
-            }
-            sinkronLebar();
         }
-        function setThText(th, txt) {
-            const w = document.createTreeWalker(th, NodeFilter.SHOW_TEXT);
-            let first = null, n;
-            const rest = [];
-            while ((n = w.nextNode())) {
-                if (!n.nodeValue.trim()) continue;
-                if (!first) first = n; else rest.push(n);
-            }
-            if (first) { first.nodeValue = txt; rest.forEach((x) => (x.nodeValue = '')); }
-            else th.textContent = txt;
-        }
-        // Header terpisah mengikuti lebar kolom header tabel isi (sama seperti kolom Rak di Lihat Stok)
-        function sinkronLebar() {
-            const badan = document.querySelector('#data_table td.aistim_pw_outlet_td');
-            const table = badan && badan.closest('table');
-            const wrapper = table && table.closest('.dataTables_wrapper');
-            if (!wrapper) return;
-            const bodyThs = table.querySelectorAll('thead tr:first-child th');
-            if (!bodyThs.length) return;
-            const widths = Array.from(bodyThs).map((t) => t.getBoundingClientRect().width);
-            if (!widths.some((w) => w > 0)) return;   // kolom tersembunyi (display:none) berlebar 0: dilewati, bukan membatalkan semua
-            const total = table.getBoundingClientRect().width;
-            wrapper.querySelectorAll('table').forEach((t) => {
-                if (t === table || t.closest('#aistim_pw_hasil')) return;   // tabel hasil Pesanan Web mengatur lebarnya sendiri
-                const ths = t.querySelectorAll('thead tr:first-child th');
-                if (ths.length !== widths.length) return;
-                t.style.width = total + 'px';
-                const inner = t.closest('.dataTables_scrollHeadInner');
-                if (inner) inner.style.width = total + 'px';
-                ths.forEach((th, i) => {
-                    if (!widths[i]) return;
-                    th.style.boxSizing = 'border-box';
-                    th.style.width = th.style.minWidth = th.style.maxWidth = widths[i] + 'px';
-                });
-            });
-        }
-        // lebar kolom Outlet dikunci supaya header & isi selalu sejajar
         const stOutlet = document.createElement('style');
-        stOutlet.textContent = '.aistim_pw_outlet_th,.aistim_pw_outlet_td{min-width:150px;box-sizing:border-box}' +
-            '.aistim_pw_outlet_td{white-space:normal;word-break:break-word}' +
-            '@media (max-width:768px){.aistim_pw_outlet_th,.aistim_pw_outlet_td{min-width:120px;font-size:12px}}' +
-            '.aistim_pw_body_tbl thead th{height:0!important;padding-top:0!important;padding-bottom:0!important;border-top-width:0!important;border-bottom-width:0!important;line-height:0!important;font-size:0!important;overflow:hidden!important;background-image:none!important}' +
-            '.aistim_pw_body_tbl thead th *{height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;font-size:0!important;line-height:0!important}' +
-            '.aistim_pw_outlet_th{white-space:nowrap;pointer-events:none;cursor:default;background-image:none!important}';   // bukan kolom data tabel: tanpa panah/klik urut
+        stOutlet.textContent = '.aistim_pw_outlet_info{margin-top:3px;font-size:12px;font-weight:600;color:#b91c1c;white-space:normal;word-break:break-word}';
         document.head.appendChild(stOutlet);
-        // lebar header disamakan lagi tiap ukuran jendela/tabel berubah (satu kali per frame)
-        let rafSinkron = 0;
-        const jadwalSinkron = () => { if (rafSinkron) return; rafSinkron = requestAnimationFrame(() => { rafSinkron = 0; sinkronLebar(); }); };
-        window.addEventListener('resize', jadwalSinkron);
-        window.addEventListener('orientationchange', jadwalSinkron);
-        if (window.ResizeObserver) {
-            const ro = new ResizeObserver(jadwalSinkron);
-            let diamati = null;
-            setInterval(() => {
-                const t = document.querySelector('#data_table td.aistim_pw_outlet_td');
-                const tb = t && t.closest('table');
-                if (tb && tb !== diamati) { diamati = tb; ro.observe(tb); }
-            }, 1000);
-        }
-        setInterval(tambahKolomOutlet, 1500);   // tabel bisa digambar ulang (pencarian/halaman berikut): kolom dipasang lagi
-        tambahKolomOutlet();
+        setInterval(tambahOutletPemesan, 1500);   // tabel bisa digambar ulang (pencarian/halaman berikut): outlet dipasang lagi
+        tambahOutletPemesan();
 
     // ---------- Filter "Pesanan Web" (di bawah Status Pemesanan, form pencarian Data Pesanan Penjualan) ----------
     // Berdiri sendiri (tanpa name: tidak ikut terkirim ke server). Seperti filter Status Rak: saat dipilih, skrip
@@ -893,7 +810,6 @@
             const tb = tabel.cloneNode(false);
             tb.removeAttribute('id');
             tb.removeAttribute('style');
-            tb.className = (tb.className || '').replace(/\baistim_pw_body_tbl\b/g, '').trim();
             const srcHead = wrap.querySelector('.dataTables_scrollHead thead') || tabel.querySelector('thead');
             if (srcHead) {
                 const th = srcHead.cloneNode(true);
@@ -923,11 +839,11 @@
             if (scan.kunci.has(k)) return;
             scan.kunci.add(k);
             const salin = document.importNode(tr, true);
-            salin.querySelectorAll('td.aistim_pw_outlet_td').forEach((x) => x.remove());   // kolom Outlet dipasang ulang oleh skrip
+            salin.querySelectorAll('.aistim_pw_outlet_info').forEach((x) => x.remove());   // baris Outlet di sel Pemesan dipasang ulang oleh skrip
             // Halaman hasil fetch (hal. 2 dst) belum diolah script tabel situs: tanpa kolom Lihat/Edit di depan, dan
             // "Show"/"Edit" tampil di ujung. Samakan dengan baris tabel asli: No | Lihat | Edit | ... | (Show, Edit tersembunyi)
             const hrow0 = tabel.tHead && tabel.tHead.rows[0];
-            const kolom = hrow0 ? Array.from(hrow0.children).filter((c) => !c.classList.contains('aistim_pw_outlet_th')).length : 0;
+            const kolom = hrow0 ? hrow0.children.length : 0;
             const sel = Array.from(salin.children).filter((c) => /^td$/i.test(c.tagName));
             const aShow = sel.length > 2 && sel[sel.length - 2].querySelector('a');
             if (aShow && /^show$/i.test(rapih(aShow.textContent)) && sel[sel.length - 2].style.display !== 'none' && (!kolom || sel.length < kolom)) {
@@ -988,7 +904,7 @@
                     t.querySelectorAll('tbody tr').forEach((tr) => { if (idx >= 0 && barisCocok(tr, idx, v)) tambahBarisWeb(tr, tabel); });
                     setBarWeb('Pesanan Web: halaman ' + hal + ', ditemukan ' + scan.baris.length, true);
                     url = linkBerikutWeb(doc);
-                    tambahKolomOutlet();
+                    tambahOutletPemesan();
                 }
                 if (batal()) return;
                 scan.ringkas = 'Pesanan Web: ' + scan.baris.length + ' pesanan' + (v === 'baru' ? ' baru' : ' diproses') + ' (dipindai ' + hal + ' halaman' +
@@ -1000,7 +916,7 @@
             scan.aktif = false;
             scan.sigSelesai = sig;
             setBarWeb(scan.ringkas, false);
-            tambahKolomOutlet();
+            tambahOutletPemesan();
         }
 
         function pasangFilterWeb() {
